@@ -1,0 +1,21 @@
+.env
+.env.local
+*.log
+
+# Elixir
+backend/_build/
+backend/deps/
+backend/.elixir_ls/
+backend/erl_crash.dump
+backend/*.ez
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

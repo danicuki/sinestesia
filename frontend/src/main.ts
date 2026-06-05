@@ -9,11 +9,14 @@ import { Socket } from "./socket";
 import { Scene } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
+import { MicPanel } from "./mic";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
 const DEBUG = params.has("debug");
 const CLEAN = params.has("clean"); // hide rehearsal chrome for a clean stage demo
+
+const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
 
 const debug = DEBUG ? new DebugOverlay() : null;
 
@@ -33,12 +36,14 @@ const scene = new Scene(canvas);
 // Render loop runs immediately so the placeholder + (mock) images are visible
 // even before the mic is unlocked.
 let fast: FastFeatures | null = null;
+let mic: MicPanel | null = null;
 function frame() {
   if (fast) {
     fast.update();
     const u = fast.currentUniforms();
     scene.setFast(u);
     debug?.setAudio(u.rms, u.centroid, u.onset);
+    mic?.setLevel(u.rms);
   }
   scene.render();
   requestAnimationFrame(frame);
@@ -66,10 +71,41 @@ async function start() {
 
   // ---- Audio ----
   const capture = new Capture();
-  await capture.start();
+  // Restore the last-used mic across reloads. If that device is gone (unplugged,
+  // permissions changed), fall back to the browser default.
+  const savedMic = localStorage.getItem(MIC_KEY) ?? undefined;
+  try {
+    await capture.start(savedMic);
+  } catch (err) {
+    if (savedMic) {
+      console.warn("[main] saved mic unavailable, using default:", err);
+      localStorage.removeItem(MIC_KEY);
+      await capture.start();
+    } else {
+      throw err;
+    }
+  }
 
   fast = new FastFeatures(capture.ctx);
   capture.tap(fast.node);
+
+  // Mic panel — live level meter + input device picker. Visible during
+  // rehearsal so you can confirm capture and switch sources; hidden under
+  // ?clean=1. Device labels are only populated after permission is granted.
+  if (!CLEAN) {
+    mic = new MicPanel((deviceId) => {
+      capture
+        .switchDevice(deviceId)
+        .then(() => localStorage.setItem(MIC_KEY, deviceId))
+        .catch((err) => console.error("[main] mic switch failed:", err));
+    });
+    const refreshDevices = async () => {
+      mic?.setDevices(await Capture.inputDevices(), capture.currentDeviceId);
+    };
+    await refreshDevices();
+    // Re-enumerate when devices are plugged/unplugged.
+    navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+  }
 
   const expressive = new ExpressiveAnalyzer();
   expressive.start();

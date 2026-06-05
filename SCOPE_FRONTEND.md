@@ -216,7 +216,39 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
   **"nova música"** button that sends `{ type: "reset" }`; the backend then echoes
   a `style` with `source: "reset"`, on which the input is cleared back to empty
   (fresh-song start). `socket.ts` gained `sendStyle()`, `sendReset()`, an
-  `onStyle(style, source)` callback, and a `style` inbound case.
+  `onStyle(style, source)` callback, and a `style` inbound case. The input has a
+  **`<datalist>` of preset looks** (cordel / crayon / graffiti / charcoal /
+  watercolor / ink-sketch) as quick picks while still allowing free text. The
+  active style is **persisted to `localStorage`** (`sinestesia.style`): prefilled
+  into the input on load, re-sent on socket open so a reload restores the look,
+  and cleared on reset. The selected **mic device** is likewise persisted
+  (`sinestesia.micDeviceId`) and restored on start with a default fallback if the
+  device is gone.
+- **Rail 1 (Movement) strengthened** — was computing FFT/RMS/onset and warping
+  UVs already; added the three briefing asks: (1) **spectral centroid** computed
+  in `features.ts` (magnitude-weighted, normalized 0..1, one-pole smoothed) →
+  `uCentroid` → background **hue tint** in the fragment shader (bass = warm,
+  treble = cool, via a YIQ hue rotation centered so mid centroid is neutral);
+  (2) **RMS → brightness/opacity** (`col *= 0.78 + 0.45*uRms`) on top of the
+  existing saturation/bloom; (3) **transient-reactive crossfade** —
+  `scene.crossfadeTo` picks its duration from the live onset envelope
+  (calm 750ms → hard attack 220ms).
+- **Rail 3 → client-side visuals (bonus)** — `scene.setExpressive(f)` feeds
+  `uValence`/`uArousal`: positive valence warms + saturates slightly, arousal
+  drives image contrast (low = hazy, high = crisp). Expressive still flows to the
+  backend unchanged (~2Hz `sendExpressive`).
+- **`?debug=1` live meters** — added two sections to the overlay: `rail 1 —
+  movement` (RMS bar + centroid bar with warm/cool tag + onset flag, repainted
+  ~12Hz) and `rail 3 — expression` (vocal_quality / arousal / valence /
+  centroid, ~2Hz). Verifies both rails are alive at a glance.
+- **Mic panel (`src/mic.ts`)** — top-left rehearsal chrome (hidden under
+  `?clean=1`): a **live input-level meter** (fast-attack/slow-release RMS bar,
+  green→amber→red as it gets hot, with a numeric readout) so you can confirm
+  sound is being captured, plus a **device picker** `<select>` listing audio
+  inputs. `capture.ts` gained device support: `start(deviceId?)`,
+  `switchDevice(deviceId)` (swaps the source + re-taps Rail 1 without rebuilding
+  the worklet), `currentDeviceId`, and a static `inputDevices()`. The picker
+  hot-swaps the mic mid-session and the list re-enumerates on `devicechange`.
 
 **Open / needs integration:**
 

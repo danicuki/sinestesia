@@ -5,8 +5,12 @@ import * as THREE from "three";
 import vertexShader from "./shaders/vertex.glsl";
 import fragmentShader from "./shaders/fragment.glsl";
 import type { FastUniforms } from "../audio/features";
+import type { ExpressiveFeatures } from "../socket";
 
-const CROSSFADE_MS = 600;
+// Crossfade duration reacts to transients: a hard vocal attack as the image
+// lands snaps the cut short; a calm moment lets it dissolve slowly.
+const CROSSFADE_CALM_MS = 750;
+const CROSSFADE_PUNCH_MS = 220;
 
 // A 1x1 dark texture so the shader has something valid before any image lands.
 function placeholderTexture(): THREE.DataTexture {
@@ -25,6 +29,7 @@ export class Scene {
 
   private startTime = performance.now();
   private fadeStart = 0;
+  private fadeDur = CROSSFADE_CALM_MS;
   private fading = false;
   private onsetEnv = 0; // decaying onset envelope
 
@@ -44,6 +49,9 @@ export class Scene {
         uTime: { value: 0 },
         uRms: { value: 0 },
         uOnset: { value: 0 },
+        uCentroid: { value: 0.5 },
+        uValence: { value: 0 }, // -1..1 (Rail 3) — sad → happy
+        uArousal: { value: 0.4 }, // 0..1 (Rail 3) — calm → energetic
         uCrossfade: { value: 1 },
         uFftBins: { value: new Float32Array(32) },
         uTexCurrent: { value: ph },
@@ -71,8 +79,25 @@ export class Scene {
   /** Feed Rail 1 features (call before render each frame). */
   setFast(u: FastUniforms) {
     this.material.uniforms.uRms.value = u.rms;
+    this.material.uniforms.uCentroid.value = u.centroid;
     (this.material.uniforms.uFftBins.value as Float32Array).set(u.fft);
     if (u.onset) this.onsetEnv = 1.0;
+  }
+
+  /** Feed Rail 3 expressive features (~2Hz). Subtle, slow-moving color mood. */
+  setExpressive(f: ExpressiveFeatures) {
+    this.material.uniforms.uValence.value = f.valence;
+    this.material.uniforms.uArousal.value = f.arousal;
+  }
+
+  // Map the current onset envelope to a crossfade duration: a strong attack at
+  // arrival time cuts fast, silence dissolves slowly.
+  private transientFadeDur(): number {
+    return THREE.MathUtils.lerp(
+      CROSSFADE_CALM_MS,
+      CROSSFADE_PUNCH_MS,
+      Math.min(1, this.onsetEnv),
+    );
   }
 
   /** Crossfade back to the dark placeholder (e.g. on "nova música"). */
@@ -82,6 +107,7 @@ export class Scene {
     this.material.uniforms.uTexCurrent.value = placeholderTexture();
     this.material.uniforms.uCrossfade.value = 0;
     this.fadeStart = performance.now();
+    this.fadeDur = CROSSFADE_CALM_MS; // a new song should settle gently
     this.fading = true;
   }
 
@@ -98,6 +124,7 @@ export class Scene {
         this.material.uniforms.uTexCurrent.value = tex;
         this.material.uniforms.uCrossfade.value = 0;
         this.fadeStart = performance.now();
+        this.fadeDur = this.transientFadeDur();
         this.fading = true;
       },
       undefined,
@@ -119,7 +146,7 @@ export class Scene {
 
     // Crossfade easing.
     if (this.fading) {
-      const t = (now - this.fadeStart) / CROSSFADE_MS;
+      const t = (now - this.fadeStart) / this.fadeDur;
       if (t >= 1) {
         this.material.uniforms.uCrossfade.value = 1;
         this.fading = false;

@@ -3,7 +3,7 @@
 // `provider` + `latency_ms` on transcripts and the `timings` block on images
 // (PROTOCOL.md). Created only when the URL flag is present.
 
-import type { Timings, TranscriptMsg } from "./socket";
+import type { ExpressiveFeatures, Timings, TranscriptMsg } from "./socket";
 
 const COL = {
   stt: "#6ee7b7", // green
@@ -23,11 +23,14 @@ interface TimingEntry {
 
 export class DebugOverlay {
   private root: HTMLDivElement;
+  private elAudio: HTMLDivElement;
+  private elExpressive: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elHistory: HTMLDivElement;
 
   private history: TimingEntry[] = [];
+  private lastAudioPaint = 0; // throttle the per-frame meter to ~12Hz
 
   constructor() {
     this.root = document.createElement("div");
@@ -56,6 +59,8 @@ export class DebugOverlay {
     const left = column("1 1 auto");
     const right = column("0 0 auto");
 
+    this.elAudio = this.section(left, "rail 1 — movement");
+    this.elExpressive = this.section(left, "rail 3 — expression");
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
     this.elHistory = this.section(right, "history (last 5)");
@@ -101,6 +106,34 @@ export class DebugOverlay {
   // 2. Last Director prompt
   setPrompt(prompt: string) {
     this.elPrompt.textContent = prompt || "—";
+  }
+
+  // Live Rail-1 meter (called every frame; throttled to ~12Hz to spare layout).
+  setAudio(rms: number, centroid: number, onset: boolean) {
+    const now = performance.now();
+    if (now - this.lastAudioPaint < 80) return;
+    this.lastAudioPaint = now;
+    const warmth = centroid < 0.5 ? "warm" : "cool";
+    this.elAudio.innerHTML =
+      span("RMS ", COL.dim) +
+      bar(rms) +
+      span(` ${rms.toFixed(2)}`, COL.stt) +
+      span("   CENT ", COL.dim) +
+      bar(centroid) +
+      span(` ${centroid.toFixed(2)} ${warmth}`, COL.dir) +
+      (onset ? "  " + span("● ONSET", COL.img, true) : "");
+  }
+
+  // Rail-3 expressive snapshot (~2Hz).
+  setExpressive(f: ExpressiveFeatures) {
+    this.elExpressive.innerHTML =
+      span(f.vocal_quality, COL.tot, true) +
+      span("  arousal ", COL.dim) +
+      span(f.arousal.toFixed(2), COL.stt) +
+      span("  valence ", COL.dim) +
+      span(f.valence.toFixed(2), f.valence >= 0 ? COL.stt : COL.img) +
+      span("  cent ", COL.dim) +
+      span(String(Math.round(f.spectral_centroid)), COL.dir);
   }
 
   // Rolling history of the last 5 cycles (top row = latest).
@@ -162,4 +195,10 @@ function escapeHtml(s: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function bar(val: number): string {
+  const bars = [" ", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+  const i = Math.floor(Math.max(0, Math.min(1, val)) * 7);
+  return `[${bars[i]}]`;
 }

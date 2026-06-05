@@ -36,7 +36,9 @@ let fast: FastFeatures | null = null;
 function frame() {
   if (fast) {
     fast.update();
-    scene.setFast(fast.currentUniforms());
+    const u = fast.currentUniforms();
+    scene.setFast(u);
+    debug?.setAudio(u.rms, u.centroid, u.onset);
   }
   scene.render();
   requestAnimationFrame(frame);
@@ -127,6 +129,8 @@ async function start() {
   expressive.onFeatures((f) => {
     if (socket) socket.sendExpressive(f);
     else console.log("[mock] expressive", f.vocal_quality, f);
+    scene.setExpressive(f); // Rail 3 also nudges client-side color mood
+    debug?.setExpressive(f);
   });
 
   console.log("[main] audio started. Sing into the mic — the canvas pulses.");

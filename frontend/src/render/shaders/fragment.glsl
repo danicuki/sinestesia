@@ -11,6 +11,9 @@ varying vec2 vUv;
 uniform float uTime;       // seconds
 uniform float uRms;        // 0..1 overall energy
 uniform float uOnset;      // 0..1, decays after each onset
+uniform float uCentroid;   // 0..1 spectral centroid (0 = bass/warm, 1 = treble/cool)
+uniform float uValence;    // -1..1 (Rail 3) sad -> happy
+uniform float uArousal;    // 0..1 (Rail 3) calm -> energetic
 uniform float uCrossfade;  // 0 = prev, 1 = current
 uniform float uFftBins[32];
 uniform sampler2D uTexCurrent;
@@ -42,6 +45,24 @@ vec3 saturate3(vec3 c, float amt) {
   return mix(vec3(l), c, amt);
 }
 
+// Hue rotation around the luma axis (YIQ), in radians. Keeps brightness.
+vec3 hueRotate(vec3 c, float angle) {
+  const mat3 toYIQ = mat3(
+    0.299,  0.587,  0.114,
+    0.596, -0.274, -0.322,
+    0.211, -0.523,  0.312
+  );
+  const mat3 toRGB = mat3(
+    1.0,  0.956,  0.621,
+    1.0, -0.272, -0.647,
+    1.0, -1.106,  1.703
+  );
+  vec3 yiq = toYIQ * c;
+  float cs = cos(angle), sn = sin(angle);
+  yiq = vec3(yiq.x, yiq.y * cs - yiq.z * sn, yiq.y * sn + yiq.z * cs);
+  return toRGB * yiq;
+}
+
 // Hash-based grain.
 float grain(vec2 uv, float t) {
   return fract(sin(dot(uv * t, vec2(12.9898, 78.233))) * 43758.5453);
@@ -67,9 +88,25 @@ void main() {
 
   vec3 col = sampleScene(uv);
 
-  // RMS lifts saturation + a gentle brightness bloom.
+  // --- Spectral centroid -> hue tint (Rail 1) ---
+  // Bass-heavy voice tilts warm, bright/airy voice tilts cool. Centered so a
+  // mid centroid leaves the image untouched. Subtle: ~±0.35 rad swing.
+  col = hueRotate(col, (0.5 - uCentroid) * 0.7);
+
+  // --- RMS -> brightness/opacity + saturation (Rail 1) ---
+  // Louder = brighter and more saturated; quiet dips the image toward dark so
+  // the stage breathes with the voice.
   col = saturate3(col, 1.0 + 0.6 * uRms);
-  col += 0.15 * uRms * col;
+  col *= 0.78 + 0.45 * uRms; // loudness drives overall brightness
+  col += 0.15 * uRms * col;  // gentle bloom on top
+
+  // --- Rail 3 expressive mood (slow, ~2Hz) ---
+  // Positive valence warms + saturates a touch; low arousal softens contrast so
+  // calm passages feel hazy, high arousal crisps them up.
+  col = saturate3(col, 1.0 + 0.25 * uValence);
+  col = hueRotate(col, -0.12 * uValence);
+  float contrast = 0.85 + 0.4 * uArousal;
+  col = (col - 0.5) * contrast + 0.5;
 
   // Onset flash: brighten + slight contrast pop.
   col += 0.25 * uOnset;

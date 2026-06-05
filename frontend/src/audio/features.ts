@@ -9,6 +9,7 @@ export interface FastUniforms {
   fft: Float32Array; // length BINS, 0..1
   rms: number; // 0..1
   onset: boolean;
+  centroid: number; // 0..1 spectral centroid (0 = bass/warm, 1 = treble/cool)
 }
 
 export class FastFeatures {
@@ -20,6 +21,7 @@ export class FastFeatures {
   private rms = 0;
   private rmsHistory: number[] = [];
   private onsetFlag = false;
+  private centroid = 0.5; // smoothed, starts neutral
 
   constructor(ctx: AudioContext) {
     this.analyser = ctx.createAnalyser();
@@ -49,6 +51,20 @@ export class FastFeatures {
       this.fftOut[b] = sum / per / 255; // 0..1
     }
 
+    // Spectral centroid over the full spectrum: magnitude-weighted mean bin,
+    // normalized to 0..1 (0 = energy in the bass, 1 = energy in the treble).
+    // Drives the background hue (warm → cool). Smoothed so the tint glides.
+    let wsum = 0;
+    let msum = 0;
+    const N = this.freqData.length;
+    for (let i = 0; i < N; i++) {
+      const m = this.freqData[i];
+      wsum += i * m;
+      msum += m;
+    }
+    const rawCentroid = msum > 0 ? wsum / msum / (N - 1) : this.centroid;
+    this.centroid += (rawCentroid - this.centroid) * 0.15; // one-pole smoothing
+
     // RMS over the time-domain waveform (centered at 128).
     let acc = 0;
     for (let i = 0; i < this.timeData.length; i++) {
@@ -68,6 +84,11 @@ export class FastFeatures {
   }
 
   currentUniforms(): FastUniforms {
-    return { fft: this.fftOut, rms: this.rms, onset: this.onsetFlag };
+    return {
+      fft: this.fftOut,
+      rms: this.rms,
+      onset: this.onsetFlag,
+      centroid: this.centroid,
+    };
   }
 }

@@ -35,7 +35,7 @@ defmodule Sinestesia.Director do
 
   defp system_prompt(style, :classic) do
     """
-    You are the visual director for a LIVE VJ system accompanying a Brazilian MPB singer.
+    You are the visual director for a LIVE VJ system accompanying a singer (any language).
 
     The song is happening in real time. The user will send you NEW LINES of lyrics, one message at a time. For EACH new line, reply with ONE short visual prompt for that line.
 
@@ -53,7 +53,7 @@ defmodule Sinestesia.Director do
 
   defp system_prompt(style, :story) do
     """
-    You are the visual director for a LIVE VJ system. You are slowly building ONE evolving drawing on paper, element by element, as a Brazilian MPB song is being sung.
+    You are the visual director for a LIVE VJ system. You are slowly building ONE evolving drawing on paper, element by element, as a song is being sung. The song can be in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of any lyrics you receive.
 
     For the FIRST line of the song, you are establishing the OPENING SCENE — add 3 starting elements to set up the drawing with enough substance to anchor what follows.
 
@@ -63,12 +63,13 @@ defmodule Sinestesia.Director do
 
     Rules:
     - Output ONE prompt describing the FULL CURRENT DRAWING — every element added so far, plus the new element(s) inspired by the new line.
-    - Begin with: "A hand-drawn scene showing"
+    - ALWAYS begin your output with the exact phrase: "A hand-drawn scene showing"
     - List all elements in the order they were added, separated by commas.
-    - Pick the most concrete, visual noun from the NEW line as the new element (e.g. "rain", "river", "castle", "moon"). Ignore abstract words.
-    - If the new line is abstract or has no visual noun, repeat the previous drawing with a subtle change (deeper shadow, more lines, wind).
+    - Pick the most concrete, visual noun from the NEW line as the new element (e.g. "rain", "river", "castle", "moon", "moon", "stars"). Ignore abstract words. Translate the noun to English if needed.
+    - If the new line is abstract, vague, or has no visual noun, repeat the previous drawing with a subtle change (deeper shadow, more lines, wind, faded edges).
     - End with: "#{style}"
-    - No people faces. No text. No logos. No quotes. No preamble. English only. Max 45 words.
+    - NEVER ask the singer for input. NEVER write meta-commentary. NEVER mention what language the lyric is in. Just draw.
+    - No people faces. No text. No logos. No quotes. No preamble. English only output. Max 45 words.
 
     EXAMPLE PROGRESSION (for illustration only — do NOT carry these elements into a real song):
       Lyric: "numa folha qualquer eu desenho um sol amarelo"
@@ -162,16 +163,33 @@ defmodule Sinestesia.Director do
 
     case try_chain(chain, messages) do
       {:ok, response} ->
-        new_conversation =
-          (conversation ++ [user_msg, %{role: "assistant", content: response}])
-          |> cap_history()
+        if valid_scene?(response, mode()) do
+          new_conversation =
+            (conversation ++ [user_msg, %{role: "assistant", content: response}])
+            |> cap_history()
 
-        {:ok, response, new_conversation}
+          {:ok, response, new_conversation}
+        else
+          # The model returned meta-commentary or refused. Don't pollute the
+          # conversation with the bad turn — leave history as-is so the next
+          # call retries from a clean slate.
+          Logger.warning("[director] rejected invalid output: #{inspect(response)}")
+          {:error, :invalid_output}
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # Story mode prompts MUST begin with the literal phrase. Reject anything else
+  # (meta-commentary, refusals, instructions back to the user) so it never
+  # reaches Flux. Classic mode has no such anchor — accept anything non-empty.
+  defp valid_scene?(text, :story) when is_binary(text) do
+    text |> String.trim_leading() |> String.downcase() |> String.starts_with?("a hand-drawn scene")
+  end
+
+  defp valid_scene?(text, _), do: is_binary(text) and String.trim(text) != ""
 
   def next_prompt(conversation, _), do: {:error, {:empty_line, conversation}}
 

@@ -511,20 +511,28 @@ defmodule Sinestesia.Pipeline do
         state
 
       true ->
-        window = if bootstrap?, do: @bootstrap_window_words, else: @window_words
+        # Bootstrap input: ALL accumulated finals + current interim. The gate
+        # already saw 15+ words cumulatively, but pick_current_line only sees
+        # the latest interim — which ElevenLabs VAD resets to a few words
+        # after each commit. Sending that alone gives the model 4 words and
+        # it confabulates (asks for the song title, etc).
+        text =
+          if bootstrap? do
+            bootstrap_text(state, @bootstrap_window_words)
+          else
+            pick_current_line(state, @window_words)
+          end
 
-        case pick_current_line(state, window) do
-          "" ->
-            # No usable text yet (e.g. "..." or punctuation only). Wait.
+        cond do
+          text == "" ->
             state
 
-          text when text == state.last_director_text ->
-            # Same content as last call — don't waste a Director cycle.
+          text == state.last_director_text ->
             Logger.debug("[director] skip duplicate: #{inspect(text)}")
             %{state | since_last_director: false}
 
-          text ->
-            if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words")
+          true ->
+            if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words: #{inspect(text)}")
             pid = spawn_director(state, text)
 
             %{
@@ -537,6 +545,23 @@ defmodule Sinestesia.Pipeline do
             }
         end
     end
+  end
+
+  # Build the bootstrap input by joining ALL final lyrics so far + the latest
+  # interim (if it isn't already a final), then taking the trailing N words.
+  defp bootstrap_text(state, window) do
+    finals = state.lyrics |> Enum.join(" ")
+
+    latest_interim =
+      state.last_interims
+      |> Map.values()
+      |> Enum.reject(&(&1 == "" or &1 in state.lyrics))
+      |> Enum.max_by(&word_count/1, fn -> "" end)
+
+    [finals, latest_interim]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join(" ")
+    |> last_n_words(window)
   end
 
   # Bootstrap (initial rich-opening gate) only applies ONCE per session —

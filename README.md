@@ -133,7 +133,7 @@ DEMO.md                        Hackathon submission writeup
 ## Credits
 
 **Daniella Alcarpe** — vocals, concept, the reason this exists.
-**Dani Cuki** — backend engineering, on-stage operator.
+**danicuki** — backend engineering, on-stage operator.
 
 Built at the [Vibe-a-thon](https://vibeathon.eu/) in Lisbon, June 2026.
 

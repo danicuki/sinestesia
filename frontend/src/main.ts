@@ -17,6 +17,7 @@ const DEBUG = params.has("debug");
 const CLEAN = params.has("clean"); // hide rehearsal chrome for a clean stage demo
 
 const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
+const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
 
 const debug = DEBUG ? new DebugOverlay() : null;
 
@@ -111,6 +112,7 @@ async function start() {
   expressive.start();
 
   // ---- Socket (skipped in mock) ----
+  const savedStyle = localStorage.getItem(STYLE_KEY) ?? "";
   const socket = MOCK ? null : new Socket();
   if (socket) {
     socket.onImage = ({ url, prompt, timings }) => {
@@ -130,11 +132,16 @@ async function start() {
       console.warn("[backend error]", provider ?? "", message);
       debug?.setError(message, provider);
     };
-    socket.onOpen = () => console.log("[main] websocket connected");
+    socket.onOpen = () => {
+      console.log("[main] websocket connected");
+      // Re-apply the persisted style so a reload restores the chosen look.
+      // (The backend starts each session on its own default.)
+      if (savedStyle) socket.sendStyle(savedStyle);
+    };
   }
 
   // Style control + "nova música" reset — visible during rehearsal, hidden
-  // under ?clean=1.
+  // under ?clean=1. Prefilled with the persisted style.
   if (!CLEAN) {
     const style = new StyleControl(
       (value) => {
@@ -147,9 +154,16 @@ async function start() {
         if (socket) socket.sendReset();
         else console.log("[mock] would send reset (nova música)");
       },
+      savedStyle,
     );
     if (socket)
-      socket.onStyle = (accepted, source) => style.setAccepted(accepted, source);
+      socket.onStyle = (accepted, source) => {
+        style.setAccepted(accepted, source);
+        // Persist whatever style is now in effect (user- or curator-picked);
+        // a reset clears it so the next reload starts blank again.
+        if (source === "reset") localStorage.removeItem(STYLE_KEY);
+        else if (accepted) localStorage.setItem(STYLE_KEY, accepted);
+      };
   }
 
   if (socket) socket.connect();

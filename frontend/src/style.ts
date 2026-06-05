@@ -12,6 +12,19 @@
 type SendCb = (style: string) => void;
 type ResetCb = () => void;
 
+// Quick-pick palette offered via the input's <datalist>. Free text still works;
+// these are just shortcuts to the looks we know read well on stage.
+const STYLE_SUGGESTIONS = [
+  "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+  "crayon drawing on white paper, childlike, bright simple shapes",
+  "graffiti marker on concrete wall, raw bold outlines, urban",
+  "charcoal sketch on grey paper, soft smudges and hatching",
+  "watercolor and ink, pale washes, hand-drawn outlines",
+  "Brazilian cordel woodcut print, black and white, hatched linework",
+];
+
+let suggestionListId = 0;
+
 export class StyleControl {
   private input: HTMLInputElement;
   // Start as "" so an untouched blur (empty value) doesn't emit a needless send.
@@ -20,6 +33,7 @@ export class StyleControl {
   constructor(
     private send: SendCb,
     private requestReset: ResetCb,
+    initial = "",
   ) {
     const wrap = document.createElement("div");
     Object.assign(wrap.style, {
@@ -46,11 +60,25 @@ export class StyleControl {
       letterSpacing: "0.1em",
     } as CSSStyleDeclaration);
 
+    // Suggestions dropdown — native <datalist>, free text still allowed.
+    const list = document.createElement("datalist");
+    list.id = `style-suggestions-${suggestionListId++}`;
+    for (const s of STYLE_SUGGESTIONS) {
+      const opt = document.createElement("option");
+      opt.value = s;
+      list.appendChild(opt);
+    }
+
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.spellcheck = false;
     this.input.autocomplete = "off";
     this.input.placeholder = "";
+    this.input.setAttribute("list", list.id);
+    if (initial) {
+      this.input.value = initial;
+      this.lastSent = initial; // prefilled value is already "current"
+    }
     Object.assign(this.input.style, {
       width: "240px",
       background: "transparent",
@@ -79,6 +107,7 @@ export class StyleControl {
 
     wrap.appendChild(label);
     wrap.appendChild(this.input);
+    wrap.appendChild(list);
     wrap.appendChild(resetBtn);
     document.body.appendChild(wrap);
 
@@ -90,6 +119,8 @@ export class StyleControl {
       }
     });
     this.input.addEventListener("blur", () => this.submit());
+    // Picking a suggestion fires `change` (not while typing) — send it right away.
+    this.input.addEventListener("change", () => this.submit());
   }
 
   private submit() {

@@ -17,7 +17,14 @@ defmodule Sinestesia.Pipeline do
   use GenServer
   require Logger
 
-  @director_min_interval_ms 3000
+  # Story mode runs slower on purpose: img2img is ~1.5s vs t2i's ~500ms, and
+  # we want each new element to land deliberately rather than flashing past.
+  defp director_min_interval_ms do
+    case Sinestesia.Director.mode() do
+      :story -> 5000
+      _ -> 3000
+    end
+  end
 
   ## API
 
@@ -81,7 +88,9 @@ defmodule Sinestesia.Pipeline do
        last_stt_ms: nil,
        last_stt_provider: nil,
        generating?: false,
-       since_last_director: false
+       since_last_director: false,
+       last_image_url: nil,
+       bootstrap_done?: false
      }}
   end
 
@@ -143,8 +152,8 @@ defmodule Sinestesia.Pipeline do
       director_ms: director_ms
     }
 
-    spawn_image(prompt, timings)
-    {:noreply, %{state | generating?: true, director_conversation: new_conversation}}
+    spawn_image(prompt, timings, state.last_image_url)
+    {:noreply, %{state | generating?: true, director_conversation: new_conversation, bootstrap_done?: true}}
   end
 
   def handle_info({:director_done, {:error, reason}, _started_at}, state) do
@@ -176,7 +185,7 @@ defmodule Sinestesia.Pipeline do
       }
     })
 
-    {:noreply, %{state | generating?: false}}
+    {:noreply, %{state | generating?: false, last_image_url: url}}
   end
 
   def handle_info({:image_done, {:error, reason}, _timings}, state) do
@@ -280,7 +289,8 @@ defmodule Sinestesia.Pipeline do
          | style: new_style,
            style_locked?: true,
            director_conversation: Sinestesia.Director.init_conversation(new_style),
-           last_director_text: ""
+           last_director_text: "",
+           last_image_url: nil
        }}
     end
   end
@@ -295,20 +305,34 @@ defmodule Sinestesia.Pipeline do
       (is_final and text == prev_final) or
         (not is_final and text == prev_interim)
 
-    if same_as_before? do
-      state
-    else
-      %{
+    cond do
+      same_as_before? ->
         state
-        | lyrics: if(is_final, do: state.lyrics ++ [text], else: state.lyrics),
-          last_interims: Map.put(state.last_interims, provider, text),
-          last_finals:
-            if(is_final, do: Map.put(state.last_finals, provider, text), else: state.last_finals),
-          last_text_at: Map.put(state.last_text_at, provider, now_ms()),
-          last_stt_ms: latency,
-          last_stt_provider: provider,
-          since_last_director: true
-      }
+
+      is_final ->
+        new_state = %{
+          state
+          | lyrics: state.lyrics ++ [text],
+            last_interims: Map.put(state.last_interims, provider, text),
+            last_finals: Map.put(state.last_finals, provider, text),
+            last_text_at: Map.put(state.last_text_at, provider, now_ms()),
+            last_stt_ms: latency,
+            last_stt_provider: provider,
+            final_lyric_count: state.final_lyric_count + 1,
+            since_last_director: true
+        }
+
+        maybe_curate_style(new_state)
+
+      true ->
+        %{
+          state
+          | last_interims: Map.put(state.last_interims, provider, text),
+            last_text_at: Map.put(state.last_text_at, provider, now_ms()),
+            last_stt_ms: latency,
+            last_stt_provider: provider,
+            since_last_director: true
+        }
     end
   end
 
@@ -358,18 +382,35 @@ defmodule Sinestesia.Pipeline do
   defp send_audio(:elevenlabs, pid, bin), do: Sinestesia.ElevenSTT.send_audio(pid, bin)
   defp send_audio(:deepgram, pid, bin), do: Sinestesia.Deepgram.send_audio(pid, bin)
 
+  # Bootstrap (first image): wait for a richer prompt so the opening drawing
+  # has enough substance. With img2img strength 0.8 the first image dominates
+  # the rest of the song, so it must NOT be drawn from 4-5 words alone.
+  @bootstrap_min_words 15
+  # Word window for the first Director call (vs @window_words=10 for subsequent).
+  @bootstrap_window_words 30
+  # Default window for subsequent calls. Defined here (NOT later) because Elixir
+  # module attributes are not hoisted — used in maybe_trigger below.
+  @window_words 10
+
   defp maybe_trigger(%{generating?: true} = state), do: state
   defp maybe_trigger(%{since_last_director: false} = state), do: state
 
   defp maybe_trigger(state) do
     now = now_ms()
+    bootstrap? = bootstrap?(state)
 
     cond do
-      now - state.last_director_at < @director_min_interval_ms ->
+      bootstrap? and accumulated_word_count(state) < @bootstrap_min_words ->
+        # Wait until enough has been sung to seed a rich opening drawing.
+        state
+
+      now - state.last_director_at < director_min_interval_ms() ->
         state
 
       true ->
-        case pick_current_line(state) do
+        window = if bootstrap?, do: @bootstrap_window_words, else: @window_words
+
+        case pick_current_line(state, window) do
           "" ->
             # No usable text yet (e.g. "..." or punctuation only). Wait.
             state
@@ -380,6 +421,7 @@ defmodule Sinestesia.Pipeline do
             %{state | since_last_director: false}
 
           text ->
+            if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words")
             spawn_director(state, text)
 
             %{
@@ -392,6 +434,37 @@ defmodule Sinestesia.Pipeline do
         end
     end
   end
+
+  # Bootstrap (initial rich-opening gate) only applies ONCE per session —
+  # the very first Director call. We do NOT re-enter bootstrap after a style
+  # change, because by then the singer is mid-song and we'd lock up waiting
+  # for word counts that already exist.
+  defp bootstrap?(state), do: not state.bootstrap_done?
+
+  # Count words across ALL final lyrics so far. Counting interims is unreliable:
+  # ElevenLabs in VAD mode commits and RESETS the interim after each segment,
+  # so an interim alone never grows past one line. We need cumulative finals.
+  defp accumulated_word_count(state) do
+    finals = state.lyrics |> Enum.map(&word_count/1) |> Enum.sum()
+
+    # Add the current interim ONLY if it's not already covered by the last final
+    # (avoid double-counting when the interim equals the just-committed line).
+    interim_extra =
+      state.last_interims
+      |> Map.values()
+      |> Enum.map(fn t ->
+        if t in state.lyrics, do: 0, else: word_count(t)
+      end)
+      |> Enum.max(fn -> 0 end)
+
+    finals + interim_extra
+  end
+
+  defp word_count(text) when is_binary(text) do
+    text |> String.split(~r/\s+/, trim: true) |> length()
+  end
+
+  defp word_count(_), do: 0
 
   defp spawn_director(state, text) do
     parent = self()
@@ -410,9 +483,7 @@ defmodule Sinestesia.Pipeline do
     Enum.count(conversation, &(&1.role == "user"))
   end
 
-  @window_words 10
-
-  defp pick_current_line(state) do
+  defp pick_current_line(state, window \\ @window_words) do
     # Pick the text from whichever provider updated MOST RECENTLY, then take
     # the trailing N words. This is robust to both segmenting providers
     # (Deepgram → short fragment, we keep all) and accumulating providers
@@ -420,7 +491,7 @@ defmodule Sinestesia.Pipeline do
     state.last_text_at
     |> Enum.map(fn {provider, ts} ->
       raw = Map.get(state.last_interims, provider, "")
-      {ts, last_n_words(raw, @window_words)}
+      {ts, last_n_words(raw, window)}
     end)
     |> Enum.reject(fn {_, text} -> text == "" end)
     |> case do
@@ -449,13 +520,15 @@ defmodule Sinestesia.Pipeline do
   defp last_n_words(_, _), do: ""
 
 
-  defp spawn_image(prompt, timings) do
+  defp spawn_image(prompt, timings, prev_url) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
 
+    opts = if is_binary(prev_url) and prev_url != "", do: [image_url: prev_url], else: []
+
     Task.start(fn ->
       result =
-        case Sinestesia.ImageGen.generate(prompt) do
+        case Sinestesia.ImageGen.generate(prompt, opts) do
           {:ok, url} -> {:ok, url, prompt}
           err -> err
         end

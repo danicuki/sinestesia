@@ -11,14 +11,22 @@ defmodule Sinestesia.ImageGen do
   """
   require Logger
 
-  @spec generate(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def generate(prompt) when is_binary(prompt) do
-    provider = provider()
+  @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def generate(prompt, opts \\ []) when is_binary(prompt) do
+    image_url = Keyword.get(opts, :image_url)
 
-    case provider do
-      :fal -> Sinestesia.ImageGen.Fal.generate(prompt)
-      :google -> Sinestesia.ImageGen.Google.generate(prompt)
-      :pollinations -> Sinestesia.ImageGen.Pollinations.generate(prompt)
+    case {provider(), image_url} do
+      {:fal, url} when is_binary(url) and url != "" ->
+        Sinestesia.ImageGen.FalImg2Img.generate(prompt, url)
+
+      {:fal, _} ->
+        Sinestesia.ImageGen.Fal.generate(prompt)
+
+      {:google, _} ->
+        Sinestesia.ImageGen.Google.generate(prompt)
+
+      {:pollinations, _} ->
+        Sinestesia.ImageGen.Pollinations.generate(prompt)
     end
   end
 

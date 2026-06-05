@@ -12,33 +12,34 @@ defmodule Sinestesia.StyleCurator do
   """
   require Logger
 
+  # Story-mode palette: all "drawable" / "accumulable" styles.
+  # Each leaves enough negative space and line-quality that NEW elements can
+  # be added on top via img2img without destroying what is already there.
   @palette [
-    "Brazilian cordel woodcut print, black and white, hatched linework",
-    "Tarsila do Amaral modernist tropicalia, bold flat colors",
-    "Volpi geometric flag textures, pastel folk minimalism",
-    "watercolor washes, earthy tones, soft bleed edges",
-    "charcoal sketch, heavy hatching, raw grey textures",
-    "Djanira folk naïve painting, vivid simplified shapes",
-    "cyanotype blueprint, ghostly blue silhouettes, white linework",
-    "Brazilian expressionist oil impasto, dense vivid brushstrokes"
+    "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+    "crayon drawing on white paper, childlike, bright simple shapes",
+    "graffiti marker on concrete wall, raw bold outlines, urban",
+    "charcoal sketch on grey paper, soft smudges and hatching",
+    "watercolor and ink, pale washes, hand-drawn outlines",
+    "Brazilian cordel woodcut print, black and white, hatched linework"
   ]
 
   @system """
   You pick the visual ART STYLE for a Brazilian MPB song based on its lyrics, mood, and vocal feel.
+
+  The visuals will be built up element-by-element on a single evolving drawing as the song is sung. The style must be a DRAWING / SKETCH style that leaves room to ADD new elements on top.
 
   Choose EXACTLY ONE style from this list (output one line, verbatim, no quotes, no preamble):
 
   #{Enum.map_join(@palette, "\n", &"- #{&1}")}
 
   Match the style to the SONG:
-  - somber, rural, narrative → cordel
-  - vibrant, urban, optimistic → Tarsila tropicalia
-  - intimate, geometric, restrained → Volpi
-  - dreamy, melancholic, fluid → watercolor
-  - dark, raw, anxious → charcoal
-  - joyful, folk, vivid → Djanira
-  - cold, distant, nostalgic → cyanotype
-  - intense, passionate, dramatic → oil impasto
+  - nostalgic, intimate, melancholic, slow → loose ink sketch
+  - playful, joyful, childlike, simple → crayon drawing
+  - urban, raw, rebellious, edgy → graffiti marker
+  - dark, anxious, heavy, dramatic → charcoal sketch
+  - dreamy, fluid, soft, romantic → watercolor and ink
+  - rural, narrative, folk, somber → cordel woodcut
 
   Output ONLY the chosen line.
   """
@@ -119,13 +120,11 @@ defmodule Sinestesia.StyleCurator do
 
   # Pick a distinctive keyword from each palette entry — the part that
   # uniquely identifies it (avoiding common words like "and", "with").
-  defp keyword_for("Brazilian cordel" <> _), do: "cordel"
-  defp keyword_for("Tarsila" <> _), do: "tarsila"
-  defp keyword_for("Volpi" <> _), do: "volpi"
-  defp keyword_for("watercolor" <> _), do: "watercolor"
+  defp keyword_for("loose ink sketch" <> _), do: "ink sketch"
+  defp keyword_for("crayon" <> _), do: "crayon"
+  defp keyword_for("graffiti" <> _), do: "graffiti"
   defp keyword_for("charcoal" <> _), do: "charcoal"
-  defp keyword_for("Djanira" <> _), do: "djanira"
-  defp keyword_for("cyanotype" <> _), do: "cyanotype"
-  defp keyword_for("Brazilian expressionist" <> _), do: "impasto"
+  defp keyword_for("watercolor" <> _), do: "watercolor"
+  defp keyword_for("Brazilian cordel" <> _), do: "cordel"
   defp keyword_for(_), do: ""
 end

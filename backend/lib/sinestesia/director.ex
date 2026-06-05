@@ -16,9 +16,24 @@ defmodule Sinestesia.Director do
   """
   require Logger
 
-  @default_style "Brazilian cordel woodcut print, black and white, hatched linework"
+  @default_style_classic "Brazilian cordel woodcut print, black and white, hatched linework"
+  @default_style_story "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
 
-  defp system_prompt(style) do
+  def default_style do
+    case mode() do
+      :story -> @default_style_story
+      _ -> @default_style_classic
+    end
+  end
+
+  def mode do
+    case System.get_env("IMAGE_MODE", "story") |> String.downcase() do
+      "classic" -> :classic
+      _ -> :story
+    end
+  end
+
+  defp system_prompt(style, :classic) do
     """
     You are the visual director for a LIVE VJ system accompanying a Brazilian MPB singer.
 
@@ -36,6 +51,37 @@ defmodule Sinestesia.Director do
     """
   end
 
+  defp system_prompt(style, :story) do
+    """
+    You are the visual director for a LIVE VJ system. You are slowly building ONE evolving drawing on paper, element by element, as a Brazilian MPB song is being sung.
+
+    For the FIRST line of the song, you are establishing the OPENING SCENE — add 3 starting elements to set up the drawing with enough substance to anchor what follows.
+
+    For every line AFTER the first, ADD ONE NEW element to the existing drawing. Never reset. Never replace what is already drawn. Accumulate — each addition layers onto the growing picture.
+
+    STYLE — the entire drawing MUST be rendered in this style: #{style}
+
+    Rules:
+    - Output ONE prompt describing the FULL CURRENT DRAWING — every element added so far, plus the new element(s) inspired by the new line.
+    - Begin with: "A hand-drawn scene showing"
+    - List all elements in the order they were added, separated by commas.
+    - Pick the most concrete, visual noun from the NEW line as the new element (e.g. "rain", "river", "castle", "moon"). Ignore abstract words.
+    - If the new line is abstract or has no visual noun, repeat the previous drawing with a subtle change (deeper shadow, more lines, wind).
+    - End with: "#{style}"
+    - No people faces. No text. No logos. No quotes. No preamble. English only. Max 45 words.
+
+    EXAMPLE PROGRESSION (for illustration only — do NOT carry these elements into a real song):
+      Lyric: "numa folha qualquer eu desenho um sol amarelo"
+      → A hand-drawn scene showing a single round sun in the upper corner. #{style}
+      Lyric: "e com cinco ou seis retas é fácil fazer um castelo"
+      → A hand-drawn scene showing a single round sun in the upper corner, and a small castle with simple square towers below. #{style}
+      Lyric: "basta imaginar e ele está partindo"
+      → A hand-drawn scene showing a single round sun in the upper corner, a small castle below, and the castle now drifting upward as if leaving the ground. #{style}
+
+    Now begin a NEW empty drawing for the actual song.
+    """
+  end
+
   # Capping breaks Ollama's prefix cache — each cap shifts the conversation
   # window, forcing a full reprocess (~3x slowdown observed at @max_turns=16).
   # Keep it high enough that a normal song (~30-60 lines) never triggers a cap.
@@ -45,7 +91,7 @@ defmodule Sinestesia.Director do
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
 
-  defp warmup(style) do
+  defp warmup(style, :classic) do
     [
       %{role: "user", content: "águas de março fechando o verão"},
       %{
@@ -61,36 +107,40 @@ defmodule Sinestesia.Director do
     ]
   end
 
-  @doc "Default visual style if the frontend hasn't picked one."
-  def default_style, do: @default_style
+  # Story mode keeps the examples inline in the system prompt so the conversation
+  # starts with a CLEAN canvas — no spurious elements carried over from warm-up.
+  defp warmup(_style, :story), do: []
 
   @doc "Returns the initial conversation (system + warm-up examples) for the given style."
-  def init_conversation(style \\ @default_style) do
-    style = sanitize_style(style)
-    [%{role: "system", content: system_prompt(style)} | warmup(style)]
+  def init_conversation(style \\ nil) do
+    style = sanitize_style(style || default_style())
+    m = mode()
+    [%{role: "system", content: system_prompt(style, m)} | warmup(style, m)]
   end
 
   @doc """
-  Caps style to 5 words max and strips quotes/control chars so a malicious or
-  sloppy frontend can't inject prompt-engineering payloads.
+  Caps style to 15 words max and strips quotes/control chars so a malicious or
+  sloppy frontend can't inject prompt-engineering payloads. 15 is enough room
+  for full palette entries (e.g. "loose ink sketch on aged paper, ...") while
+  still preventing prompt-injection from sneaking in a paragraph.
   """
-  def sanitize_style(nil), do: @default_style
-  def sanitize_style(""), do: @default_style
+  def sanitize_style(nil), do: default_style()
+  def sanitize_style(""), do: default_style()
 
   def sanitize_style(text) when is_binary(text) do
     text
     |> String.replace(~r/["\n\r\t]/, " ")
     |> String.trim()
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.take(5)
+    |> Enum.take(15)
     |> Enum.join(" ")
     |> case do
-      "" -> @default_style
+      "" -> default_style()
       s -> s
     end
   end
 
-  def sanitize_style(_), do: @default_style
+  def sanitize_style(_), do: default_style()
 
   @doc """
   Continues the conversation with a new user line. Returns

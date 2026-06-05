@@ -59,6 +59,7 @@ defmodule Sinestesia.Pipeline do
   def expressive(pid, features), do: GenServer.cast(pid, {:expressive, features})
   def fast_features(pid, features), do: GenServer.cast(pid, {:fast_features, features})
   def set_style(pid, style), do: GenServer.cast(pid, {:set_style, style})
+  def reset_song(pid), do: GenServer.cast(pid, :reset_song)
 
   ## Callbacks
 
@@ -90,7 +91,15 @@ defmodule Sinestesia.Pipeline do
        generating?: false,
        since_last_director: false,
        last_image_url: nil,
-       bootstrap_done?: false
+       bootstrap_done?: false,
+       # Bumped on every reset_song. Any in-flight Task (director / image /
+       # curator) captures the session_id at spawn; results carrying an older
+       # session_id are dropped on receive so old-song work can't leak into
+       # the new song. Belt + suspenders alongside pending_pids below.
+       session_id: 0,
+       # PIDs of every in-flight Task (director / image / curator). Killed
+       # on reset so we stop paying fal.ai / running Gemma for old-song work.
+       pending_pids: MapSet.new()
      }}
   end
 
@@ -110,6 +119,69 @@ defmodule Sinestesia.Pipeline do
 
   def handle_cast({:set_style, raw_style}, state) do
     apply_style(state, raw_style, _from_curator? = false)
+  end
+
+  # Reset all song-scoped state but KEEP open STT connections + socket.
+  # Use when a new song starts mid-session — avoids reconnect roundtrip.
+  # In-flight tasks from the previous song are invalidated via session_id.
+  def handle_cast(:reset_song, state) do
+    new_session = state.session_id + 1
+    killed = kill_pending(state.pending_pids)
+
+    Logger.info(
+      "[pipeline] song reset — session_id #{state.session_id} → #{new_session}, killed #{killed} in-flight task(s)"
+    )
+
+    default_style = Sinestesia.Director.default_style()
+
+    push(state.socket, %{
+      type: "style",
+      style: default_style,
+      source: "reset",
+      ts: now_ms()
+    })
+
+    {:noreply,
+     %{
+       state
+       | lyrics: [],
+         last_finals: %{},
+         last_interims: %{},
+         last_text_at: %{},
+         last_director_text: "",
+         style: default_style,
+         style_locked?: false,
+         final_lyric_count: 0,
+         director_conversation: Sinestesia.Director.init_conversation(),
+         last_director_at: 0,
+         last_stt_ms: nil,
+         last_stt_provider: nil,
+         # Critical: clear generating? so the next director call isn't blocked
+         # waiting for an in-flight (now-stale) task that we're about to drop.
+         generating?: false,
+         since_last_director: false,
+         last_image_url: nil,
+         bootstrap_done?: false,
+         session_id: new_session,
+         pending_pids: MapSet.new()
+     }}
+  end
+
+  defp kill_pending(pids) do
+    Enum.reduce(pids, 0, fn pid, acc ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :kill)
+        acc + 1
+      else
+        acc
+      end
+    end)
+  end
+
+  # Sweep out PIDs that have already completed. Called from each handle_info
+  # so the set doesn't grow unbounded across a long session.
+  defp drop_dead(pids) do
+    pids |> Enum.filter(&Process.alive?/1) |> Enum.into(MapSet.new())
   end
 
   @impl true
@@ -142,7 +214,13 @@ defmodule Sinestesia.Pipeline do
     {:noreply, state}
   end
 
-  def handle_info({:director_done, {:ok, prompt, new_conversation}, started_at}, state) do
+  def handle_info({:director_done, _result, _started_at, sid}, %{session_id: cur} = state)
+      when sid != cur do
+    Logger.info("[director] dropping stale result (session #{sid} ≠ #{cur})")
+    {:noreply, state}
+  end
+
+  def handle_info({:director_done, {:ok, prompt, new_conversation}, started_at, _sid}, state) do
     director_ms = now_ms() - started_at
     Logger.info("[director] +#{director_ms}ms (#{turn_count(new_conversation)} turns): #{prompt}")
 
@@ -152,16 +230,29 @@ defmodule Sinestesia.Pipeline do
       director_ms: director_ms
     }
 
-    spawn_image(prompt, timings, state.last_image_url)
-    {:noreply, %{state | generating?: true, director_conversation: new_conversation, bootstrap_done?: true}}
+    img_pid = spawn_image(prompt, timings, state.last_image_url, state.session_id)
+
+    pids =
+      state.pending_pids
+      |> drop_dead()
+      |> MapSet.put(img_pid)
+
+    {:noreply,
+     %{state | generating?: true, director_conversation: new_conversation, bootstrap_done?: true, pending_pids: pids}}
   end
 
-  def handle_info({:director_done, {:error, reason}, _started_at}, state) do
+  def handle_info({:director_done, {:error, reason}, _started_at, _sid}, state) do
     Logger.warning("[director] error: #{inspect(reason)}")
-    {:noreply, %{state | generating?: false}}
+    {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
   end
 
-  def handle_info({:image_done, {:ok, url, prompt}, timings}, state) do
+  def handle_info({:image_done, _result, _timings, sid}, %{session_id: cur} = state)
+      when sid != cur do
+    Logger.info("[image] dropping stale result (session #{sid} ≠ #{cur})")
+    {:noreply, state}
+  end
+
+  def handle_info({:image_done, {:ok, url, prompt}, timings, _sid}, state) do
     image_ms = now_ms() - timings.image_started_at
     provider = Sinestesia.ImageGen.provider() |> to_string()
     total = (timings.stt_ms || 0) + timings.director_ms + image_ms
@@ -185,20 +276,26 @@ defmodule Sinestesia.Pipeline do
       }
     })
 
-    {:noreply, %{state | generating?: false, last_image_url: url}}
+    {:noreply, %{state | generating?: false, last_image_url: url, pending_pids: drop_dead(state.pending_pids)}}
   end
 
-  def handle_info({:image_done, {:error, reason}, _timings}, state) do
+  def handle_info({:image_done, {:error, reason}, _timings, _sid}, state) do
     Logger.warning("[image] error: #{inspect(reason)}")
-    {:noreply, %{state | generating?: false}}
+    {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
   end
 
-  def handle_info({:style_curated, {:ok, style}}, state) do
+  def handle_info({:style_curated, _result, sid}, %{session_id: cur} = state)
+      when sid != cur do
+    Logger.info("[curator] dropping stale result (session #{sid} ≠ #{cur})")
+    {:noreply, state}
+  end
+
+  def handle_info({:style_curated, {:ok, style}, _sid}, state) do
     Logger.info("[curator] picked style: #{style}")
     apply_style(state, style, _from_curator? = true)
   end
 
-  def handle_info({:style_curated, {:error, reason}}, state) do
+  def handle_info({:style_curated, {:error, reason}, _sid}, state) do
     Logger.warning("[curator] failed (#{inspect(reason)}); keeping current style")
     # Don't relock — allow retry on next batch of lyrics
     {:noreply, %{state | style_locked?: false}}
@@ -249,9 +346,9 @@ defmodule Sinestesia.Pipeline do
 
   defp maybe_curate_style(%{final_lyric_count: n} = state) when n >= @curator_trigger_count do
     Logger.info("[curator] firing after #{n} final lyrics")
-    spawn_curator(state)
+    pid = spawn_curator(state)
     # Optimistically lock so we don't double-fire; unlock if curator fails
-    %{state | style_locked?: true}
+    %{state | style_locked?: true, pending_pids: MapSet.put(state.pending_pids, pid)}
   end
 
   defp maybe_curate_style(state), do: state
@@ -260,10 +357,14 @@ defmodule Sinestesia.Pipeline do
     parent = self()
     lyrics = state.lyrics
     expressive = state.expressive
+    sid = state.session_id
 
-    Task.start(fn ->
-      send(parent, {:style_curated, Sinestesia.StyleCurator.curate(lyrics, expressive)})
-    end)
+    {:ok, pid} =
+      Task.start(fn ->
+        send(parent, {:style_curated, Sinestesia.StyleCurator.curate(lyrics, expressive), sid})
+      end)
+
+    pid
   end
 
   defp apply_style(state, raw_style, from_curator?) do
@@ -310,7 +411,11 @@ defmodule Sinestesia.Pipeline do
         state
 
       is_final ->
-        new_state = %{
+        # StyleCurator is intentionally NOT invoked here. We tried auto-picking
+        # the style after N lyrics, but it kept overwriting the front-end's
+        # style input mid-song. Style is now driven 100% by the operator typing
+        # in the front, or by the IMAGE_MODE default at session/reset.
+        %{
           state
           | lyrics: state.lyrics ++ [text],
             last_interims: Map.put(state.last_interims, provider, text),
@@ -321,8 +426,6 @@ defmodule Sinestesia.Pipeline do
             final_lyric_count: state.final_lyric_count + 1,
             since_last_director: true
         }
-
-        maybe_curate_style(new_state)
 
       true ->
         %{
@@ -422,14 +525,15 @@ defmodule Sinestesia.Pipeline do
 
           text ->
             if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words")
-            spawn_director(state, text)
+            pid = spawn_director(state, text)
 
             %{
               state
               | last_director_at: now,
                 since_last_director: false,
                 generating?: true,
-                last_director_text: text
+                last_director_text: text,
+                pending_pids: MapSet.put(state.pending_pids, pid)
             }
         end
     end
@@ -470,12 +574,16 @@ defmodule Sinestesia.Pipeline do
     parent = self()
     started_at = now_ms()
     conversation = state.director_conversation
+    sid = state.session_id
     Logger.debug("[director] spawning (current line: #{inspect(text)})")
 
-    Task.start(fn ->
-      result = Sinestesia.Director.next_prompt(conversation, text)
-      send(parent, {:director_done, result, started_at})
-    end)
+    {:ok, pid} =
+      Task.start(fn ->
+        result = Sinestesia.Director.next_prompt(conversation, text)
+        send(parent, {:director_done, result, started_at, sid})
+      end)
+
+    pid
   end
 
   defp turn_count(conversation) do
@@ -520,21 +628,24 @@ defmodule Sinestesia.Pipeline do
   defp last_n_words(_, _), do: ""
 
 
-  defp spawn_image(prompt, timings, prev_url) do
+  defp spawn_image(prompt, timings, prev_url, sid) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
 
     opts = if is_binary(prev_url) and prev_url != "", do: [image_url: prev_url], else: []
 
-    Task.start(fn ->
-      result =
-        case Sinestesia.ImageGen.generate(prompt, opts) do
-          {:ok, url} -> {:ok, url, prompt}
-          err -> err
-        end
+    {:ok, pid} =
+      Task.start(fn ->
+        result =
+          case Sinestesia.ImageGen.generate(prompt, opts) do
+            {:ok, url} -> {:ok, url, prompt}
+            err -> err
+          end
 
-      send(parent, {:image_done, result, timings})
-    end)
+        send(parent, {:image_done, result, timings, sid})
+      end)
+
+    pid
   end
 
   defp push(socket, msg), do: send(socket, {:push_json, msg})

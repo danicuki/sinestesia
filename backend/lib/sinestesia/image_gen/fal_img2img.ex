@@ -13,8 +13,8 @@ defmodule Sinestesia.ImageGen.FalImg2Img do
   require Logger
 
   @url "https://fal.run/fal-ai/flux/dev/image-to-image"
-  @strength 0.80
-  @steps 12
+  @strength 0.90
+  @steps 10
 
   @spec generate(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, image_url) when is_binary(prompt) and is_binary(image_url) do

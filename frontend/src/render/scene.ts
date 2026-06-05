@@ -75,6 +75,16 @@ export class Scene {
     if (u.onset) this.onsetEnv = 1.0;
   }
 
+  /** Crossfade back to the dark placeholder (e.g. on "nova música"). */
+  clearImage() {
+    this.material.uniforms.uTexPrev.value =
+      this.material.uniforms.uTexCurrent.value;
+    this.material.uniforms.uTexCurrent.value = placeholderTexture();
+    this.material.uniforms.uCrossfade.value = 0;
+    this.fadeStart = performance.now();
+    this.fading = true;
+  }
+
   /** Load a new image and crossfade to it. */
   crossfadeTo(url: string) {
     this.loader.load(

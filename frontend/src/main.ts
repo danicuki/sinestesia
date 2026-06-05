@@ -95,13 +95,23 @@ async function start() {
     socket.onOpen = () => console.log("[main] websocket connected");
   }
 
-  // Style control — visible during rehearsal, hidden under ?clean=1.
+  // Style control + "nova música" reset — visible during rehearsal, hidden
+  // under ?clean=1.
   if (!CLEAN) {
-    const style = new StyleControl((value) => {
-      if (socket) socket.sendStyle(value);
-      else console.log("[mock] would send style:", value);
-    });
-    if (socket) socket.onStyle = (accepted) => style.setAccepted(accepted);
+    const style = new StyleControl(
+      (value) => {
+        if (socket) socket.sendStyle(value);
+        else console.log("[mock] would send style:", value);
+      },
+      () => {
+        // New song: clear the canvas immediately, then tell the backend.
+        scene.clearImage();
+        if (socket) socket.sendReset();
+        else console.log("[mock] would send reset (nova música)");
+      },
+    );
+    if (socket)
+      socket.onStyle = (accepted, source) => style.setAccepted(accepted, source);
   }
 
   if (socket) socket.connect();

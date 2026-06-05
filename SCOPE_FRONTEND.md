@@ -193,14 +193,30 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
 - `src/render/scene.ts` + shaders: fullscreen quad, two-texture crossfade,
   FFT-driven UV warp + RMS saturation/bloom + onset flash + grain + vignette.
 - `?mock=1` render-only path (no WS, rotates 3 sample images, logs sends).
-- `?debug=1` overlay (`src/debug.ts`): bottom-left, small monospace, 60%
-  opacity, semi-translucent black. Shows (1) last transcript
-  `[provider] +Xms: "texto"` (interim dimmer than final), (2) last Director
-  prompt, (3) latest image-timing line `STT | DIR | IMG | TOT ms (provider)`
-  color-coded per field, (4) rolling history of the last 5 timing lines with a
-  relative `-Xs` timestamp refreshed each second. Reads the new `provider` /
+- `?debug=1` overlay (`src/debug.ts`): full-width strip along the bottom, small
+  monospace, 60% opacity, semi-translucent black (spans the screen so long text
+  wraps over fewer vertical lines and covers less of the image). Two columns:
+  **left** = last transcript `[provider] +Xms: "texto"` (interim dimmer than
+  final) + last Director prompt (takes the slack and wraps); **right** = rolling
+  history of the last 5 timing lines `STT | DIR | IMG | TOT ms (provider)`
+  color-coded per field, each with a relative `-Xs` timestamp refreshed each
+  second (top row = latest cycle, so no separate "current timing" line). Reads the new `provider` /
   `latency_ms` (transcript) and `timings` block (image) from PROTOCOL.md. Socket
   callbacks now pass `TranscriptMsg` / `ImageMsg` objects carrying those fields.
+- `src/style.ts` (visual style control): small input top-right (monospace, 70%
+  opacity, semi-translucent black, discreet "style" label). Visible during
+  rehearsal, hidden under `?clean=1`. Starts **empty** (backend owns the default
+  cordel style). On Enter/blur sends `{ type: "style", style }`; the backend echo
+  `{ type: "style", style }` is reflected back into the input via `setAccepted`
+  (shows the sanitized/capped value). **No client-side cap or rate-limiting** —
+  the backend sanitizes and caps (up to 15 words) and no-ops a repeated style; a
+  dedup guard on `lastSent` just avoids re-emitting the same value. The echo's
+  `source` (`"user"` / `"curator"` / `"reset"`) is passed through; a `"curator"`
+  echo mirrors the auto-picked style into the input too. Next to the input sits a
+  **"nova música"** button that sends `{ type: "reset" }`; the backend then echoes
+  a `style` with `source: "reset"`, on which the input is cleared back to empty
+  (fresh-song start). `socket.ts` gained `sendStyle()`, `sendReset()`, an
+  `onStyle(style, source)` callback, and a `style` inbound case.
 
 **Open / needs integration:**
 

@@ -1,27 +1,26 @@
-// Visual style control — small input, top-right. Lets the singer steer the art
-// direction live during rehearsal. Hidden under ?clean=1 for a clean stage demo.
+// Visual style control — small input + "nova música" button, top-right. Lets the
+// singer steer the art direction and start a fresh song live during rehearsal.
+// Hidden under ?clean=1 for a clean stage demo.
 //
 // Per PROTOCOL.md: on Enter/blur we send { type: "style", style } and the
-// backend echoes the accepted (sanitized + 5-word-capped) value, which we then
-// reflect back into the input. No client-side rate-limiting — the backend
-// no-ops a repeated style.
-
-const WORD_CAP = 5;
+// backend echoes the accepted (sanitized + capped) value, which we then reflect
+// back into the input. No client-side cap or rate-limiting — the backend owns
+// sanitization/capping (up to 15 words) and no-ops a repeated style. The
+// "nova música" button sends { type: "reset" }; the backend then echoes a style
+// with source "reset" which clears the input back to empty.
 
 type SendCb = (style: string) => void;
-
-function wordCount(s: string): number {
-  const t = s.trim();
-  return t === "" ? 0 : t.split(/\s+/).length;
-}
+type ResetCb = () => void;
 
 export class StyleControl {
   private input: HTMLInputElement;
-  private counter: HTMLSpanElement;
   // Start as "" so an untouched blur (empty value) doesn't emit a needless send.
   private lastSent = "";
 
-  constructor(private send: SendCb) {
+  constructor(
+    private send: SendCb,
+    private requestReset: ResetCb,
+  ) {
     const wrap = document.createElement("div");
     Object.assign(wrap.style, {
       position: "fixed",
@@ -53,7 +52,7 @@ export class StyleControl {
     this.input.autocomplete = "off";
     this.input.placeholder = "";
     Object.assign(this.input.style, {
-      width: "200px",
+      width: "240px",
       background: "transparent",
       border: "1px solid #374151",
       borderRadius: "2px",
@@ -64,19 +63,25 @@ export class StyleControl {
       cursor: "text",
     } as CSSStyleDeclaration);
 
-    this.counter = document.createElement("span");
-    Object.assign(this.counter.style, {
-      color: "#6b7280",
-      minWidth: "26px",
-      textAlign: "right",
+    const resetBtn = document.createElement("button");
+    resetBtn.type = "button";
+    resetBtn.textContent = "nova música";
+    Object.assign(resetBtn.style, {
+      background: "transparent",
+      border: "1px solid #374151",
+      borderRadius: "2px",
+      color: "#e5e7eb",
+      font: "inherit",
+      padding: "3px 8px",
+      cursor: "pointer",
     } as CSSStyleDeclaration);
+    resetBtn.addEventListener("click", () => this.requestReset());
 
     wrap.appendChild(label);
     wrap.appendChild(this.input);
-    wrap.appendChild(this.counter);
+    wrap.appendChild(resetBtn);
     document.body.appendChild(wrap);
 
-    this.input.addEventListener("input", () => this.updateCounter());
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -85,16 +90,6 @@ export class StyleControl {
       }
     });
     this.input.addEventListener("blur", () => this.submit());
-
-    this.updateCounter();
-  }
-
-  private updateCounter() {
-    const n = wordCount(this.input.value);
-    this.counter.textContent = `${n}/${WORD_CAP}`;
-    // Over the cap is allowed — the backend truncates and echoes back the
-    // accepted value — but flag it so the singer sees it'll be trimmed.
-    this.counter.style.color = n > WORD_CAP ? "#f87171" : "#6b7280";
   }
 
   private submit() {
@@ -104,11 +99,19 @@ export class StyleControl {
     this.send(value);
   }
 
-  /** Reflect the backend's accepted (possibly truncated) style. */
-  setAccepted(style: string) {
+  /**
+   * Reflect a backend `style` echo. On a "reset" (new song) we clear the input
+   * back to empty rather than showing the default — the singer starts blank,
+   * exactly like session start. Otherwise mirror the accepted/curated value.
+   */
+  setAccepted(style: string, source: string) {
+    if (source === "reset") {
+      this.lastSent = "";
+      this.input.value = "";
+      return;
+    }
     this.lastSent = style;
     // Don't clobber the caret mid-typing; only overwrite if it actually differs.
     if (this.input.value !== style) this.input.value = style;
-    this.updateCounter();
   }
 }

@@ -38,7 +38,8 @@ export interface ImageMsg {
 type TranscriptCb = (m: TranscriptMsg) => void;
 type ImageCb = (m: ImageMsg) => void;
 type ErrorCb = (message: string, provider?: string) => void;
-type StyleCb = (style: string) => void;
+// `source`: "user" (our echo), "curator" (auto-picked), or "reset" (new song).
+type StyleCb = (style: string, source: string) => void;
 
 const URL_DEFAULT = "ws://localhost:4000/ws/audio";
 
@@ -140,8 +141,9 @@ export class Socket {
         );
         break;
       case "style":
-        // Backend echo of the accepted (sanitized/capped) style.
-        this.onStyle(String(msg.style ?? ""));
+        // Backend echo of the accepted (sanitized/capped) style. `source`
+        // tells us whether it was our own change, the curator, or a reset.
+        this.onStyle(String(msg.style ?? ""), String(msg.source ?? "user"));
         break;
       case "pong":
         break;
@@ -169,6 +171,13 @@ export class Socket {
   sendStyle(style: string) {
     if (!this.ready) return;
     this.ws!.send(JSON.stringify({ type: "style", style }));
+  }
+
+  // New song: reset all song-scoped backend state without dropping the WS.
+  // Backend replies with a `style` echo carrying source "reset".
+  sendReset() {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "reset" }));
   }
 
   sendFastFeatures(rms: number, tempo_estimate?: number) {

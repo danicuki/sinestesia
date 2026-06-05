@@ -25,7 +25,6 @@ export class DebugOverlay {
   private root: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
-  private elTimingNow: HTMLDivElement;
   private elHistory: HTMLDivElement;
 
   private history: TimingEntry[] = [];
@@ -34,13 +33,15 @@ export class DebugOverlay {
     this.root = document.createElement("div");
     Object.assign(this.root.style, {
       position: "fixed",
-      left: "10px",
-      bottom: "10px",
+      left: "0",
+      right: "0",
+      bottom: "0",
       zIndex: "20",
-      maxWidth: "46vw",
-      padding: "8px 10px",
+      display: "flex",
+      alignItems: "flex-start",
+      gap: "24px",
+      padding: "8px 12px",
       background: "rgba(0,0,0,0.55)",
-      borderRadius: "4px",
       font: "11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace",
       color: COL.final,
       opacity: "0.6",
@@ -49,18 +50,25 @@ export class DebugOverlay {
       wordBreak: "break-word",
     } as CSSStyleDeclaration);
 
-    this.elTranscript = this.section("transcript");
-    this.elPrompt = this.section("director prompt");
-    this.elTimingNow = this.section("timings");
-    this.elHistory = this.section("history (last 5)");
+    // Left column: live speech + the prompt it produced. Takes the slack so long
+    // text wraps here. Right column: the timing history (its top row is the
+    // latest cycle, so a separate "current" line is redundant).
+    const left = column("1 1 auto");
+    const right = column("0 0 auto");
 
+    this.elTranscript = this.section(left, "transcript");
+    this.elPrompt = this.section(left, "director prompt");
+    this.elHistory = this.section(right, "history (last 5)");
+
+    this.root.appendChild(left);
+    this.root.appendChild(right);
     document.body.appendChild(this.root);
 
     // Refresh relative "ago" timestamps once a second.
     window.setInterval(() => this.renderHistory(), 1000);
   }
 
-  private section(label: string): HTMLDivElement {
+  private section(parent: HTMLDivElement, label: string): HTMLDivElement {
     const wrap = document.createElement("div");
     wrap.style.marginTop = "6px";
     const head = document.createElement("div");
@@ -75,7 +83,7 @@ export class DebugOverlay {
     body.textContent = "—";
     wrap.appendChild(head);
     wrap.appendChild(body);
-    this.root.appendChild(wrap);
+    parent.appendChild(wrap);
     return body;
   }
 
@@ -95,9 +103,8 @@ export class DebugOverlay {
     this.elPrompt.textContent = prompt || "—";
   }
 
-  // 3 + 4. Latest timing line + rolling history of the last 5.
+  // Rolling history of the last 5 cycles (top row = latest).
   addTimings(t: Timings) {
-    this.elTimingNow.innerHTML = this.formatTiming(t);
     this.history.unshift({ t, at: performance.now() });
     if (this.history.length > 5) this.history.pop();
     this.renderHistory();
@@ -136,6 +143,13 @@ export class DebugOverlay {
     const p = provider ? `[${provider}] ` : "";
     this.elTranscript.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
   }
+}
+
+function column(flex: string): HTMLDivElement {
+  const col = document.createElement("div");
+  col.style.flex = flex;
+  col.style.minWidth = "0"; // let the flexible column actually shrink and wrap
+  return col;
 }
 
 function span(text: string, color: string, bold = false): string {

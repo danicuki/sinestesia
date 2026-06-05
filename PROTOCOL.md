@@ -70,19 +70,42 @@ If the frontend wants to share Rail-1 features with the backend (e.g., for the D
 ### `style` (visual style override)
 
 Changes the art style for subsequent Director prompts. The backend caps the
-style at 5 words and strips quotes/newlines as a sanity guard. Sending the
-same style as the current one is a no-op; sending a new one resets the
-Director's conversation (continuity is intentionally broken so the new
-style takes effect immediately).
+style at **15 words** and strips quotes/newlines as a sanity guard (the cap
+is generous so curated palette entries like `"loose ink sketch on aged paper,
+sparse hand-drawn linework, sepia tones"` fit). Sending the same style as the
+current one is a no-op; sending a new one resets the Director's conversation
+(continuity is intentionally broken so the new style takes effect immediately).
 
 ```json
-{ "type": "style", "style": "watercolor washes" }
+{ "type": "style", "style": "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones" }
 ```
 
 After the backend accepts the change, it echoes it back as a server message
 so the frontend can confirm what is actually in use.
 
-Default style at session start: `"Brazilian cordel woodcut print, black and white, hatched linework"`.
+Default style at session start depends on `IMAGE_MODE` (see backend):
+- `story` mode (default): `"loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"`
+- `classic` mode: `"Brazilian cordel woodcut print, black and white, hatched linework"`
+
+The style may also be set automatically by the backend's **StyleCurator** after
+the first ~5 final lyrics. When that happens, the echoed `style` message
+carries `"source": "curator"` instead of `"source": "user"`.
+
+### `reset` (new song begins)
+
+Resets all song-scoped state on the backend without dropping the WebSocket
+or the STT connections. Use this when the singer is about to start a new
+song so the Director conversation, accumulated lyrics, image continuity,
+and curator lock all start fresh. Faster than reconnecting.
+
+```json
+{ "type": "reset" }
+```
+
+After the reset the backend pushes a `style` message back with
+`"source": "reset"` carrying the **default** style for the current
+`IMAGE_MODE` (story → `"loose ink sketch on aged paper, ..."`). The
+frontend can use this to clear its style input.
 
 ### `ping`
 Liveness check. Backend responds with `pong`.
@@ -146,12 +169,22 @@ Non-fatal. Frontend may log; demo continues.
 
 ### `style` (echo of accepted style)
 
-Sent right after the backend accepts a `style` client message, so the frontend
-can render the actual sanitized/capped value.
+Sent right after the backend accepts a `style` client message OR after the
+StyleCurator auto-picks a style. Carries the sanitized/capped value plus a
+`source` field so the frontend can distinguish user-driven vs auto-curated
+changes (e.g. for a small UI badge).
 
 ```json
-{ "type": "style", "style": "watercolor washes", "ts": 1717500000456 }
+{
+  "type": "style",
+  "style": "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+  "source": "curator",
+  "ts": 1717500000456
+}
 ```
+
+`source`: `"user"` (sent in response to a client `style` message) or
+`"curator"` (auto-picked by the backend after a few lyrics).
 
 ### `pong`
 

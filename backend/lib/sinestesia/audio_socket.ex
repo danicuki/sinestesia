@@ -49,6 +49,10 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.set_style(pid, style)
         {:ok, state}
 
+      {:ok, %{"type" => "reset"}} when not is_nil(pid) ->
+        Sinestesia.Pipeline.reset_song(pid)
+        {:ok, state}
+
       {:ok, other} ->
         Logger.debug("[ws] unknown text msg: #{inspect(other)}")
         {:ok, state}

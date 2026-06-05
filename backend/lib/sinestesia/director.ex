@@ -87,7 +87,10 @@ defmodule Sinestesia.Director do
   # Keep it high enough that a normal song (~30-60 lines) never triggers a cap.
   # If you really need to reset, restart the session.
   @max_turns 200
-  @gemma_timeout_ms 4_000
+  # First call after server boot has to load the model into memory — can take
+  # 4-6s. Subsequent calls are ~1s warm. Setting a generous timeout so the
+  # bootstrap call doesn't fall through to Gemini (which is out of credits).
+  @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
 

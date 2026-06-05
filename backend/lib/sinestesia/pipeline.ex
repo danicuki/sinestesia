@@ -41,18 +41,40 @@ defmodule Sinestesia.Pipeline do
   defp stop_previous do
     case Registry.lookup(Sinestesia.PipelineRegistry, :active) do
       [{old_pid, _}] when is_pid(old_pid) ->
-        if Process.alive?(old_pid) do
-          Logger.info("pipeline: stopping previous active pipeline #{inspect(old_pid)}")
-
-          try do
-            GenServer.stop(old_pid, :shutdown, 1_000)
-          catch
-            :exit, _ -> :ok
-          end
-        end
+        if Process.alive?(old_pid), do: kill_previous(old_pid)
 
       _ ->
         :ok
+    end
+  end
+
+  # Robustly take down the old pipeline before starting a new one. We MUST
+  # wait until it's actually dead (and deregistered from the Registry),
+  # otherwise the new start_link races and falls into {:already_started, _}.
+  # That used to make AudioSocket "adopt" a corpse pid.
+  #
+  # Sequence: monitor → :shutdown → wait up to 4s. If still alive (pipeline
+  # may be blocked in init waiting for ElevenSTT WS handshake), hard-kill.
+  defp kill_previous(old_pid) do
+    Logger.info("pipeline: stopping previous active pipeline #{inspect(old_pid)}")
+    ref = Process.monitor(old_pid)
+    Process.exit(old_pid, :shutdown)
+
+    receive do
+      {:DOWN, ^ref, :process, ^old_pid, _} ->
+        :ok
+    after
+      4_000 ->
+        Logger.warning("pipeline: previous didn't die in 4s, hard-killing #{inspect(old_pid)}")
+        Process.exit(old_pid, :kill)
+
+        receive do
+          {:DOWN, ^ref, :process, ^old_pid, _} -> :ok
+        after
+          1_000 ->
+            Logger.error("pipeline: hard-kill timed out for #{inspect(old_pid)}")
+            :ok
+        end
     end
   end
   def audio_chunk(pid, bin), do: GenServer.cast(pid, {:audio_chunk, bin})

@@ -11,10 +11,12 @@ defmodule Sinestesia.AudioSocket do
         {:ok, %{pipeline: pid}}
 
       {:error, {:already_started, pid}} ->
-        # Race: the previous Pipeline didn't release the Registry slot in time.
-        # Adopt the existing one rather than crashing the connection.
-        Logger.warning("[ws] adopting existing pipeline=#{inspect(pid)}")
-        {:ok, %{pipeline: pid}}
+        # Should be unreachable now that Pipeline.start_link synchronously
+        # waits for the previous pipeline to die. If we hit this, the old
+        # pipeline is wedged — the new connection would adopt a corpse.
+        # Better to fail fast: the browser's reconnect logic will retry.
+        Logger.error("[ws] previous pipeline still registered (#{inspect(pid)}); refusing connection")
+        {:ok, %{pipeline: nil}}
 
       {:error, reason} ->
         Logger.error("[ws] pipeline start failed: #{inspect(reason)}")

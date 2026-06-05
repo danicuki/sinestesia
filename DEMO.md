@@ -29,7 +29,9 @@ The result: a single sketch that fills up with the imagery of the song as it's b
 - **STT**: ElevenLabs Scribe v2 Realtime (with Deepgram Nova-3 as A/B alternative).
 - **Image gen**: fal.ai Flux dev (img2img, low-step), with Flux Schnell for the first frame.
 
-## Live demo
+## Live demo video
+
+https://www.youtube.com/watch?v=c_ZsERk0Al8
 
 Closing showcase at NFC Summit (Creative AI track), Lisbon. Daniella Alcarpe singing — visuals drawn in real time by Sinestesia on the back wall.
 

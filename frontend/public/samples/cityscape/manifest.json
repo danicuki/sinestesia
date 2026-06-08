@@ -1,0 +1,50 @@
+{
+  "description": "Building → street → cars → pedestrians → night lights → rain on windows.",
+  "title": "Cityscape — urban growth",
+  "slug": "cityscape",
+  "style": "graffiti marker on concrete wall, raw bold outlines, urban",
+  "frames": [
+    {
+      "file": "frame_01.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building at the center of the wall. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84b8/Im0v97405twNGB6VlPzsN.jpg",
+      "idx": 1,
+      "latency_ms": 1193
+    },
+    {
+      "file": "frame_02.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building and a wide street stretching across the foreground. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84b9/N2RDJoinktjIaWxepsNC0.jpg",
+      "idx": 2,
+      "latency_ms": 1578
+    },
+    {
+      "file": "frame_03.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, and small angular cars parked along the curb. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84b9/rg-B2PlTo4ARFJduox9_z.jpg",
+      "idx": 3,
+      "latency_ms": 1239
+    },
+    {
+      "file": "frame_04.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, parked cars, and silhouettes of pedestrians walking. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84b9/ycSOmgQsg7Th7gp3ZFc6q.jpg",
+      "idx": 4,
+      "latency_ms": 2152
+    },
+    {
+      "file": "frame_05.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, and bright window lights glowing in the night. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84b9/E64o7ewQ4LhS4yFW9A_C1.jpg",
+      "idx": 5,
+      "latency_ms": 1725
+    },
+    {
+      "file": "frame_06.jpg",
+      "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, window lights, and rain streaks slanting across the whole scene. graffiti marker on concrete wall, raw bold outlines, urban",
+      "url": "https://v3b.fal.media/files/b/0a9d84ba/ohQCeTVQrcd6tSR7WslIm.jpg",
+      "idx": 6,
+      "latency_ms": 2093
+    }
+  ]
+}

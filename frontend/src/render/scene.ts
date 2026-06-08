@@ -1,5 +1,6 @@
 // Three.js stage: one full-screen quad with a ShaderMaterial. Rail 1 features
-// flow into uniforms every frame; backend images crossfade in over ~600ms.
+// flow into uniforms every frame; backend images transition in over ~2.5s via
+// a Perlin-noise warp (ink-bleed) — see shaders/transition.glsl.
 
 import * as THREE from "three";
 import vertexShader from "./shaders/vertex.glsl";
@@ -7,10 +8,18 @@ import fragmentShader from "./shaders/fragment.glsl";
 import type { FastUniforms } from "../audio/features";
 import type { ExpressiveFeatures } from "../socket";
 
-// Crossfade duration reacts to transients: a hard vocal attack as the image
-// lands snaps the cut short; a calm moment lets it dissolve slowly.
-const CROSSFADE_CALM_MS = 750;
-const CROSSFADE_PUNCH_MS = 220;
+// Duration of one live (backend) morph: the diff-masked shader eases the new
+// strokes in over this window. Kept just under the backend's 3-5s image cadence
+// so a morph normally completes before the next image lands — clean finishes
+// instead of mid-flight restarts. Between images the picture is held, but live
+// audio (Rail 1) keeps animating it, so it never looks frozen. (The dev sample
+// player drives its own continuous timeline and does not use this constant.)
+const TRANSITION_MS = 2800;
+
+// easeInOutCubic — slow start, slow end, so the bleed feels deliberate.
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
 
 // A 1x1 dark texture so the shader has something valid before any image lands.
 function placeholderTexture(): THREE.DataTexture {
@@ -29,9 +38,13 @@ export class Scene {
 
   private startTime = performance.now();
   private fadeStart = 0;
-  private fadeDur = CROSSFADE_CALM_MS;
+  private fadeDur = TRANSITION_MS;
   private fading = false;
   private onsetEnv = 0; // decaying onset envelope
+  // Flipped to false if the render loop ever throws (e.g. a shader problem),
+  // degrading the warp to a plain linear cross-dissolve for the rest of the
+  // session. The non-warp branch in the shader matches the original behaviour.
+  private warp = true;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -53,6 +66,7 @@ export class Scene {
         uValence: { value: 0 }, // -1..1 (Rail 3) — sad → happy
         uArousal: { value: 0.4 }, // 0..1 (Rail 3) — calm → energetic
         uCrossfade: { value: 1 },
+        uUseWarp: { value: 1 },
         uFftBins: { value: new Float32Array(32) },
         uTexCurrent: { value: ph },
         uTexPrev: { value: ph },
@@ -90,42 +104,40 @@ export class Scene {
     this.material.uniforms.uArousal.value = f.arousal;
   }
 
-  // Map the current onset envelope to a crossfade duration: a strong attack at
-  // arrival time cuts fast, silence dissolves slowly.
-  private transientFadeDur(): number {
-    return THREE.MathUtils.lerp(
-      CROSSFADE_CALM_MS,
-      CROSSFADE_PUNCH_MS,
-      Math.min(1, this.onsetEnv),
-    );
-  }
-
-  /** Crossfade back to the dark placeholder (e.g. on "nova música"). */
-  clearImage() {
+  // Begin a transition from whatever is currently in uTexCurrent (A) to the new
+  // texture (B). If a transition is already mid-flight it is cancelled: A
+  // becomes the in-flight target so a fresh warp starts from it. (True A would
+  // be the live blend on screen, but capturing that needs an FBO grab — out of
+  // scope for the single-pass path; the jump is brief and rarely visible since
+  // images arrive every 3-5s vs a 2.5s transition.)
+  private startTransition(next: THREE.Texture) {
     this.material.uniforms.uTexPrev.value =
       this.material.uniforms.uTexCurrent.value;
-    this.material.uniforms.uTexCurrent.value = placeholderTexture();
+    this.material.uniforms.uTexCurrent.value = next;
     this.material.uniforms.uCrossfade.value = 0;
     this.fadeStart = performance.now();
-    this.fadeDur = CROSSFADE_CALM_MS; // a new song should settle gently
+    this.fadeDur = TRANSITION_MS;
     this.fading = true;
   }
 
-  /** Load a new image and crossfade to it. */
-  crossfadeTo(url: string) {
+  /** Transition back to the dark placeholder (e.g. on "nova música"). */
+  clearImage() {
+    this.startTransition(placeholderTexture());
+  }
+
+  private configureTex(tex: THREE.Texture) {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+  }
+
+  /** Load a new image and warp-transition to it (live backend path). */
+  transitionTo(url: string) {
     this.loader.load(
       url,
       (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.minFilter = THREE.LinearFilter;
-        tex.magFilter = THREE.LinearFilter;
-        this.material.uniforms.uTexPrev.value =
-          this.material.uniforms.uTexCurrent.value;
-        this.material.uniforms.uTexCurrent.value = tex;
-        this.material.uniforms.uCrossfade.value = 0;
-        this.fadeStart = performance.now();
-        this.fadeDur = this.transientFadeDur();
-        this.fading = true;
+        this.configureTex(tex);
+        this.startTransition(tex);
       },
       undefined,
       () => {
@@ -133,6 +145,39 @@ export class Scene {
         console.warn("[scene] image load failed:", url);
       },
     );
+  }
+
+  /** Preload a batch of textures (e.g. a whole sample sequence). */
+  preload(urls: string[]): Promise<THREE.Texture[]> {
+    return Promise.all(
+      urls.map(
+        (u) =>
+          new Promise<THREE.Texture>((resolve, reject) => {
+            this.loader.load(
+              u,
+              (tex) => {
+                this.configureTex(tex);
+                resolve(tex);
+              },
+              undefined,
+              reject,
+            );
+          }),
+      ),
+    );
+  }
+
+  // Drive the morph manually from an external continuous timeline (the sample
+  // player): A and B are already-loaded textures, t is the raw 0..1 reveal. This
+  // bypasses the internal fade clock so playback can chain frame→frame with no
+  // settle. At t=1 the screen is exactly B, so the next segment (B→C at t=0)
+  // starts pixel-identical — seamless, no pause, no jump.
+  setMorph(a: THREE.Texture, b: THREE.Texture, t: number) {
+    this.fading = false;
+    const u = this.material.uniforms;
+    u.uTexPrev.value = a;
+    u.uTexCurrent.value = b;
+    u.uCrossfade.value = t;
   }
 
   /** Render one frame. */
@@ -144,18 +189,29 @@ export class Scene {
     this.onsetEnv *= 0.88;
     this.material.uniforms.uOnset.value = this.onsetEnv;
 
-    // Crossfade easing.
+    // Transition progress: easeInOutCubic over TRANSITION_MS. The shader turns
+    // this into both the Perlin warp amplitude (peaks at t=0.5) and the colour
+    // hand-off, so Rail 1/3 keep reacting on top of the bleed.
     if (this.fading) {
       const t = (now - this.fadeStart) / this.fadeDur;
       if (t >= 1) {
         this.material.uniforms.uCrossfade.value = 1;
         this.fading = false;
       } else {
-        // smoothstep ease in/out
-        this.material.uniforms.uCrossfade.value = t * t * (3 - 2 * t);
+        this.material.uniforms.uCrossfade.value = easeInOutCubic(t);
       }
     }
 
-    this.renderer.render(this.scene, this.camera);
+    try {
+      this.renderer.render(this.scene, this.camera);
+    } catch (err) {
+      // Any render-time failure (shader trouble) drops us to the plain dissolve
+      // for the rest of the session rather than freezing the stage.
+      if (this.warp) {
+        console.warn("[scene] render error — falling back to plain dissolve:", err);
+        this.warp = false;
+        this.material.uniforms.uUseWarp.value = 0;
+      }
+    }
   }
 }

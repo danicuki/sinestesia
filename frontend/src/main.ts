@@ -10,11 +10,13 @@ import { Scene } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
 import { MicPanel } from "./mic";
+import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
 const DEBUG = params.has("debug");
 const CLEAN = params.has("clean"); // hide rehearsal chrome for a clean stage demo
+const DEMO = params.get("demo"); // sample sequence slug (or "" for the default)
 
 const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
@@ -38,6 +40,9 @@ const scene = new Scene(canvas);
 // even before the mic is unlocked.
 let fast: FastFeatures | null = null;
 let mic: MicPanel | null = null;
+// When a sample sequence is playing, this advances the continuous morph each
+// frame (see playDemo). Null on the live path.
+let demoUpdate: (() => void) | null = null;
 function frame() {
   if (fast) {
     fast.update();
@@ -46,10 +51,94 @@ function frame() {
     debug?.setAudio(u.rms, u.centroid, u.onset);
     mic?.setLevel(u.rms);
   }
+  demoUpdate?.();
   scene.render();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// ---- Sample-sequence playback (dev) ----
+// Replays the pre-generated accumulative sequences into the scene to iterate
+// the transition shader without a mic or backend. Driven by ?demo=<slug> and/or
+// the picker in the debug overlay. Works on page load — no audio needed.
+//
+// Playback is a single continuous timeline over preloaded textures rather than
+// discrete "transition then settle" steps: a global phase advances forever and
+// the morph chains frame→frame with no pause. Seconds the front takes to sweep
+// one accumulation step — bigger = slower, more deliberate morph.
+const DEMO_SEGMENT_MS = 5500;
+
+let sampleSeqs: SampleSequence[] = [];
+let demoGen = 0; // invalidates a sequence whose textures are still preloading
+
+async function ensureSequences(): Promise<SampleSequence[]> {
+  if (sampleSeqs.length === 0) sampleSeqs = await loadSequences();
+  return sampleSeqs;
+}
+
+async function playDemo(slug: string) {
+  const gen = ++demoGen;
+  demoUpdate = null; // freeze current playback while we resolve the new one
+
+  let seqs: SampleSequence[];
+  try {
+    seqs = await ensureSequences();
+  } catch (err) {
+    console.warn("[demo] failed to load /samples/index.json:", err);
+    return;
+  }
+  const seq = seqs.find((s) => s.slug === slug) ?? seqs[0];
+  if (!seq) {
+    console.warn("[demo] no sample sequences available");
+    return;
+  }
+  if (seq.slug !== slug) {
+    console.warn(
+      `[demo] unknown sequence "${slug}" — playing "${seq.slug}". Available:`,
+      seqs.map((s) => s.slug).join(", "),
+    );
+  }
+
+  const texes = await scene
+    .preload(seq.frames.map(frameUrl))
+    .catch((err) => {
+      console.warn(`[demo] failed to preload "${seq.slug}":`, err);
+      return null;
+    });
+  if (!texes) return;
+  if (gen !== demoGen) return; // a newer pick superseded us mid-load
+
+  const n = texes.length;
+  const start = performance.now();
+  let shown = -1;
+  console.log(
+    `[demo] "${seq.slug}" — ${n} frames, continuous morph @ ${DEMO_SEGMENT_MS}ms/step`,
+  );
+  demoUpdate = () => {
+    const phase = (performance.now() - start) / DEMO_SEGMENT_MS;
+    const i = Math.floor(phase) % n;
+    const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
+    const next = (i + 1) % n;
+    scene.setMorph(texes[i], texes[next], t);
+    if (next !== shown) {
+      debug?.setPrompt(seq.frames[next].prompt);
+      shown = next;
+    }
+  };
+}
+
+// Populate the debug picker (click a sequence to replay it in the scene).
+if (debug) {
+  ensureSequences()
+    .then((seqs) => debug!.setSamples(seqs, (slug) => playDemo(slug)))
+    .catch((err) => console.warn("[debug] samples unavailable:", err));
+}
+
+// ?demo=<slug> auto-plays on load, bypassing the mic gate entirely.
+if (DEMO !== null) {
+  gate.classList.add("hidden");
+  playDemo(DEMO);
+}
 
 startBtn.addEventListener("click", () => {
   gate.classList.add("hidden");
@@ -63,10 +152,10 @@ async function start() {
   if (MOCK) {
     console.log("[main] MOCK mode: no websocket, rotating sample images.");
     let i = 0;
-    scene.crossfadeTo(MOCK_IMAGES[i]);
+    scene.transitionTo(MOCK_IMAGES[i]);
     setInterval(() => {
       i = (i + 1) % MOCK_IMAGES.length;
-      scene.crossfadeTo(MOCK_IMAGES[i]);
+      scene.transitionTo(MOCK_IMAGES[i]);
     }, 4000);
   }
 
@@ -117,7 +206,7 @@ async function start() {
   if (socket) {
     socket.onImage = ({ url, prompt, timings }) => {
       console.log("[main] image:", prompt, timings ?? "");
-      scene.crossfadeTo(url);
+      scene.transitionTo(url);
       if (debug) {
         debug.setPrompt(prompt);
         if (timings) debug.addTimings(timings);

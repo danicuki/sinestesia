@@ -1,0 +1,50 @@
+{
+  "description": "Moon → stars → comet → planet → orbital ring → distant nebula.",
+  "title": "Cosmic — slow celestial assembly",
+  "slug": "cosmic",
+  "style": "watercolor and ink, pale washes, hand-drawn outlines",
+  "frames": [
+    {
+      "file": "frame_01.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon floating in an empty dark sky. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84bf/35BrtvX_HrV0noaPNlIwH.jpg",
+      "idx": 1,
+      "latency_ms": 1222
+    },
+    {
+      "file": "frame_02.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon and a scattering of small bright stars across the sky. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84bf/2mJ3Alvo9zvlZClnRfSK5.jpg",
+      "idx": 2,
+      "latency_ms": 1514
+    },
+    {
+      "file": "frame_03.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, and a long comet streaking diagonally past. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84ba/1PddcBwT0bghLBxvPmfkE.jpg",
+      "idx": 3,
+      "latency_ms": 1916
+    },
+    {
+      "file": "frame_04.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, and a large ringed planet rising at the horizon. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84bb/x8BAtd76RReDebo0Y3IRa.jpg",
+      "idx": 4,
+      "latency_ms": 1403
+    },
+    {
+      "file": "frame_05.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, and a thin orbital ring of debris around the planet. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84bb/Q8FM3wRrnR1F4EMh2mDZT.jpg",
+      "idx": 5,
+      "latency_ms": 1747
+    },
+    {
+      "file": "frame_06.jpg",
+      "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, an orbital ring, and a faint glowing nebula spreading across the background. watercolor and ink, pale washes, hand-drawn outlines",
+      "url": "https://v3b.fal.media/files/b/0a9d84bb/gzqWJT6XZr_HRxESqru1G.jpg",
+      "idx": 6,
+      "latency_ms": 1614
+    }
+  ]
+}

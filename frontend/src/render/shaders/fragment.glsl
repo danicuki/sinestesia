@@ -14,11 +14,16 @@ uniform float uOnset;      // 0..1, decays after each onset
 uniform float uCentroid;   // 0..1 spectral centroid (0 = bass/warm, 1 = treble/cool)
 uniform float uValence;    // -1..1 (Rail 3) sad -> happy
 uniform float uArousal;    // 0..1 (Rail 3) calm -> energetic
-uniform float uCrossfade;  // 0 = prev, 1 = current
+uniform float uCrossfade;  // 0 = prev, 1 = current (eased transition progress)
+uniform float uUseWarp;    // 1 = Perlin warp transition, 0 = plain dissolve (fallback)
 uniform float uFftBins[32];
 uniform sampler2D uTexCurrent;
 uniform sampler2D uTexPrev;
 uniform vec2 uResolution;
+
+// Perlin warp transition between uTexPrev and uTexCurrent (uses the uniforms
+// declared above). Provides transitionSample().
+#include ./transition.glsl
 
 // Pick an FFT band (0..31) with linear interpolation.
 float band(float idx) {
@@ -34,9 +39,14 @@ float band(float idx) {
 }
 
 vec3 sampleScene(vec2 uv) {
+  float t = clamp(uCrossfade, 0.0, 1.0);
+  // Perlin ink-bleed transition. Falls back to a plain linear cross-dissolve
+  // (the original behaviour) when warp is disabled — at t=0/1 both paths agree,
+  // so toggling mid-transition is safe.
+  if (uUseWarp > 0.5) return transitionSample(uv, t);
   vec3 prev = texture2D(uTexPrev, uv).rgb;
   vec3 cur = texture2D(uTexCurrent, uv).rgb;
-  return mix(prev, cur, clamp(uCrossfade, 0.0, 1.0));
+  return mix(prev, cur, t);
 }
 
 // Cheap luminance-preserving saturation.

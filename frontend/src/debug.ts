@@ -4,6 +4,7 @@
 // (PROTOCOL.md). Created only when the URL flag is present.
 
 import type { ExpressiveFeatures, Timings, TranscriptMsg } from "./socket";
+import type { SampleSequence } from "./samples";
 
 const COL = {
   stt: "#6ee7b7", // green
@@ -28,6 +29,7 @@ export class DebugOverlay {
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elHistory: HTMLDivElement;
+  private elSamples: HTMLDivElement;
 
   private history: TimingEntry[] = [];
   private lastAudioPaint = 0; // throttle the per-frame meter to ~12Hz
@@ -64,6 +66,7 @@ export class DebugOverlay {
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
     this.elHistory = this.section(right, "history (last 5)");
+    this.elSamples = this.section(right, "sample sequences");
 
     this.root.appendChild(left);
     this.root.appendChild(right);
@@ -175,6 +178,32 @@ export class DebugOverlay {
   setError(message: string, provider?: string) {
     const p = provider ? `[${provider}] ` : "";
     this.elTranscript.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
+  }
+
+  // Clickable list of the pre-generated sample sequences. Picking one replays
+  // it into the scene (onPick) so the transition shader can be iterated without
+  // a mic or the backend. The overlay root is pointer-transparent, so this
+  // section opts back into pointer events.
+  setSamples(seqs: SampleSequence[], onPick: (slug: string) => void) {
+    this.elSamples.innerHTML = "";
+    this.elSamples.style.pointerEvents = "auto";
+    for (const s of seqs) {
+      const a = document.createElement("a");
+      a.href = "#";
+      a.textContent = `▸ ${s.title}`;
+      a.title = s.description;
+      Object.assign(a.style, {
+        display: "block",
+        color: COL.dir,
+        cursor: "pointer",
+        textDecoration: "none",
+      } as CSSStyleDeclaration);
+      a.addEventListener("click", (e) => {
+        e.preventDefault();
+        onPick(s.slug);
+      });
+      this.elSamples.appendChild(a);
+    }
   }
 }
 

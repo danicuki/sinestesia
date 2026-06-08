@@ -1,0 +1,50 @@
+{
+  "description": "Sun → castle → glove → rain → road → sailboat. Inspired by Toquinho's 'Aquarela'.",
+  "title": "Aquarela — childlike progression",
+  "slug": "aquarela",
+  "style": "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+  "frames": [
+    {
+      "file": "frame_01.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun in the upper corner of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b7/FMoZxMdY9VeXV5IKnFfev.jpg",
+      "idx": 1,
+      "latency_ms": 1548
+    },
+    {
+      "file": "frame_02.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun, and a small castle with simple square towers below. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b7/SxukUuJgdObDHQl_PF5ns.jpg",
+      "idx": 2,
+      "latency_ms": 2384
+    },
+    {
+      "file": "frame_03.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun, a small castle below, and an outlined glove at the edge of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b7/sub3el2Eg53ztIjX96CK5.jpg",
+      "idx": 3,
+      "latency_ms": 1448
+    },
+    {
+      "file": "frame_04.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun, a small castle, an outlined glove, and a cloud with diagonal rain lines. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b8/QYedxFswoJyXvzdZEeEud.jpg",
+      "idx": 4,
+      "latency_ms": 2134
+    },
+    {
+      "file": "frame_05.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, and a winding road leading toward the horizon. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b8/2C57S69hcW4t3Nf2uKL8B.jpg",
+      "idx": 5,
+      "latency_ms": 2141
+    },
+    {
+      "file": "frame_06.jpg",
+      "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, a winding road, and a small sailboat drifting on a calm sea. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "url": "https://v3b.fal.media/files/b/0a9d84b8/SoVf33quM7OakneDfElBk.jpg",
+      "idx": 6,
+      "latency_ms": 2137
+    }
+  ]
+}

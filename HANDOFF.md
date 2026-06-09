@@ -50,7 +50,8 @@ cd frontend && bun run dev
 Env vars that matter:
 - `STT_PROVIDER`: `elevenlabs` (default) | `deepgram` | `local_whisper` | `both` (eleven+deepgram) | `eleven_local` | `all`
 - `DIRECTOR_PROVIDER`: `gemma` (default) | `gemini` | `haiku`
-- `IMAGE_PROVIDER`: `fal` (default) | `google` | `pollinations`
+- `IMAGE_PROVIDER`: `fal` (default) | `local_sdxl` (SDXL Turbo via local-sdxl sidecar) | `google` | `pollinations`
+- `LOCAL_SDXL_URL`: `http://127.0.0.1:8003` (default — points at the local-sdxl sidecar)
 - `IMAGE_MODE`: `story` (default) | `classic` — see next section
 - `ELEVEN_COMMIT`: `vad` (default) | `manual`
 - `ELEVEN_VAD_SILENCE`: `0.6` (default) — seconds of silence before VAD commits

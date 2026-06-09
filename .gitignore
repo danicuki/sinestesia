@@ -14,12 +14,17 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
-# Python (local-whisper sidecar)
+# Python sidecars (local-whisper, local-sdxl)
 local-whisper/.venv/
 local-whisper/__pycache__/
 local-whisper/*.pyc
 local-whisper/.python-version
 local-whisper/models/
+local-sdxl/.venv/
+local-sdxl/__pycache__/
+local-sdxl/*.pyc
+local-sdxl/.python-version
+local-sdxl/models/
 
 # Editor
 .DS_Store

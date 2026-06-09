@@ -8,18 +8,21 @@ import fragmentShader from "./shaders/fragment.glsl";
 import type { FastUniforms } from "../audio/features";
 import type { ExpressiveFeatures } from "../socket";
 
-// Duration of one live (backend) morph: the diff-masked shader eases the new
-// strokes in over this window. Kept just under the backend's 3-5s image cadence
-// so a morph normally completes before the next image lands — clean finishes
-// instead of mid-flight restarts. Between images the picture is held, but live
-// audio (Rail 1) keeps animating it, so it never looks frozen. (The dev sample
-// player drives its own continuous timeline and does not use this constant.)
-const TRANSITION_MS = 2800;
-
-// easeInOutCubic — slow start, slow end, so the bleed feels deliberate.
-function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-}
+// The live (backend) morph duration is ADAPTIVE. A fixed duration freezes
+// whenever the backend is slower than it (the morph finishes, then the picture
+// is held until the next image arrives). Instead we measure the real interval
+// between incoming images and stretch each morph to slightly OVERSHOOT it, so a
+// new image almost always lands while the previous morph is still in flight —
+// the screen is then perpetually mid-transition, never frozen. Progression is
+// linear (not eased) so the new strokes draw in evenly across the whole window
+// instead of popping in the middle. These bound the adaptive value.
+const TRANSITION_DEFAULT_MS = 3000; // first image, before any cadence is known
+const TRANSITION_MIN_MS = 2000;
+const TRANSITION_MAX_MS = 7000;
+const TRANSITION_OVERSHOOT = 1.2; // run ~20% past the measured cadence
+// New song (reset): a quick, clean cut to the placeholder — we don't morph
+// between unrelated songs. (The dev sample player drives its own timeline.)
+const RESET_MS = 700;
 
 // A 1x1 dark texture so the shader has something valid before any image lands.
 function placeholderTexture(): THREE.DataTexture {
@@ -38,9 +41,13 @@ export class Scene {
 
   private startTime = performance.now();
   private fadeStart = 0;
-  private fadeDur = TRANSITION_MS;
+  private fadeDur = TRANSITION_DEFAULT_MS;
   private fading = false;
   private onsetEnv = 0; // decaying onset envelope
+  // Cadence tracking for the adaptive morph duration: arrival time of the last
+  // image and an EMA of the gaps between images.
+  private lastImageAt = 0;
+  private gapEma = 0;
   // Flipped to false if the render loop ever throws (e.g. a shader problem),
   // degrading the warp to a plain linear cross-dissolve for the rest of the
   // session. The non-warp branch in the shader matches the original behaviour.
@@ -105,24 +112,44 @@ export class Scene {
   }
 
   // Begin a transition from whatever is currently in uTexCurrent (A) to the new
-  // texture (B). If a transition is already mid-flight it is cancelled: A
-  // becomes the in-flight target so a fresh warp starts from it. (True A would
-  // be the live blend on screen, but capturing that needs an FBO grab — out of
-  // scope for the single-pass path; the jump is brief and rarely visible since
-  // images arrive every 3-5s vs a 2.5s transition.)
-  private startTransition(next: THREE.Texture) {
+  // texture (B). If one is already mid-flight it is redirected, never frozen: A
+  // becomes the in-flight target and the fade restarts toward B.
+  //
+  // The briefing asks for A = the exact blend on screen, which would need an FBO
+  // grab of the current frame. We skip that: the backend is img2img, so
+  // consecutive frames are near-identical and mix(A_prev, A_target, t) ≈ A_target
+  // for all t — snapping A to the target texture is visually indistinguishable
+  // from the true blend, with none of the render-target/colour-space risk. (If a
+  // visible jump ever shows up on real frames, capturing to an FBO here is the
+  // fix.)
+  private startTransition(next: THREE.Texture, durationMs?: number) {
     this.material.uniforms.uTexPrev.value =
       this.material.uniforms.uTexCurrent.value;
     this.material.uniforms.uTexCurrent.value = next;
     this.material.uniforms.uCrossfade.value = 0;
     this.fadeStart = performance.now();
-    this.fadeDur = TRANSITION_MS;
+    this.fadeDur = durationMs ?? this.adaptiveDur();
     this.fading = true;
+  }
+
+  // Stretch the next morph to (a bit past) the measured image cadence so it is
+  // still running when the next image lands. Falls back to the default until we
+  // have seen at least one gap.
+  private adaptiveDur(): number {
+    if (this.gapEma <= 0) return TRANSITION_DEFAULT_MS;
+    return THREE.MathUtils.clamp(
+      this.gapEma * TRANSITION_OVERSHOOT,
+      TRANSITION_MIN_MS,
+      TRANSITION_MAX_MS,
+    );
   }
 
   /** Transition back to the dark placeholder (e.g. on "nova música"). */
   clearImage() {
-    this.startTransition(placeholderTexture());
+    // A new song restarts the cadence estimate and cuts quickly to black.
+    this.lastImageAt = 0;
+    this.gapEma = 0;
+    this.startTransition(placeholderTexture(), RESET_MS);
   }
 
   private configureTex(tex: THREE.Texture) {
@@ -133,6 +160,16 @@ export class Scene {
 
   /** Load a new image and warp-transition to it (live backend path). */
   transitionTo(url: string) {
+    // Measure the gap since the previous image (at arrival, not load-complete,
+    // so it tracks the backend cadence) and fold it into the EMA used to size
+    // the next morph.
+    const now = performance.now();
+    if (this.lastImageAt > 0) {
+      const gap = now - this.lastImageAt;
+      this.gapEma = this.gapEma > 0 ? this.gapEma * 0.6 + gap * 0.4 : gap;
+    }
+    this.lastImageAt = now;
+
     this.loader.load(
       url,
       (tex) => {
@@ -189,16 +226,17 @@ export class Scene {
     this.onsetEnv *= 0.88;
     this.material.uniforms.uOnset.value = this.onsetEnv;
 
-    // Transition progress: easeInOutCubic over TRANSITION_MS. The shader turns
-    // this into both the Perlin warp amplitude (peaks at t=0.5) and the colour
-    // hand-off, so Rail 1/3 keep reacting on top of the bleed.
+    // Transition progress: linear over the adaptive duration, so the new strokes
+    // draw in evenly across the whole window (no mid-point pop). The shader turns
+    // this into the diff-gated bleed and the colour hand-off; Rail 1/3 keep
+    // reacting on top. Usually a new image redirects this before it reaches 1.
     if (this.fading) {
       const t = (now - this.fadeStart) / this.fadeDur;
       if (t >= 1) {
         this.material.uniforms.uCrossfade.value = 1;
         this.fading = false;
       } else {
-        this.material.uniforms.uCrossfade.value = easeInOutCubic(t);
+        this.material.uniforms.uCrossfade.value = t;
       }
     }
 

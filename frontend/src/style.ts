@@ -17,11 +17,13 @@ type ResetCb = () => void;
 const STYLE_SUGGESTIONS = [
   "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
   "crayon drawing on white paper, childlike, bright simple shapes",
-  "graffiti marker on concrete wall, raw bold outlines, urban",
+  "graffiti street art",
   "charcoal sketch on grey paper, soft smudges and hatching",
   "watercolor and ink, pale washes, hand-drawn outlines",
   "Brazilian cordel woodcut print, black and white, hatched linework",
-];
+  "Colorful Expressionism",
+  "Tarsila do Amaral style, Brazilian modernism, bold colors and geometric shapes",
+]
 
 let suggestionListId = 0;
 

@@ -48,7 +48,7 @@ cd frontend && bun run dev
 `.env` at project root (loaded by `backend/lib/sinestesia/application.ex`). Required: `ELEVENLABS_API_KEY` and `FAL_API_KEY`. Optional fallback keys: `DEEPGRAM_API_KEY`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`.
 
 Env vars that matter:
-- `STT_PROVIDER`: `elevenlabs` (default) | `deepgram` | `both`
+- `STT_PROVIDER`: `elevenlabs` (default) | `deepgram` | `local_whisper` | `both` (eleven+deepgram) | `eleven_local` | `all`
 - `DIRECTOR_PROVIDER`: `gemma` (default) | `gemini` | `haiku`
 - `IMAGE_PROVIDER`: `fal` (default) | `google` | `pollinations`
 - `IMAGE_MODE`: `story` (default) | `classic` — see next section

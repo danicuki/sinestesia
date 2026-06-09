@@ -464,7 +464,12 @@ defmodule Sinestesia.Pipeline do
   defp which_providers do
     case System.get_env("STT_PROVIDER", "elevenlabs") |> String.downcase() do
       "both" -> [:elevenlabs, :deepgram]
+      "all" -> [:elevenlabs, :deepgram, :local_whisper]
       "deepgram" -> [:deepgram]
+      "local_whisper" -> [:local_whisper]
+      "local" -> [:local_whisper]
+      # A/B compare ElevenLabs against local Whisper in the same session
+      "eleven_local" -> [:elevenlabs, :local_whisper]
       _ -> [:elevenlabs]
     end
   end
@@ -504,8 +509,22 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  defp start_stt(:local_whisper, socket_pid) do
+    case Sinestesia.LocalWhisperSTT.start_link(self()) do
+      {:ok, pid} ->
+        Logger.info("[local_whisper] started")
+        {:ok, pid}
+
+      {:error, reason} ->
+        Logger.warning("[local_whisper] disabled: #{inspect(reason)} (is the sidecar running on :8002?)")
+        send(socket_pid, {:push_json, %{type: "error", message: "local_whisper disabled: #{inspect(reason)}"}})
+        {:error, reason}
+    end
+  end
+
   defp send_audio(:elevenlabs, pid, bin), do: Sinestesia.ElevenSTT.send_audio(pid, bin)
   defp send_audio(:deepgram, pid, bin), do: Sinestesia.Deepgram.send_audio(pid, bin)
+  defp send_audio(:local_whisper, pid, bin), do: Sinestesia.LocalWhisperSTT.send_audio(pid, bin)
 
   # Bootstrap (first image): wait for a richer prompt so the opening drawing
   # has enough substance. With img2img strength 0.8 the first image dominates

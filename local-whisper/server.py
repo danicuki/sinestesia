@@ -49,7 +49,11 @@ log = logging.getLogger("local-whisper")
 # ──────────────────────────────────────────────────────────────────────────────
 
 SAMPLE_RATE = 16_000  # MUST match what the backend / browser sends
-MODEL_REPO = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-medium-mlx")
+# Default to small, not medium: when SDXL Turbo + Gemma 12B are also sharing
+# the Apple GPU, medium's ~400ms-per-interim load starves the other two and
+# Director latency balloons from ~1.5s to ~6s. small (~150ms) leaves headroom.
+# If you have a dedicated box for STT (no SDXL/Gemma), bump back to medium.
+MODEL_REPO = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-small-mlx")
 # Suggested choices (size / latency tradeoff on M4 Max):
 #   mlx-community/whisper-tiny-mlx-q4     ~40MB  ~50ms/segment, weakest
 #   mlx-community/whisper-base-mlx-q4     ~80MB  ~80ms/segment
@@ -57,12 +61,21 @@ MODEL_REPO = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-medium-mlx")
 #   mlx-community/whisper-medium-mlx-q4   ~770MB ~400ms/segment, very strong
 #   mlx-community/whisper-large-v3-mlx-q4 ~1.5GB ~1s/segment, slowest
 
-# Default to Portuguese — without a hint, Whisper sometimes starts in
-# Russian or Spanish on the first ambiguous chunk. Override via env if
-# the singer switches to English mid-show.
-LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "pt") or None
+# Auto-detect by default (like ElevenLabs did) so English / Portuguese / etc.
+# all work. Set WHISPER_LANGUAGE=pt (or en, es, ...) to FORCE one language and
+# skip detection entirely — useful if you KNOW the set list and want to avoid
+# any chance of misdetection.
+FORCE_LANGUAGE = os.environ.get("WHISPER_LANGUAGE") or None
 
-INTERIM_INTERVAL_MS = int(os.environ.get("INTERIM_INTERVAL_MS", "600"))
+# Whisper's language detection is unreliable on <1s of noisy audio (that's what
+# produced the Cyrillic "Думафоля" garbage). We only auto-detect once the
+# buffer has at least this much audio; until then we hold off on interims.
+MIN_DETECT_SECS = float(os.environ.get("MIN_DETECT_SECS", "1.5"))
+
+# 1200ms (was 600): each interim is a full re-transcription of the buffer, so
+# halving the cadence halves Whisper's steady-state GPU load. The Director can
+# only fire every 5s anyway, so more frequent interims buy nothing here.
+INTERIM_INTERVAL_MS = int(os.environ.get("INTERIM_INTERVAL_MS", "1200"))
 VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "650"))
 MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "300"))
 MAX_BUFFER_SECS = float(os.environ.get("MAX_BUFFER_SECS", "20"))
@@ -82,6 +95,10 @@ class Session:
     last_interim_text: str = ""
     last_speech_end: Optional[float] = None  # seconds offset in `audio` where speech ended
     speech_started: bool = False
+    # Language auto-detected from the audio so far. Updated on each final
+    # (a full utterance, where detection is reliable). Interims reuse it so
+    # they don't flicker. None until the first reliable detection.
+    detected_language: Optional[str] = None
 
 
 def pcm16_to_float32(buf: bytes) -> np.ndarray:
@@ -89,25 +106,27 @@ def pcm16_to_float32(buf: bytes) -> np.ndarray:
     return np.frombuffer(buf, dtype="<i2").astype(np.float32) / 32768.0
 
 
-def transcribe(audio: np.ndarray) -> str:
-    """Run mlx-whisper on the given mono float32 audio. Returns flattened text.
-    Errors are swallowed so a bad chunk doesn't kill the session."""
+def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str]]:
+    """Run mlx-whisper on the given mono float32 audio.
+    Returns (text, detected_language). `language=None` triggers auto-detect;
+    pass an explicit code to skip detection. Errors are swallowed so a bad
+    chunk doesn't kill the session."""
     if len(audio) < int(0.2 * SAMPLE_RATE):
-        return ""
+        return "", None
     try:
         result = mlx_whisper.transcribe(
             audio,
             path_or_hf_repo=MODEL_REPO,
-            language=LANGUAGE,
+            language=language,
             word_timestamps=False,
             condition_on_previous_text=False,
             no_speech_threshold=0.55,
             verbose=False,
         )
-        return (result.get("text") or "").strip()
+        return (result.get("text") or "").strip(), result.get("language")
     except Exception:
         log.exception("transcribe failed on %d-sample audio", len(audio))
-        return ""
+        return "", None
 
 
 def vad_speech_segments(audio: np.ndarray, vad_model) -> list[dict]:
@@ -128,12 +147,44 @@ def vad_speech_segments(audio: np.ndarray, vad_model) -> list[dict]:
         return []
 
 
+def is_hallucinated(text: str) -> bool:
+    """Whisper degenerates into repeated tokens on silence/noise (e.g. the
+    classic 'E E E E E ...' or 'Thank you. Thank you.'). Drop those so they
+    don't poison the Director's bootstrap with garbage."""
+    words = text.split()
+    if len(words) < 6:
+        return False
+    unique = set(w.lower() for w in words)
+    # If 6+ words collapse to 1-2 distinct tokens, it's a repetition loop.
+    return len(unique) <= 2
+
+
 async def emit(ws, text: str, is_final: bool):
     if not text:
+        return
+    if is_hallucinated(text):
+        log.info("⊘ dropped hallucination: %r", text[:60])
         return
     msg = json.dumps({"type": "transcript", "text": text, "is_final": is_final})
     await ws.send(msg)
     log.info("→ %s: %r", "FIN" if is_final else "int", text)
+
+
+def resolve_language(session: Session) -> Optional[str]:
+    """Which language code to feed mlx-whisper. FORCE_LANGUAGE wins; otherwise
+    use what we've detected so far (None = let Whisper auto-detect)."""
+    if FORCE_LANGUAGE:
+        return FORCE_LANGUAGE
+    return session.detected_language
+
+
+def maybe_learn_language(session: Session, detected: Optional[str]):
+    """Cache the detected language the first time we get one (and not forcing)."""
+    if FORCE_LANGUAGE or not detected:
+        return
+    if session.detected_language != detected:
+        log.info("language detected: %s", detected)
+        session.detected_language = detected
 
 
 async def handle(ws):
@@ -170,9 +221,12 @@ async def handle(ws):
                         # last["end"], emit as final, drop committed audio.
                         cut_sample = int(last["end"] * SAMPLE_RATE)
                         utterance = session.audio[:cut_sample]
-                        text = await asyncio.get_event_loop().run_in_executor(
-                            None, transcribe, utterance
+                        # Finals are full utterances → auto-detect is reliable here.
+                        lang = resolve_language(session)
+                        text, detected = await asyncio.get_event_loop().run_in_executor(
+                            None, transcribe, utterance, lang
                         )
+                        maybe_learn_language(session, detected)
                         await emit(ws, text, is_final=True)
                         session.audio = session.audio[cut_sample:]
                         session.last_interim_text = ""
@@ -184,18 +238,42 @@ async def handle(ws):
                 if session.speech_started and (
                     (now - session.last_interim_at) * 1000 >= INTERIM_INTERVAL_MS
                 ):
-                    audio_snapshot = session.audio.copy()
-                    text = await asyncio.get_event_loop().run_in_executor(
-                        None, transcribe, audio_snapshot
-                    )
-                    if text and text != session.last_interim_text:
-                        await emit(ws, text, is_final=False)
-                        session.last_interim_text = text
-                    session.last_interim_at = now
+                    lang = resolve_language(session)
+                    buffer_secs = len(session.audio) / SAMPLE_RATE
+
+                    # Don't auto-detect on a short buffer — that's what produced
+                    # the Cyrillic garbage. Wait until we have enough audio (or
+                    # until a final has already locked in the language).
+                    if lang is None and buffer_secs < MIN_DETECT_SECS:
+                        session.last_interim_at = now
+                    else:
+                        audio_snapshot = session.audio.copy()
+                        text, detected = await asyncio.get_event_loop().run_in_executor(
+                            None, transcribe, audio_snapshot, lang
+                        )
+                        maybe_learn_language(session, detected)
+                        if text and text != session.last_interim_text:
+                            await emit(ws, text, is_final=False)
+                            session.last_interim_text = text
+                        session.last_interim_at = now
 
             else:
-                # Text frame — control message (ignore for now, future use).
-                log.debug("text frame from client: %r", message)
+                # Text frame — control message. The backend sends {"type":"reset"}
+                # when the operator starts a new song, so we drop the buffered
+                # audio and re-detect the language for the new performance.
+                try:
+                    ctrl = json.loads(message)
+                except (ValueError, TypeError):
+                    log.debug("non-JSON text frame: %r", message)
+                    ctrl = {}
+
+                if ctrl.get("type") == "reset":
+                    session.audio = np.zeros(0, dtype=np.float32)
+                    session.detected_language = None
+                    session.last_interim_text = ""
+                    session.last_interim_at = 0.0
+                    session.speech_started = False
+                    log.info("session reset — buffer cleared, language detection reset")
 
     except websockets.exceptions.ConnectionClosed as e:
         log.info("client disconnected (%s)", e.code)
@@ -210,10 +288,11 @@ async def main():
     _ = mlx_whisper.transcribe(
         np.zeros(SAMPLE_RATE, dtype=np.float32),
         path_or_hf_repo=MODEL_REPO,
-        language=LANGUAGE,
+        language=FORCE_LANGUAGE,
         verbose=False,
     )
-    log.info("model loaded and warmed")
+    mode = f"forced={FORCE_LANGUAGE}" if FORCE_LANGUAGE else "auto-detect"
+    log.info("model loaded and warmed (language: %s)", mode)
 
     log.info("listening on ws://%s:%d/transcribe", BIND_HOST, BIND_PORT)
     async with websockets.serve(

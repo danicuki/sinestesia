@@ -62,8 +62,9 @@ First run downloads the model (~250MB for small-q4) into HuggingFace's cache.
 
 | Var | Default | Notes |
 |---|---|---|
-| `WHISPER_MODEL` | `mlx-community/whisper-small-mlx-q4` | any mlx-whisper compatible repo |
-| `WHISPER_LANGUAGE` | _unset_ (autodetect) | e.g. `pt`, `en` to force |
+| `WHISPER_MODEL` | `mlx-community/whisper-small-mlx` | any mlx-whisper compatible repo |
+| `WHISPER_LANGUAGE` | _unset_ (auto-detect) | set `pt`/`en`/... to FORCE one language and skip detection |
+| `MIN_DETECT_SECS` | `1.5` | min audio before trusting auto-detect (avoids misdetection on short/noisy buffers) |
 | `INTERIM_INTERVAL_MS` | `600` | how often to emit a rolling preview during speech |
 | `VAD_SILENCE_MS` | `650` | trailing silence before a segment is finalized |
 | `MIN_SPEECH_MS` | `300` | min speech duration before VAD considers it a segment |

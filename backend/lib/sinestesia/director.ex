@@ -53,33 +53,25 @@ defmodule Sinestesia.Director do
 
   defp system_prompt(style, :story) do
     """
-    You are the visual director for a LIVE VJ system. You are slowly building ONE evolving drawing on paper, element by element, as a song is being sung. The song can be in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of any lyrics you receive.
+    You are the visual director for a LIVE VJ system painting visuals for a song sung live, in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of whatever lyrics you receive.
 
-    For the FIRST line of the song, you are establishing the OPENING SCENE — add 3 starting elements to set up the drawing with enough substance to anchor what follows.
+    The system keeps ONE evolving picture: each new image is painted ON TOP of the previous one, so elements accumulate by themselves. You do NOT need to repeat or re-list what is already drawn — only describe the NEW thing to add for the current line.
 
-    For every line AFTER the first, ADD ONE NEW element to the existing drawing. Never reset. Never replace what is already drawn. Accumulate — each addition layers onto the growing picture.
-
-    STYLE — the entire drawing MUST be rendered in this style: #{style}
+    STYLE — every prompt MUST end with this exact style note: #{style}
 
     Rules:
-    - Output ONE prompt describing the FULL CURRENT DRAWING — every element added so far, plus the new element(s) inspired by the new line.
-    - ALWAYS begin your output with the exact phrase: "A hand-drawn scene showing"
-    - List all elements in the order they were added, separated by commas.
-    - Pick the most concrete, visual noun from the NEW line as the new element (e.g. "rain", "river", "castle", "moon", "moon", "stars"). Ignore abstract words. Translate the noun to English if needed.
-    - If the new line is abstract, vague, or has no visual noun, repeat the previous drawing with a subtle change (deeper shadow, more lines, wind, faded edges).
-    - End with: "#{style}"
-    - NEVER ask the singer for input. NEVER write meta-commentary. NEVER mention what language the lyric is in. Just draw.
-    - No people faces. No text. No logos. No quotes. No preamble. English only output. Max 45 words.
+    - LEAD with the concrete NEW imagery from this line: an object, landscape, weather, animal, motion (e.g. "a round yellow sun", "a small castle", "rain falling", "a seagull").
+    - Translate the imagery to English if the lyric isn't in English.
+    - If the line is abstract with no concrete imagery, evoke a subtle atmospheric shift instead (deeper shadows, drifting light, wind, fading edges).
+    - Keep it SHORT: at most 15 words before the style note.
+    - NEVER ask the singer for input. NEVER write meta-commentary. NEVER mention what language the lyric is in. Just describe the visual.
+    - No people's faces. No text. No logos. No quotes. No preamble. English only.
+    - End with: #{style}
 
-    EXAMPLE PROGRESSION (for illustration only — do NOT carry these elements into a real song):
-      Lyric: "numa folha qualquer eu desenho um sol amarelo"
-      → A hand-drawn scene showing a single round sun in the upper corner. #{style}
-      Lyric: "e com cinco ou seis retas é fácil fazer um castelo"
-      → A hand-drawn scene showing a single round sun in the upper corner, and a small castle with simple square towers below. #{style}
-      Lyric: "basta imaginar e ele está partindo"
-      → A hand-drawn scene showing a single round sun in the upper corner, a small castle below, and the castle now drifting upward as if leaving the ground. #{style}
-
-    Now begin a NEW empty drawing for the actual song.
+    FORMAT EXAMPLES (illustration only — these are NOT already drawn, start fresh for the real song):
+      Lyric: "molha o céu, molha o chão" → heavy diagonal rain falling over bare earth. #{style}
+      Lyric: "águas de março fechando o verão" → a swelling river carrying swirling leaves. #{style}
+      Lyric: "o resto é mato" → dense tangled undergrowth spreading across the ground. #{style}
     """
   end
 
@@ -111,8 +103,10 @@ defmodule Sinestesia.Director do
     ]
   end
 
-  # Story mode keeps the examples inline in the system prompt so the conversation
-  # starts with a CLEAN canvas — no spurious elements carried over from warm-up.
+  # Story mode keeps the format examples inline in the system prompt (not as
+  # conversation turns) so the conversation starts on a CLEAN canvas — nothing
+  # the model treats as "already drawn", avoiding spurious "a second sun" when
+  # the real song opens on imagery similar to an example.
   defp warmup(_style, :story), do: []
 
   @doc "Returns the initial conversation (system + warm-up examples) for the given style."
@@ -182,14 +176,29 @@ defmodule Sinestesia.Director do
     end
   end
 
-  # Story mode prompts MUST begin with the literal phrase. Reject anything else
-  # (meta-commentary, refusals, instructions back to the user) so it never
-  # reaches Flux. Classic mode has no such anchor — accept anything non-empty.
-  defp valid_scene?(text, :story) when is_binary(text) do
-    text |> String.trim_leading() |> String.downcase() |> String.starts_with?("a hand-drawn scene")
+  # Reject meta-commentary / refusals (e.g. "please provide the first line",
+  # "I cannot see...") so garbage never reaches the image model. Concise scene
+  # descriptions pass; anything that looks like the model talking to the user fails.
+  @refusal_markers [
+    "provide the",
+    "i cannot",
+    "i can't",
+    "i need",
+    "please provide",
+    "as an ai",
+    "could you",
+    "let me know",
+    "i'm sorry",
+    "i am sorry"
+  ]
+
+  defp valid_scene?(text, _mode) when is_binary(text) do
+    trimmed = String.trim(text)
+    lower = String.downcase(trimmed)
+    trimmed != "" and not Enum.any?(@refusal_markers, &String.contains?(lower, &1))
   end
 
-  defp valid_scene?(text, _), do: is_binary(text) and String.trim(text) != ""
+  defp valid_scene?(_text, _mode), do: false
 
   def next_prompt(conversation, _), do: {:error, {:empty_line, conversation}}
 

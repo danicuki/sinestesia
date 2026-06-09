@@ -154,6 +154,10 @@ defmodule Sinestesia.Pipeline do
       "[pipeline] song reset — session_id #{state.session_id} → #{new_session}, killed #{killed} in-flight task(s)"
     )
 
+    # Tell stateful STT providers (local Whisper) to drop their audio buffer
+    # and re-detect the language for the new song.
+    Enum.each(state.stts, fn {provider, pid} -> reset_stt(provider, pid) end)
+
     default_style = Sinestesia.Director.default_style()
 
     push(state.socket, %{
@@ -525,6 +529,11 @@ defmodule Sinestesia.Pipeline do
   defp send_audio(:elevenlabs, pid, bin), do: Sinestesia.ElevenSTT.send_audio(pid, bin)
   defp send_audio(:deepgram, pid, bin), do: Sinestesia.Deepgram.send_audio(pid, bin)
   defp send_audio(:local_whisper, pid, bin), do: Sinestesia.LocalWhisperSTT.send_audio(pid, bin)
+
+  # Only local Whisper carries song-scoped state (audio buffer + detected
+  # language). The cloud providers auto-detect per utterance, so reset is a no-op.
+  defp reset_stt(:local_whisper, pid), do: Sinestesia.LocalWhisperSTT.reset(pid)
+  defp reset_stt(_provider, _pid), do: :ok
 
   # Bootstrap (first image): wait for a richer prompt so the opening drawing
   # has enough substance. With img2img strength 0.8 the first image dominates

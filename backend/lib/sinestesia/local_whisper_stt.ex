@@ -23,6 +23,7 @@ defmodule Sinestesia.LocalWhisperSTT do
 
   def start_link(parent), do: GenServer.start_link(__MODULE__, parent)
   def send_audio(pid, bin), do: GenServer.cast(pid, {:audio, bin})
+  def reset(pid), do: GenServer.cast(pid, :reset)
 
   ## Callbacks
 
@@ -58,6 +59,25 @@ defmodule Sinestesia.LocalWhisperSTT do
         case Mint.WebSocket.stream_request_body(conn, ref, data) do
           {:ok, conn2} ->
             {:noreply, %{state | conn: conn2, ws: ws2, chunks_sent: state.chunks_sent + 1}}
+
+          {:error, conn2, reason} ->
+            {:stop, {:send_failed, reason}, %{state | conn: conn2}}
+        end
+
+      {:error, ws2, reason} ->
+        {:stop, {:encode_failed, reason}, %{state | ws: ws2}}
+    end
+  end
+
+  def handle_cast(:reset, %{conn: conn, ref: ref, ws: ws} = state) do
+    payload = Jason.encode!(%{type: "reset"})
+
+    case Mint.WebSocket.encode(ws, {:text, payload}) do
+      {:ok, ws2, data} ->
+        case Mint.WebSocket.stream_request_body(conn, ref, data) do
+          {:ok, conn2} ->
+            Logger.info("[local_whisper] sent reset")
+            {:noreply, %{state | conn: conn2, ws: ws2}}
 
           {:error, conn2, reason} ->
             {:stop, {:send_failed, reason}, %{state | conn: conn2}}

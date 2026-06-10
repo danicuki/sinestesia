@@ -7,7 +7,9 @@ defmodule Sinestesia.ImageGen do
     "google"        → Google Imagen 4 Fast       (uses Gemini credits)
     "pollinations"  → Pollinations.ai (Flux)     (free, no auth)
 
-  All providers return `{:ok, url_or_data_url} | {:error, reason}`.
+  Providers return `{:ok, url_or_data_url} | {:error, reason}`. The local
+  SDXL sidecar additionally returns `{:ok, url, frames}` where `frames` is a
+  latent-morph sequence ending on `url` (see PROTOCOL.md `image.frames`).
   The frontend's TextureLoader handles both HTTPS URLs and `data:` URLs.
 
   Note: `local_sdxl` is img2img-only. When no previous image is available
@@ -18,7 +20,8 @@ defmodule Sinestesia.ImageGen do
   """
   require Logger
 
-  @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec generate(String.t(), keyword()) ::
+          {:ok, String.t()} | {:ok, String.t(), [String.t()]} | {:error, term()}
   def generate(prompt, opts \\ []) when is_binary(prompt) do
     image_url = Keyword.get(opts, :image_url)
 
@@ -30,7 +33,7 @@ defmodule Sinestesia.ImageGen do
         Sinestesia.ImageGen.Fal.generate(prompt)
 
       {:local_sdxl, url} when is_binary(url) and url != "" ->
-        Sinestesia.ImageGen.LocalSdxl.generate(prompt, url)
+        Sinestesia.ImageGen.LocalSdxl.generate(prompt, url, Keyword.take(opts, [:camera]))
 
       {:local_sdxl, _} ->
         # First frame: local SDXL sidecar only does img2img. Bootstrap with

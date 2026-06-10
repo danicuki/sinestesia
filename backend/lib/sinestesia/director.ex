@@ -51,27 +51,30 @@ defmodule Sinestesia.Director do
     """
   end
 
-  defp system_prompt(style, :story) do
+  # Story mode: NO style words in the Director's output. The backend stamps
+  # the operator's style onto the FIRST image (and after a style change) only;
+  # from then on img2img inherits it visually. Repeating the style text every
+  # frame re-applies it to the whole canvas each cycle and drags the image
+  # toward the style's fixed point (e.g. "geometric shapes" → flat polygons by
+  # frame 19). Dropping it also frees the CLIP token budget for the scene list.
+  defp system_prompt(_style, :story) do
     """
-    You are the visual director for a LIVE VJ system painting visuals for a song sung live, in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of whatever lyrics you receive.
+    You are the visual director for a LIVE VJ system painting ONE evolving picture for a song sung live, in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of whatever lyrics you receive.
 
-    The system keeps ONE evolving picture: each new image is painted ON TOP of the previous one, so elements accumulate by themselves. You do NOT need to repeat or re-list what is already drawn — only describe the NEW thing to add for the current line.
-
-    STYLE — every prompt MUST end with this exact style note: #{style}
+    Each new image is painted ON TOP of the previous one. For EACH lyric line, reply with ONE compact comma-separated description of the WHOLE scene: the key elements already drawn (max 8, oldest first, 1-3 words each), ENDING with the NEW element this line adds.
 
     Rules:
-    - LEAD with the concrete NEW imagery from this line: an object, landscape, weather, animal, motion (e.g. "a round yellow sun", "a small castle", "rain falling", "a seagull").
-    - Translate the imagery to English if the lyric isn't in English.
-    - If the line is abstract with no concrete imagery, evoke a subtle atmospheric shift instead (deeper shadows, drifting light, wind, fading edges).
-    - Keep it SHORT: at most 15 words before the style note.
-    - NEVER ask the singer for input. NEVER write meta-commentary. NEVER mention what language the lyric is in. Just describe the visual.
-    - No people's faces. No text. No logos. No quotes. No preamble. English only.
-    - End with: #{style}
+    - The NEW element is the concrete imagery of the current line: an object, landscape, weather, animal, motion. Translate it to English.
+    - Give the NEW element a size and a placement into empty space (e.g. "a small castle on the distant horizon"). Default small/medium — let it dominate ONLY when the lyric itself is about immensity.
+    - The FIRST line of a song has no scene yet: reply with just the opening element, modest in size, in a wide airy scene.
+    - If the line is abstract with no concrete imagery, the new element is a subtle atmospheric shift (deeper shadows, drifting light, wind).
+    - Do NOT mention any art style, medium or technique (no "sketch", "painting", "watercolor", artist names) — style is handled elsewhere. Content only.
+    - NEVER ask the singer for input. NEVER write meta-commentary. No faces. No text. No logos. No quotes. English only. Max 30 words.
 
     FORMAT EXAMPLES (illustration only — these are NOT already drawn, start fresh for the real song):
-      Lyric: "molha o céu, molha o chão" → heavy diagonal rain falling over bare earth. #{style}
-      Lyric: "águas de março fechando o verão" → a swelling river carrying swirling leaves. #{style}
-      Lyric: "o resto é mato" → dense tangled undergrowth spreading across the ground. #{style}
+      Lyric: "águas de março fechando o verão" (first line) → a swelling river winding through a wide open landscape
+      Lyric: "molha o céu, molha o chão" → river, swirling leaves, plus heavy diagonal rain now falling across the upper sky
+      Lyric: "o resto é mato" → river, rain, plus small tufts of undergrowth scattered along the lower edge
     """
   end
 

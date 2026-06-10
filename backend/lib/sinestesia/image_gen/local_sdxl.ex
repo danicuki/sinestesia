@@ -3,9 +3,13 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
   Image generator using a local SDXL Turbo img2img sidecar (see `local-sdxl/`).
 
   Drop-in replacement for `Sinestesia.ImageGen.FalImg2Img` — same request
-  shape (prompt + image_url + strength), same response (`{:ok, url}` |
-  `{:error, term}`). Returned URL points at `http://localhost:8003/img/<id>.png`
-  which the browser fetches directly.
+  shape (prompt + image_url + strength). Returned URL points at
+  `http://localhost:8003/img/<id>.png` which the browser fetches directly.
+
+  Unlike the other providers it returns `{:ok, url, frames}`: `frames` is the
+  latent-space morph sequence (previous image → new image, ending on the final
+  URL) that the frontend plays as a continuous generative morph. Empty when
+  the sidecar runs with `MORPH_FRAMES=0`.
 
   Faster than fal (~700 ms vs ~1.5 s warm) and free, in exchange for needing
   the Python sidecar running.
@@ -19,8 +23,9 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
   defp strength, do: System.get_env("LOCAL_SDXL_STRENGTH", "0.78") |> String.to_float()
   defp steps, do: System.get_env("LOCAL_SDXL_STEPS", "3") |> String.to_integer()
 
-  @spec generate(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def generate(prompt, image_url) when is_binary(prompt) and is_binary(image_url) do
+  @spec generate(String.t(), String.t(), keyword()) ::
+          {:ok, String.t(), [String.t()]} | {:error, term()}
+  def generate(prompt, image_url, opts \\ []) when is_binary(prompt) and is_binary(image_url) do
     body = %{
       prompt: prompt,
       image_url: image_url,
@@ -29,13 +34,27 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
       image_size: "landscape_16_9"
     }
 
+    # Operator camera (zoom/pan, -1..1) — the sidecar warps the previous
+    # frame's latents by this before denoising. Omitted when neutral.
+    body =
+      case Keyword.get(opts, :camera) do
+        %{} = cam -> Map.put(body, :camera, cam)
+        _ -> body
+      end
+
     case Req.post(base_url() <> "/generate",
            json: body,
            receive_timeout: 30_000,
            retry: false
          ) do
-      {:ok, %{status: 200, body: %{"images" => [%{"url" => url} | _]}}} ->
-        {:ok, url}
+      {:ok, %{status: 200, body: %{"images" => [%{"url" => url} | _]} = body}} ->
+        frames =
+          case Map.get(body, "frames") do
+            urls when is_list(urls) -> Enum.filter(urls, &is_binary/1)
+            _ -> []
+          end
+
+        {:ok, url, frames}
 
       {:ok, %{status: status, body: body}} ->
         {:error, {:bad_status, status, body}}

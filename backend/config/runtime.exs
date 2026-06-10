@@ -14,7 +14,11 @@ if File.exists?(env_path) do
           [k, v] ->
             key = String.trim(k)
             val = v |> String.trim() |> String.trim("\"")
-            if val != "", do: System.put_env(key, val)
+            # dotenv convention: a var already set on the process/shell wins
+            # over .env. This lets one-off overrides work, e.g.
+            # `STT_PROVIDER=replay mix run --no-halt` or the
+            # `mix sinestesia.replay` task setting PORT/REPLAY_FILE.
+            if val != "" and System.get_env(key) in [nil, ""], do: System.put_env(key, val)
 
           _ -> :ok
         end

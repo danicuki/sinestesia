@@ -75,8 +75,11 @@ curl -s http://127.0.0.1:8003/healthz
 | `SDXL_DEVICE` | `mps` | `mps` \| `cuda` \| `cpu` |
 | `SDXL_STEPS` | `3` | SDXL Turbo: 1-4 sweet spot |
 | `SDXL_STRENGTH` | `0.78` | higher = more change per frame, less continuity |
-| `SDXL_WIDTH` | `1024` | output width (kept 16:9 for stage) |
-| `SDXL_HEIGHT` | `576` | output height |
+| `SDXL_WIDTH` | `768` | output width (kept 16:9 for stage) |
+| `SDXL_HEIGHT` | `432` | output height |
+| `MORPH_FRAMES` | `5` | intermediate latent-morph frames per generation; `0` disables |
+| `CAMERA_ZOOM_RATE` | `0.05` | zoom scale change per frame at full deflection (`camera.zoom = ±1`) |
+| `CAMERA_PAN_RATE` | `0.05` | fraction of the frame panned per frame at full deflection |
 | `BIND_HOST` | `127.0.0.1` | bind address |
 | `BIND_PORT` | `8003` | bind port |
 | `PUBLIC_HOST` | _same as BIND_HOST_ | hostname embedded in returned image URLs |
@@ -109,11 +112,33 @@ Response:
 ```json
 {
   "images": [
-    {"url": "http://127.0.0.1:8003/img/<uuid>.png", "width": 1024, "height": 576}
+    {"url": "http://127.0.0.1:8003/img/<uuid>.png", "width": 768, "height": 432}
   ],
-  "timings": {"fetch_ms": 80, "infer_ms": 720}
+  "frames": [
+    "http://127.0.0.1:8003/img/<uuid>_m1.jpg",
+    "http://127.0.0.1:8003/img/<uuid>_m2.jpg",
+    "http://127.0.0.1:8003/img/<uuid>.png"
+  ],
+  "timings": {"fetch_ms": 0, "infer_ms": 720, "morph_ms": 240, "input_source": "latent-cache"}
 }
 ```
+
+`frames` is the **latent-space morph**: `MORPH_FRAMES` intermediates obtained by
+slerp between the previous frame's latents and the new ones, decoded with the
+tiny VAE, ending on the final image. Each intermediate is a real decoded image
+(a generative morph, not a pixel crossfade). The frontend plays the sequence as
+a chained morph; ignoring it and using `images[0]` still works.
+
+### Latent cache
+
+The output latents of recent generations are kept in memory keyed by filename.
+When the backend chains img2img on one of our own `/img/...` URLs (the normal
+story-mode loop), the server feeds the cached latents straight back into the
+pipeline. This skips the HTTP self-fetch and the VAE re-encode (~100-180ms
+saved per frame) and — more importantly — avoids the generational
+decode→encode loss that slowly blurs the canvas over a long song.
+`timings.input_source` reports which path was taken: `latent-cache`, `disk`
+(file read, no HTTP), or `http`.
 
 ### GET /img/{name}
 

@@ -1,0 +1,437 @@
+{
+  "name": "aquarela-tarsila-v2",
+  "source_log": "aquarela_rehearsal.log",
+  "style": "naive Brazilian landscape painting inspired by Tarsila do Amaral, flat bold colors, soft rounded forms",
+  "events": [
+    {
+      "at_ms": 0,
+      "text": "Número f-",
+      "final": false
+    },
+    {
+      "at_ms": 997,
+      "text": "Numa folha qualquer.",
+      "final": false
+    },
+    {
+      "at_ms": 1991,
+      "text": "Numa folha qualquer, eu desenho-",
+      "final": false
+    },
+    {
+      "at_ms": 3099,
+      "text": "Numa folha qualquer, eu desenho um sol amarelo.",
+      "final": false
+    },
+    {
+      "at_ms": 3804,
+      "text": "Numa folha qualquer eu desenho um sol amarelo.",
+      "final": false
+    },
+    {
+      "at_ms": 4526,
+      "text": "Numa folha qualquer eu desenho um sol amarelooo.",
+      "final": true
+    },
+    {
+      "at_ms": 5010,
+      "text": "E com cin-",
+      "final": false
+    },
+    {
+      "at_ms": 6016,
+      "text": "E com cinco ou seis retas.",
+      "final": false
+    },
+    {
+      "at_ms": 7124,
+      "text": "E com cinco ou seis retas é fácil-",
+      "final": false
+    },
+    {
+      "at_ms": 8031,
+      "text": "E com cinco ou seis retas é fácil fazer um ca-",
+      "final": false
+    },
+    {
+      "at_ms": 9140,
+      "text": "E com cinco ou seis retas é fácil fazer um castelooo.",
+      "final": false
+    },
+    {
+      "at_ms": 9429,
+      "text": "E com cinco ou seis retas é fácil fazer um castelooo.",
+      "final": true
+    },
+    {
+      "at_ms": 11053,
+      "text": "Com um lápiz-",
+      "final": false
+    },
+    {
+      "at_ms": 12061,
+      "text": "Colo o lápiz em torno daaa mão.",
+      "final": false
+    },
+    {
+      "at_ms": 13067,
+      "text": "Colo o lápiz em torno da mão e me dou-",
+      "final": false
+    },
+    {
+      "at_ms": 14076,
+      "text": "Colho um lápiz em torno da mão e me dou uma luuva.",
+      "final": false
+    },
+    {
+      "at_ms": 14882,
+      "text": "\"Colo um lápiz em torno da mão e me dou uma luvaaa.\"",
+      "final": false
+    },
+    {
+      "at_ms": 14929,
+      "text": "\"Colo um lápiz em torno da mão e me dou uma luvaaa.\"",
+      "final": true
+    },
+    {
+      "at_ms": 16770,
+      "text": "E se f",
+      "final": false
+    },
+    {
+      "at_ms": 17777,
+      "text": "\"E se faço chover,",
+      "final": false
+    },
+    {
+      "at_ms": 18783,
+      "text": "\"E se faço chover quando eu se escor--",
+      "final": false
+    },
+    {
+      "at_ms": 19889,
+      "text": "\"E se faço chover, quando vocês custem um guarda-chuva.\"",
+      "final": false
+    },
+    {
+      "at_ms": 20594,
+      "text": "\"E se faço chover, quando vocês custem um guarda-chuva.\"",
+      "final": false
+    },
+    {
+      "at_ms": 21504,
+      "text": "\"E se faço chover, quando vocês custem um guarda-chuvaaa.\"",
+      "final": true
+    },
+    {
+      "at_ms": 23244,
+      "text": "Se um pinguinho-",
+      "final": false
+    },
+    {
+      "at_ms": 24019,
+      "text": "\"Se um pinguinho de tinta",
+      "final": false
+    },
+    {
+      "at_ms": 25026,
+      "text": "\"Se um pinguinho de tinta cai num pedaço-",
+      "final": false
+    },
+    {
+      "at_ms": 26137,
+      "text": "\"Se um pinguinho de tinta cai num pedacinho azul",
+      "final": false
+    },
+    {
+      "at_ms": 27178,
+      "text": "\"Se um pinguinho de tinta cai num pedacinho azul do papééé.\"",
+      "final": false
+    },
+    {
+      "at_ms": 28182,
+      "text": "\"Se um pinguinho de tinta cai num pedacinho azul do papééél.\"",
+      "final": false
+    },
+    {
+      "at_ms": 28434,
+      "text": "\"Se um pinguinho de tinta cai num pedacinho azul do papééél.\"",
+      "final": true
+    },
+    {
+      "at_ms": 29004,
+      "text": "Não, não é isso.",
+      "final": false
+    },
+    {
+      "at_ms": 29998,
+      "text": "Num instante, imagina-",
+      "final": false
+    },
+    {
+      "at_ms": 31002,
+      "text": "Num instante, imagino uma linda-",
+      "final": false
+    },
+    {
+      "at_ms": 32118,
+      "text": "\"Num instante, imagino uma linda gaivota.\"",
+      "final": false
+    },
+    {
+      "at_ms": 33123,
+      "text": "\"Num instante, imagino uma linda gaivota voar no-",
+      "final": false
+    },
+    {
+      "at_ms": 34129,
+      "text": "Num instante, imagino uma linda gaivota voar no céu.",
+      "final": false
+    },
+    {
+      "at_ms": 35078,
+      "text": "\"Num instante, imagino uma linda gaivota voar no céééu.\"",
+      "final": true
+    },
+    {
+      "at_ms": 36755,
+      "text": "Vai voando-",
+      "final": false
+    },
+    {
+      "at_ms": 37707,
+      "text": "Vai voando.",
+      "final": true
+    },
+    {
+      "at_ms": 38459,
+      "text": "Continuando.",
+      "final": false
+    },
+    {
+      "at_ms": 39466,
+      "text": "Continuando a imensa-",
+      "final": false
+    },
+    {
+      "at_ms": 40307,
+      "text": "Contornando a imensa curva.",
+      "final": false
+    },
+    {
+      "at_ms": 41315,
+      "text": "Contornando a imensa curvaaa, note",
+      "final": false
+    },
+    {
+      "at_ms": 42321,
+      "text": "Contornando a imensa curvaaa, Norte-Sul, voa-",
+      "final": false
+    },
+    {
+      "at_ms": 43327,
+      "text": "Contornando a imensa curvaaa, Norte-Sul, vou com elaaa.",
+      "final": false
+    },
+    {
+      "at_ms": 44285,
+      "text": "Contornando a imensa curvaaa, Norte-Sul, vou com elaaa.",
+      "final": true
+    },
+    {
+      "at_ms": 44938,
+      "text": "Viajooo-",
+      "final": false
+    },
+    {
+      "at_ms": 46055,
+      "text": "Viajando avançando.",
+      "final": false
+    },
+    {
+      "at_ms": 47064,
+      "text": "Viajando Havaí, Pequim.",
+      "final": false
+    },
+    {
+      "at_ms": 48074,
+      "text": "Viajando a Havaí, Pequim ou Istambul.",
+      "final": false
+    },
+    {
+      "at_ms": 48725,
+      "text": "Viajando a Havaí, Pequim ou Istambul.",
+      "final": true
+    },
+    {
+      "at_ms": 49506,
+      "text": "Pequim, tu não-",
+      "final": false
+    },
+    {
+      "at_ms": 50584,
+      "text": "Pequim, Tumba, Acqua, Baia, Pequim.",
+      "final": false
+    },
+    {
+      "at_ms": 51336,
+      "text": "Pintum barco a vela, branco na-",
+      "final": false
+    },
+    {
+      "at_ms": 52341,
+      "text": "Pintum barco a veeela, branco navegaaando.",
+      "final": false
+    },
+    {
+      "at_ms": 53412,
+      "text": "Pintum barco a vela, branco navegando, é tanto céu-",
+      "final": false
+    },
+    {
+      "at_ms": 54319,
+      "text": "Pintum barco a vela, branco navegando, é tanto céu e mar.",
+      "final": false
+    },
+    {
+      "at_ms": 55424,
+      "text": "Pintum barco a vela, branco navegando, é tanto céu e mar, num beijo-",
+      "final": false
+    },
+    {
+      "at_ms": 56432,
+      "text": "Pintum barco a vela, branco navegando, é tanto céu e mar num beijo azuuuul.",
+      "final": false
+    },
+    {
+      "at_ms": 57047,
+      "text": "Pintum barco a vela, branco navegando, é tanto céu e mar num beijo azuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu",
+      "final": true
+    },
+    {
+      "at_ms": 57744,
+      "text": "ul.",
+      "final": false
+    },
+    {
+      "at_ms": 62076,
+      "text": "u. Entre as nuuuvêêêêêêêêêêêêêêêêêêêêêêêêê",
+      "final": false
+    },
+    {
+      "at_ms": 63591,
+      "text": "entre as nuuuvens vem surgindo um lindo avião, ro",
+      "final": false
+    },
+    {
+      "at_ms": 64395,
+      "text": "entre as nuuuvens, vem surgindo um lindo avião, rosa e grená.",
+      "final": false
+    },
+    {
+      "at_ms": 65433,
+      "text": "entre as nuvens, vem surgindo um lindo avião, rosa e grená, tudo em",
+      "final": false
+    },
+    {
+      "at_ms": 66509,
+      "text": "entre as nuvens, vem surgindo um lindo avião, rosa e grená, tudo em volta.",
+      "final": false
+    },
+    {
+      "at_ms": 66773,
+      "text": "entre as nuvens, vem surgindo um lindo avião, rosa e grená, tudo em voltaaa.",
+      "final": true
+    },
+    {
+      "at_ms": 67459,
+      "text": "Coloriiii-",
+      "final": false
+    },
+    {
+      "at_ms": 68492,
+      "text": "Colorindo com-",
+      "final": false
+    },
+    {
+      "at_ms": 69506,
+      "text": "Colorindo com suas luzes.",
+      "final": false
+    },
+    {
+      "at_ms": 70506,
+      "text": "Colorindo com suas luzes, a",
+      "final": false
+    },
+    {
+      "at_ms": 71311,
+      "text": "Colorindo com suas luzes, a pescar.",
+      "final": false
+    },
+    {
+      "at_ms": 72318,
+      "text": "Colorindo com suas luzes, a pescar, basta ir mais-",
+      "final": false
+    },
+    {
+      "at_ms": 73359,
+      "text": "Colorindo com suas luzes, a pescar, basta imaginar.",
+      "final": false
+    },
+    {
+      "at_ms": 74368,
+      "text": "Colorindo com suas luzes, a pescar, basta imaginar e ele está-",
+      "final": false
+    },
+    {
+      "at_ms": 75370,
+      "text": "Colorindo com suas luzes, a pescar, basta imaginar e ele está partindo.",
+      "final": false
+    },
+    {
+      "at_ms": 75992,
+      "text": "Colorindo com suas luzes, a pescar, basta imaginar e ele está partindo.",
+      "final": true
+    },
+    {
+      "at_ms": 76522,
+      "text": "Sereno.",
+      "final": false
+    },
+    {
+      "at_ms": 77527,
+      "text": "Sereno eee dis",
+      "final": false
+    },
+    {
+      "at_ms": 78532,
+      "text": "Sereno, eee, e se a gente quiser-",
+      "final": false
+    },
+    {
+      "at_ms": 79538,
+      "text": "Sereno eee, e se a geeente quiseeer.",
+      "final": false
+    },
+    {
+      "at_ms": 79947,
+      "text": "Sereno eee, e se a geeente quiseeer...",
+      "final": true
+    },
+    {
+      "at_ms": 81683,
+      "text": "Ele vai-",
+      "final": false
+    },
+    {
+      "at_ms": 82508,
+      "text": "Ele vai pousar.",
+      "final": false
+    },
+    {
+      "at_ms": 83216,
+      "text": "Ele vai pousar.",
+      "final": true
+    }
+  ]
+}

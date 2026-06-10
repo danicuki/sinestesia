@@ -17,12 +17,34 @@ defmodule Sinestesia.Pipeline do
   use GenServer
   require Logger
 
-  # Story mode runs slower on purpose: img2img is ~1.5s vs t2i's ~500ms, and
-  # we want each new element to land deliberately rather than flashing past.
+  # LIVE: no artificial pacing. The next Director fires as soon as the
+  # previous cycle finishes (`generating?` already serializes director→image)
+  # and new lyrics exist — the cadence bottleneck is generation itself
+  # (~2-2.5s), never a pre-fixed wait, so the visuals don't drift behind the
+  # song. REPLAY: ~3s simulates a natural live cadence. Override either with
+  # DIRECTOR_MIN_INTERVAL_MS (e.g. as a brake if a fast image provider starts
+  # flashing elements past too quickly).
   defp director_min_interval_ms do
-    case Sinestesia.Director.mode() do
-      :story -> 5000
-      _ -> 3000
+    base =
+      case System.get_env("DIRECTOR_MIN_INTERVAL_MS") do
+        nil -> if replay?(), do: 3000, else: 0
+        v -> String.to_integer(v)
+      end
+
+    # A replay compresses the lyric timeline by REPLAY_SPEED; compress the
+    # pacing gate equally, otherwise a 2x replay yields half the images the
+    # live performance produced.
+    round(base / replay_speed())
+  end
+
+  defp replay?, do: System.get_env("STT_PROVIDER") == "replay"
+
+  defp replay_speed do
+    with true <- replay?(),
+         {s, _} when s > 0 <- Float.parse(System.get_env("REPLAY_SPEED", "1.0")) do
+      s
+    else
+      _ -> 1.0
     end
   end
 
@@ -81,6 +103,7 @@ defmodule Sinestesia.Pipeline do
   def expressive(pid, features), do: GenServer.cast(pid, {:expressive, features})
   def fast_features(pid, features), do: GenServer.cast(pid, {:fast_features, features})
   def set_style(pid, style), do: GenServer.cast(pid, {:set_style, style})
+  def set_camera(pid, camera), do: GenServer.cast(pid, {:set_camera, camera})
   def reset_song(pid), do: GenServer.cast(pid, :reset_song)
 
   ## Callbacks
@@ -114,6 +137,16 @@ defmodule Sinestesia.Pipeline do
        since_last_director: false,
        last_image_url: nil,
        bootstrap_done?: false,
+       # Story mode: the style text is appended to the Director's prompt only
+       # until one styled image lands (bootstrap / after a style change). From
+       # then on img2img inherits the look visually — repeating the style text
+       # every frame re-applies it to the whole canvas and drags the image
+       # toward the style's fixed point (flat shapes, etc).
+       style_stamped?: false,
+       # Operator-driven virtual camera (zoom/pan_x/pan_y, -1..1). Persistent
+       # velocity: applied by the image sidecar to every generated frame while
+       # non-neutral. Set via the `camera` WS message; neutral on reset.
+       camera: neutral_camera(),
        # Bumped on every reset_song. Any in-flight Task (director / image /
        # curator) captures the session_id at spawn; results carrying an older
        # session_id are dropped on receive so old-song work can't leak into
@@ -141,6 +174,12 @@ defmodule Sinestesia.Pipeline do
 
   def handle_cast({:set_style, raw_style}, state) do
     apply_style(state, raw_style, _from_curator? = false)
+  end
+
+  def handle_cast({:set_camera, raw}, state) do
+    camera = sanitize_camera(raw)
+    Logger.info("[camera] #{inspect(camera)}")
+    {:noreply, %{state | camera: camera}}
   end
 
   # Reset all song-scoped state but KEEP open STT connections + socket.
@@ -188,10 +227,30 @@ defmodule Sinestesia.Pipeline do
          since_last_director: false,
          last_image_url: nil,
          bootstrap_done?: false,
+         style_stamped?: false,
+         camera: neutral_camera(),
          session_id: new_session,
          pending_pids: MapSet.new()
      }}
   end
+
+  defp neutral_camera, do: %{zoom: 0.0, pan_x: 0.0, pan_y: 0.0}
+
+  # Clamp each axis to -1..1 and drop anything else the client sent. Accepts
+  # ints, floats, or missing keys (missing = 0.0, so a partial message like
+  # %{"zoom" => -1} stops any previous pan).
+  defp sanitize_camera(raw) when is_map(raw) do
+    take = fn key ->
+      case Map.get(raw, key, 0) do
+        v when is_number(v) -> v |> max(-1) |> min(1) |> :erlang.float()
+        _ -> 0.0
+      end
+    end
+
+    %{zoom: take.("zoom"), pan_x: take.("pan_x"), pan_y: take.("pan_y")}
+  end
+
+  defp sanitize_camera(_), do: neutral_camera()
 
   defp kill_pending(pids) do
     Enum.reduce(pids, 0, fn pid, acc ->
@@ -212,10 +271,14 @@ defmodule Sinestesia.Pipeline do
 
   @impl true
   def handle_info({:transcript, provider, text, is_final, recv_ts}, state) do
-    latency = recv_ts - state.last_audio_chunk_at
+    # No audio flows in replay mode (last_audio_chunk_at stays 0) — latency is
+    # only meaningful relative to a real chunk.
+    latency =
+      if state.last_audio_chunk_at > 0, do: recv_ts - state.last_audio_chunk_at
+
     tag = if is_final, do: "FIN", else: "int"
 
-    Logger.info("[#{provider}] #{tag} +#{latency}ms: #{text}")
+    Logger.info("[#{provider}] #{tag} +#{latency || 0}ms: #{text}")
 
     push(state.socket, %{
       type: "transcript",
@@ -228,6 +291,18 @@ defmodule Sinestesia.Pipeline do
 
     state = update_text_state(state, provider, text, is_final, latency)
     {:noreply, maybe_trigger(state)}
+  end
+
+  # Replay sessions can carry the style they were recorded with.
+  def handle_info({:replay_style, style}, state) do
+    apply_style(state, style, _from_curator? = false)
+  end
+
+  # Forwarded so the headless replay task (and optionally the front) knows the
+  # session finished. The browser ignores unknown message types per PROTOCOL.md.
+  def handle_info({:replay_done, name}, state) do
+    push(state.socket, %{type: "replay_done", name: name, ts: now_ms()})
+    {:noreply, state}
   end
 
   def handle_info({:stt_error, provider, reason}, state) do
@@ -248,15 +323,19 @@ defmodule Sinestesia.Pipeline do
 
   def handle_info({:director_done, {:ok, prompt, new_conversation}, started_at, _sid}, state) do
     director_ms = now_ms() - started_at
+    prompt = stamp_style(prompt, state)
     Logger.info("[director] +#{director_ms}ms (#{turn_count(new_conversation)} turns): #{prompt}")
 
     timings = %{
       stt_ms: state.last_stt_ms,
       stt_provider: state.last_stt_provider,
-      director_ms: director_ms
+      director_ms: director_ms,
+      # The lyric window that produced this prompt — carried through to the
+      # image message so the front can show what the Director was reacting to.
+      lyric: state.last_director_text
     }
 
-    img_pid = spawn_image(prompt, timings, state.last_image_url, state.session_id)
+    img_pid = spawn_image(prompt, timings, state.last_image_url, state.session_id, state.camera)
 
     pids =
       state.pending_pids
@@ -278,7 +357,7 @@ defmodule Sinestesia.Pipeline do
     {:noreply, state}
   end
 
-  def handle_info({:image_done, {:ok, url, prompt}, timings, _sid}, state) do
+  def handle_info({:image_done, {:ok, url, frames, prompt}, timings, _sid}, state) do
     image_ms = now_ms() - timings.image_started_at
     provider = Sinestesia.ImageGen.provider() |> to_string()
     total = (timings.stt_ms || 0) + timings.director_ms + image_ms
@@ -287,10 +366,11 @@ defmodule Sinestesia.Pipeline do
       "[image:#{provider}] +#{image_ms}ms (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + image #{image_ms})"
     )
 
-    push(state.socket, %{
+    msg = %{
       type: "image",
       url: url,
       prompt: prompt,
+      lyric: Map.get(timings, :lyric),
       ts: now_ms(),
       timings: %{
         stt_ms: timings.stt_ms,
@@ -300,9 +380,48 @@ defmodule Sinestesia.Pipeline do
         total_ms: total,
         image_provider: provider
       }
-    })
+    }
 
-    {:noreply, %{state | generating?: false, last_image_url: url, pending_pids: drop_dead(state.pending_pids)}}
+    # Only attached when the provider produced a morph sequence (local SDXL);
+    # absent otherwise so non-sidecar providers keep the old message shape.
+    msg = if frames == [], do: msg, else: Map.put(msg, :frames, frames)
+
+    push(state.socket, msg)
+
+    {:noreply,
+     %{
+       state
+       | generating?: false,
+         last_image_url: url,
+         style_stamped?: true,
+         pending_pids: drop_dead(state.pending_pids)
+     }}
+  end
+
+  # Story mode styling, two intensities (found empirically with the replay
+  # harness — see tests/README.md):
+  #
+  #   * FULL style note only until a styled image lands (bootstrap / style
+  #     change). Repeating the full descriptor list every frame re-applies it
+  #     to the whole canvas and drags the image into the style's fixed point
+  #     ("geometric shapes" → flat polygons by frame 19).
+  #   * A short ANCHOR (the style's first comma-clause) on every later frame.
+  #     With no style text at all, img2img at strength ~0.78 decays to SDXL's
+  #     photoreal prior within ~6 frames — the anchor keeps the look without
+  #     shouting over the scene content.
+  #
+  # Classic mode renders each frame from scratch; the Director styles its own
+  # prompts there.
+  defp stamp_style(prompt, state) do
+    cond do
+      Sinestesia.Director.mode() != :story -> prompt
+      not state.style_stamped? -> "#{prompt}. #{state.style}"
+      true -> "#{prompt}. #{style_anchor(state.style)}"
+    end
+  end
+
+  defp style_anchor(style) do
+    style |> String.split(",", parts: 2) |> hd() |> String.trim()
   end
 
   def handle_info({:image_done, {:error, reason}, _timings, _sid}, state) do
@@ -417,7 +536,9 @@ defmodule Sinestesia.Pipeline do
            style_locked?: true,
            director_conversation: Sinestesia.Director.init_conversation(new_style),
            last_director_text: "",
-           last_image_url: nil
+           last_image_url: nil,
+           # Re-stamp the new style onto the next image (deliberate change).
+           style_stamped?: false
        }}
     end
   end
@@ -474,6 +595,9 @@ defmodule Sinestesia.Pipeline do
       "local" -> [:local_whisper]
       # A/B compare ElevenLabs against local Whisper in the same session
       "eleven_local" -> [:elevenlabs, :local_whisper]
+      # Replay a recorded session (REPLAY_FILE) instead of live STT — exercises
+      # the full Director → image chain without anyone singing.
+      "replay" -> [:replay]
       _ -> [:elevenlabs]
     end
   end
@@ -526,13 +650,29 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  defp start_stt(:replay, socket_pid) do
+    case Sinestesia.ReplaySTT.start_link(self()) do
+      {:ok, pid} ->
+        Logger.info("[replay] started")
+        {:ok, pid}
+
+      {:error, reason} ->
+        Logger.warning("[replay] disabled: #{inspect(reason)} (set REPLAY_FILE)")
+        send(socket_pid, {:push_json, %{type: "error", message: "replay disabled: #{inspect(reason)}"}})
+        {:error, reason}
+    end
+  end
+
   defp send_audio(:elevenlabs, pid, bin), do: Sinestesia.ElevenSTT.send_audio(pid, bin)
   defp send_audio(:deepgram, pid, bin), do: Sinestesia.Deepgram.send_audio(pid, bin)
   defp send_audio(:local_whisper, pid, bin), do: Sinestesia.LocalWhisperSTT.send_audio(pid, bin)
+  defp send_audio(:replay, pid, bin), do: Sinestesia.ReplaySTT.send_audio(pid, bin)
 
   # Only local Whisper carries song-scoped state (audio buffer + detected
   # language). The cloud providers auto-detect per utterance, so reset is a no-op.
+  # Replay restarts the recorded session from the top.
   defp reset_stt(:local_whisper, pid), do: Sinestesia.LocalWhisperSTT.reset(pid)
+  defp reset_stt(:replay, pid), do: Sinestesia.ReplaySTT.reset(pid)
   defp reset_stt(_provider, _pid), do: :ok
 
   # Bootstrap (first image): wait for a richer prompt so the opening drawing
@@ -544,6 +684,12 @@ defmodule Sinestesia.Pipeline do
   # Default window for subsequent calls. Defined here (NOT later) because Elixir
   # module attributes are not hoisted — used in maybe_trigger below.
   @window_words 10
+  # Don't fire the Director on sub-word debris like "ul" (the tail of an
+  # elongated "azuuuu...ul" split across STT segments) — it wastes a whole
+  # image cycle on an atmospheric non-prompt. Real 2-word lines ("Vai voando")
+  # still fire; skipped fragments aren't lost, they ride along in the next
+  # window once more words arrive.
+  @min_director_words 2
 
   defp maybe_trigger(%{generating?: true} = state), do: state
   defp maybe_trigger(%{since_last_director: false} = state), do: state
@@ -575,6 +721,12 @@ defmodule Sinestesia.Pipeline do
 
         cond do
           text == "" ->
+            state
+
+          not bootstrap? and word_count(text) < @min_director_words ->
+            # Keep since_last_director untouched: the next interim grows the
+            # window and re-triggers naturally.
+            Logger.debug("[director] skip fragment: #{inspect(text)}")
             state
 
           text == state.last_director_text ->
@@ -703,17 +855,21 @@ defmodule Sinestesia.Pipeline do
   defp last_n_words(_, _), do: ""
 
 
-  defp spawn_image(prompt, timings, prev_url, sid) do
+  defp spawn_image(prompt, timings, prev_url, sid, camera) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
 
     opts = if is_binary(prev_url) and prev_url != "", do: [image_url: prev_url], else: []
+    opts = if camera == neutral_camera(), do: opts, else: Keyword.put(opts, :camera, camera)
 
     {:ok, pid} =
       Task.start(fn ->
         result =
           case Sinestesia.ImageGen.generate(prompt, opts) do
-            {:ok, url} -> {:ok, url, prompt}
+            # local_sdxl returns the latent-morph frame sequence alongside the
+            # final URL; the other providers don't (normalize to []).
+            {:ok, url, frames} -> {:ok, url, frames, prompt}
+            {:ok, url} -> {:ok, url, [], prompt}
             err -> err
           end
 

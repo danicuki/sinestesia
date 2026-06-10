@@ -91,6 +91,34 @@ The style may also be set automatically by the backend's **StyleCurator** after
 the first ~5 final lyrics. When that happens, the echoed `style` message
 carries `"source": "curator"` instead of `"source": "user"`.
 
+### `camera` (operator-driven virtual camera) *(added 2026-06-10)*
+
+A persistent camera **velocity** applied by the image pipeline to every
+generated frame while non-neutral: the previous frame is warped (zoom/pan)
+before each img2img step, so the scene drifts in the chosen direction and the
+revealed edges get painted with new content. All values are `-1..1`
+(`0` = still); missing fields are treated as `0`. Send a new message whenever
+the control changes; send all-zeros (or `{}`) to stop. Reset to neutral on
+`reset`.
+
+```json
+{ "type": "camera", "zoom": -1, "pan_x": 0.3, "pan_y": 0 }
+```
+
+- `zoom`: `> 0` zooms in, `< 0` zooms out (scene recedes — useful when the
+  canvas is crowded and a dominant element should shrink).
+- `pan_x`: `> 0` pans the camera right (scene slides left, new canvas appears
+  on the right). `pan_y`: `> 0` pans up.
+- Rates at full deflection (sidecar env-tunable): ~5% zoom and ~5% of the
+  frame per generated image. Full deflection is strong — a brief toggle of
+  2-3 frames is usually enough; a UI can also send fractional values for
+  finer moves.
+- Only honoured by the `local_sdxl` image provider; other providers ignore it.
+
+v1 UI can be a single "zoom out" toggle (sends `{zoom: -1}` / `{zoom: 0}`);
+the protocol already supports a full 6-direction "cameraman joystick" without
+changes.
+
 ### `reset` (new song begins)
 
 Resets all song-scoped state on the backend without dropping the WebSocket
@@ -142,18 +170,25 @@ Liveness check. Backend responds with `pong`.
   "ts": 1717500001234,
   "url": "https://fal.media/files/elephant/abc123.jpg",
   "prompt": "águas escuras correndo lentas, pedra solitária...",
+  "frames": [
+    "http://127.0.0.1:8003/img/ab12_m1.jpg",
+    "http://127.0.0.1:8003/img/ab12_m2.jpg",
+    "http://127.0.0.1:8003/img/ab12.png"
+  ],
   "timings": {
     "stt_ms": 195,
     "stt_provider": "deepgram",
     "director_ms": 870,
     "image_ms": 480,
     "total_ms": 1545,
-    "image_provider": "fal"
+    "image_provider": "local_sdxl"
   }
 }
 ```
 
 - `url`: image URL. Either an HTTPS URL (fal.ai, pollinations) or a `data:image/png;base64,...` URL (google). Three.js `TextureLoader` handles both. Crossfade from the previous one over ~600ms.
+- `lyric` *(optional, added 2026-06-10)*: the lyric window (STT text) that the Director was reacting to when it wrote `prompt`. For debug overlays — lets the operator see "letra → prompt → imagem" per frame.
+- `frames` *(optional, added 2026-06-10)*: only present when `image_provider` is `local_sdxl`. A **generative morph sequence** from the previous image to the new one — slerp interpolation in SDXL latent space, decoded server-side — ordered by progress and **always ending on the same image as `url`**. Intended frontend behaviour: preload all frames, then play them as a chained morph (each consecutive pair is a mini-crossfade segment spread over the image cadence) instead of a single A→B crossfade. The in-between frames are real decoded images (shapes transform, not pixels dissolving). Clients that ignore `frames` and just use `url` keep working exactly as before.
 - `prompt`: included for debugging/overlay; can be ignored visually.
 - `timings`: per-cycle latency breakdown. Useful for the `?debug=1` overlay to compare providers.
 
@@ -211,3 +246,7 @@ changes (e.g. for a small UI badge).
 ## Versioning
 
 If you must evolve the protocol mid-project: bump a `version` field on the first `ping` (and the backend's `pong`) and add a one-line note in this file. **Do not silently change field shapes.**
+
+Changes:
+- **2026-06-10**: added optional `frames` array to the `image` message (latent-morph sequence from the local SDXL sidecar). Purely additive — clients ignoring it are unaffected.
+- **2026-06-10**: added FE→BE `camera` message (operator-driven zoom/pan applied per generated frame). Additive — backends ignore unknown fields, and not sending it preserves current behaviour.

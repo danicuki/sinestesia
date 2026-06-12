@@ -64,7 +64,7 @@ Requirements (same as a live run): Ollama with the Director model, the
 | `COMPOSE_ATMOS_STRENGTH` | `0.4` | how much an atmospheric (abstract-lyric) pass may change the whole canvas |
 | `SCENE_WINDOW` | `5` | global mode only: how many recent elements the Director re-lists |
 | `STYLE_ANCHOR` | off | short per-frame style hint appended to every prompt; `first` = style's first comma-clause (old behavior), custom text overrides. Off by default: repeating a style fragment every frame biases the sequence |
-| `STYLE_REFRESH_EVERY` | `4` | every N images, the request carries `style_pass` and the sidecar chains a gentle whole-canvas re-style with the full style note after the main op (strength `STYLE_PASS_STRENGTH`, sidecar env, default 0.35). `0` disables |
+| `STYLE_REFRESH_EVERY` | `4` | every N images, re-apply the full style: with `local_sdxl` as a real whole-canvas `style_pass` in the sidecar (`STYLE_PASS_STRENGTH`); with other providers (fal etc., global mode) appended to the prompt TEXT — prompts in between stay style-free so scene words carry full weight. `0` disables |
 | `LOCAL_SDXL_STRENGTH` | `0.78` | global-mode change rate per frame (img2img noise) |
 | `LOCAL_SDXL_STEPS` | `3` | scheduler steps; real denoise steps = `int(steps × strength)` |
 
@@ -95,3 +95,11 @@ COMPOSE_MODE=global SCENE_WINDOW=4 mix sinestesia.replay ../tests/sessions/aquar
 | File | Source | Length |
 |---|---|---|
 | `sessions/aquarela-tarsila.json` | Aquarela rehearsal 2026-06-10 10:17 (Tarsila style) | 86 events, 83s |
+| `sessions/o-pato.json` | O Pato rehearsal 2026-06-12 (animal protagonist — Director regression: duck must appear) | 26 events, 26s |
+| `sessions/garota-de-ipanema.json` | Garota de Ipanema rehearsal 2026-06-12 (person protagonist — Director regression: the girl must appear) | 51 events, 62s |
+| `sessions/trem-das-cores.json` | Trem das Cores rehearsal 2026-06-12, graffiti style (no single protagonist — a cascade of colors/images; the protagonist rule must NOT force one) | 105 events, 111s |
+
+The suite is deliberately DIVERSE (animal / person / object-list songs): after any
+Director-prompt change, replay ALL of them — a fix that only works on the song
+that motivated it is overfitting. Add a session from every rehearsal that
+misbehaves: save the backend log and run `tools/log_to_session.py`.

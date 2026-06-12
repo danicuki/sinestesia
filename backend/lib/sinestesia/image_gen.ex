@@ -4,6 +4,8 @@ defmodule Sinestesia.ImageGen do
 
     "fal"           → fal.ai Flux Schnell/dev    (fast, paid)
     "local_sdxl"    → local SDXL Turbo img2img   (local, free, see local-sdxl/)
+    "cloudflare"    → Workers AI: Flux schnell t2i + SDXL base img2img
+                      (startup credits; real CFG so prompts steer content)
     "google"        → Google Imagen 4 Fast       (uses Gemini credits)
     "pollinations"  → Pollinations.ai (Flux)     (free, no auth)
 
@@ -25,9 +27,41 @@ defmodule Sinestesia.ImageGen do
   def generate(prompt, opts \\ []) when is_binary(prompt) do
     image_url = Keyword.get(opts, :image_url)
 
+    if render_mode() == :t2i do
+      t2i(prompt)
+    else
+      img2img(prompt, image_url, opts)
+    end
+  end
+
+  # T2I story mode (RENDER_MODE=t2i): EVERY frame is rendered from scratch
+  # from the cumulative scene prompt — there is no img2img feedback loop, so
+  # there is no generational drift ("psychedelic decay"). This is how the
+  # original sample sequences (aquarela/cityscape/cosmic) were made: temporal
+  # coherence comes from prompt overlap (scene list + same style every frame)
+  # and the frontend's morphing, not from feeding images back into the model.
+  defp t2i(prompt) do
+    case provider() do
+      :cloudflare -> Sinestesia.ImageGen.Cloudflare.text2img(prompt)
+      :google -> Sinestesia.ImageGen.Google.generate(prompt)
+      :pollinations -> Sinestesia.ImageGen.Pollinations.generate(prompt)
+      # fal and local_sdxl (img2img-only) both render via Flux Schnell.
+      _ -> Sinestesia.ImageGen.Fal.generate(prompt)
+    end
+  end
+
+  defp img2img(prompt, image_url, opts) do
     case {provider(), image_url} do
       {:fal, url} when is_binary(url) and url != "" ->
-        Sinestesia.ImageGen.FalImg2Img.generate(prompt, url)
+        case Keyword.get(opts, :element) do
+          el when is_binary(el) and el != "" ->
+            placement = Keyword.get(opts, :placement, "center")
+            mask_url = Sinestesia.ImageGen.Masks.get_mask(placement)
+            Sinestesia.ImageGen.FalInpaint.generate(prompt, url, mask_url)
+
+          _ ->
+            Sinestesia.ImageGen.FalImg2Img.generate(prompt, url)
+        end
 
       {:fal, _} ->
         Sinestesia.ImageGen.Fal.generate(prompt)
@@ -40,10 +74,14 @@ defmodule Sinestesia.ImageGen do
         )
 
       {:local_sdxl, _} ->
-        # First frame: local SDXL sidecar only does img2img. Bootstrap with
-        # Flux Schnell on fal (cheap, fast), then everything after stays local.
-        Logger.info("[image_gen] bootstrap first frame via fal Schnell (local SDXL is img2img-only)")
-        Sinestesia.ImageGen.Fal.generate(bootstrap_composition(prompt))
+        Logger.info("[image_gen] bootstrap first frame locally via local SDXL text-to-image")
+        Sinestesia.ImageGen.LocalSdxl.generate(bootstrap_composition(prompt), nil)
+
+      {:cloudflare, url} when is_binary(url) and url != "" ->
+        Sinestesia.ImageGen.Cloudflare.img2img(prompt, url)
+
+      {:cloudflare, _} ->
+        Sinestesia.ImageGen.Cloudflare.text2img(bootstrap_composition(prompt))
 
       {:google, _} ->
         Sinestesia.ImageGen.Google.generate(prompt)
@@ -63,12 +101,25 @@ defmodule Sinestesia.ImageGen do
       ", wide landscape composition with a clear horizon line, plenty of empty sky and open ground, subject small and off-center"
   end
 
+  @doc """
+  `:img2img` (default) — each frame evolves the previous image.
+  `:t2i` (RENDER_MODE=t2i) — each frame re-rendered from the full scene prompt.
+  """
+  def render_mode do
+    case System.get_env("RENDER_MODE", "img2img") |> String.downcase() do
+      "t2i" -> :t2i
+      _ -> :img2img
+    end
+  end
+
   def provider do
     case System.get_env("IMAGE_PROVIDER", "fal") |> String.downcase() do
       "google" -> :google
       "pollinations" -> :pollinations
       "local_sdxl" -> :local_sdxl
       "local" -> :local_sdxl
+      "cloudflare" -> :cloudflare
+      "cf" -> :cloudflare
       _ -> :fal
     end
   end

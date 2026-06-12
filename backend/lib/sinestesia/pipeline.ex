@@ -524,8 +524,32 @@ defmodule Sinestesia.Pipeline do
       end
     else
       {stamped, state} = stamp_style(raw, state)
-      {style_extra, state} = maybe_style_pass(state)
-      {stamped, style_extra, state}
+      maybe_style_refresh(stamped, state)
+    end
+  end
+
+  # Style recovery every STYLE_REFRESH_EVERY images, global mode. For the
+  # local sidecar it rides as `style_pass` (a real whole-canvas re-style);
+  # for prompt-following providers (fal Flux etc.) the full style note goes
+  # straight into the prompt TEXT — between refreshes prompts stay clean so
+  # the scene words carry full weight, and img2img holds the look meanwhile.
+  defp maybe_style_refresh(stamped, state) do
+    refresh = style_refresh_every()
+    count = state.frames_since_style + 1
+
+    cond do
+      # t2i: stamp_style already put the full style on every prompt.
+      Sinestesia.ImageGen.render_mode() == :t2i ->
+        {stamped, [], state}
+
+      refresh == 0 or count < refresh ->
+        {stamped, [], %{state | frames_since_style: count}}
+
+      Sinestesia.ImageGen.provider() == :local_sdxl ->
+        {stamped, [style_pass: state.style], %{state | frames_since_style: 0}}
+
+      true ->
+        {"#{stamped}. #{state.style}", [], %{state | frames_since_style: 0}}
     end
   end
 
@@ -593,6 +617,13 @@ defmodule Sinestesia.Pipeline do
     cond do
       Sinestesia.Director.mode() != :story ->
         {prompt, state}
+
+      # T2I render: every frame is born from text alone, so every prompt
+      # carries the full style — there's no feedback loop for repetition to
+      # bias (the style fixed-point collapse was an img2img phenomenon).
+      Sinestesia.ImageGen.render_mode() == :t2i ->
+        {"A single scene showing: #{prompt}. #{state.style}",
+         %{state | frames_since_style: 0}}
 
       not state.style_stamped? ->
         {"#{prompt}. #{state.style}", %{state | frames_since_style: 0}}

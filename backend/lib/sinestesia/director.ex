@@ -115,17 +115,22 @@ defmodule Sinestesia.Director do
 
     Rules:
     - HARD LIMIT: never list more than #{window} elements. When the scene has more, DROP the oldest from your reply — dropped elements remain in the picture by themselves and slowly fade, which is desired.
-    - The NEW element is the concrete imagery of the current line: an object, landscape, weather, animal, motion. Translate it to English.
-    - Give the NEW element a size and a placement into empty space (e.g. "a small castle on the distant horizon"). Default small/medium — let it dominate ONLY when the lyric itself is about immensity.
-    - The FIRST line of a song has no scene yet: reply with just the opening element, modest in size, in a wide airy scene.
+    - The NEW element is the concrete imagery of the current line: a person, animal, object, landscape, weather, motion. Translate it to English.
+    - THE SUBJECT OUTRANKS INCIDENTAL OBJECTS: the character the line is about ("o pato", "a menina") matters more than the things around it ("o caneco"). The song's protagonist enters the scene FIRST and STAYS in your list as long as the lyrics keep referring to it — never let it slide out of the window while it's still the topic.
+    - PEOPLE AND ANIMALS ARE WELCOME: draw them as stylized full-body figures with a pose that expresses the lyric. Never close-up faces, never photorealistic portraits.
+    - Give the NEW element a placement into empty space (e.g. "a castle on the right"). Don't force size words.
+    - The FIRST line of a song has no scene yet: reply with just the opening element in a wide airy scene.
     - If the line is abstract with no concrete imagery, the new element is a subtle atmospheric shift (deeper shadows, drifting light, wind).
     - Do NOT mention any art style, medium or technique (no "sketch", "painting", "watercolor", artist names) — style is handled elsewhere. Content only.
-    - NEVER ask the singer for input. NEVER write meta-commentary. No faces. No text. No logos. No quotes. English only. Max 30 words.
+    - NEVER ask the singer for input. NEVER write meta-commentary. No text. No logos. No quotes. English only. Max 30 words.
 
-    FORMAT EXAMPLES (illustration only — these are NOT already drawn, start fresh for the real song):
-      Lyric: "águas de março fechando o verão" (first line) → a swelling river winding through a wide open landscape
-      Lyric: "molha o céu, molha o chão" → river, swirling leaves, plus heavy diagonal rain now falling across the upper sky
-      Lyric: "o resto é mato" → river, rain, plus small tufts of undergrowth scattered along the lower edge
+    Before answering, silently ask: WHO or WHAT is this line about? That is the protagonist. Then: what does the line say about it (action, quality, surroundings)?
+
+    FORMAT EXAMPLES — one per category, invented lines (these are NOT drawn, start fresh for the real song):
+      Animal protagonist: "la tortuga cruza el río" (first line) → a turtle paddling across a wide river
+      Person joins: "meu avô fuma seu cachimbo na varanda" → turtle in river, plus an old man smoking a pipe on a porch
+      Weather/landscape: "the storm rolls over the hills" → turtle, old man with pipe, plus dark storm clouds over rolling hills
+      Abstract line: "et le temps passe lentement" → turtle, old man, storm clouds, plus long slow shadows drifting
     """
   end
 
@@ -148,7 +153,8 @@ defmodule Sinestesia.Director do
   falls back to whole-canvas img2img with a scene-list prompt.
   """
   def compose? do
-    mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global"
+    mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global" and
+      Sinestesia.ImageGen.render_mode() != :t2i
   end
 
   @placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)

@@ -60,6 +60,7 @@ Requirements (same as a live run): Ollama with the Director model, the
 
 | Var | Default | Meaning |
 |---|---|---|
+| `RENDER_MODE` | `img2img` | `t2i` = every frame re-rendered FROM SCRATCH from the cumulative scene prompt + full style (how the original aquarela/cityscape/cosmic samples were made — zero generational drift; continuity comes from prompt overlap + frontend morphing). `img2img` = each frame evolves the previous image (drifts over long songs) |
 | `COMPOSE_MODE` | `inpaint` | `inpaint` = each lyric element is painted into a placement region (guaranteed to appear); `global` = whole-canvas img2img with a scene-list prompt |
 | `COMPOSE_ATMOS_STRENGTH` | `0.4` | how much an atmospheric (abstract-lyric) pass may change the whole canvas |
 | `SCENE_WINDOW` | `5` | global mode only: how many recent elements the Director re-lists |

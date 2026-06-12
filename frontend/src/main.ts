@@ -238,24 +238,35 @@ async function start() {
   if (!CLEAN) {
     const style = new StyleControl(
       (value) => {
+        // Persist the chosen style right away so a reload restores it even if
+        // the backend echo is slow or never arrives.
+        if (value) localStorage.setItem(STYLE_KEY, value);
         if (socket) socket.sendStyle(value);
         else console.log("[mock] would send style:", value);
       },
       () => {
-        // New song: clear the canvas immediately, then tell the backend.
+        // New song: clear the canvas immediately, then tell the backend. The
+        // chosen style is kept across songs, so re-send it so the next song
+        // starts in the same look (the backend resets to its default on reset).
         scene.clearImage();
-        if (socket) socket.sendReset();
-        else console.log("[mock] would send reset (nova música)");
+        if (socket) {
+          socket.sendReset();
+          const keep = style.currentStyle();
+          if (keep) socket.sendStyle(keep);
+        } else {
+          console.log("[mock] would send reset (nova música)");
+        }
       },
       savedStyle,
     );
     if (socket)
       socket.onStyle = (accepted, source) => {
         style.setAccepted(accepted, source);
-        // Persist whatever style is now in effect (user- or curator-picked);
-        // a reset clears it so the next reload starts blank again.
-        if (source === "reset") localStorage.removeItem(STYLE_KEY);
-        else if (accepted) localStorage.setItem(STYLE_KEY, accepted);
+        // Persist the chosen style (user- or curator-picked). The reset echo is
+        // ignored so "nova música" keeps the current look across reloads.
+        if (source !== "reset" && accepted) {
+          localStorage.setItem(STYLE_KEY, accepted);
+        }
       };
   }
 

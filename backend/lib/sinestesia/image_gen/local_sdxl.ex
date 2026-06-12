@@ -23,9 +23,9 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
   defp strength, do: System.get_env("LOCAL_SDXL_STRENGTH", "0.78") |> String.to_float()
   defp steps, do: System.get_env("LOCAL_SDXL_STEPS", "3") |> String.to_integer()
 
-  @spec generate(String.t(), String.t(), keyword()) ::
+  @spec generate(String.t(), String.t() | nil, keyword()) ::
           {:ok, String.t(), [String.t()]} | {:error, term()}
-  def generate(prompt, image_url, opts \\ []) when is_binary(prompt) and is_binary(image_url) do
+  def generate(prompt, image_url, opts \\ []) when is_binary(prompt) do
     body = %{
       prompt: prompt,
       image_url: image_url,

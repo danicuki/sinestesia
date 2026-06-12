@@ -1,0 +1,92 @@
+{
+  "name": "o-pato",
+  "style": "crayon drawing children's book illustrations",
+  "events": [
+    { "at_ms": 0, "text": "Pato, pato.", "final": false },
+    { "at_ms": 1006, "text": "Patu, pateta.", "final": false },
+    { "at_ms": 2018, "text": "Pato, pateta, pintor.", "final": false },
+    { "at_ms": 2714, "text": "Pato, pateta, pintou o caneco.", "final": false },
+    { "at_ms": 3721, "text": "Pato, pateta, pintou o caneco, furou-", "final": false },
+    { "at_ms": 4829, "text": "Pato, pateta, pintou o caneco, furou a galinha.", "final": false },
+    {
+      "at_ms": 6842,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no-",
+      "final": false
+    },
+    {
+      "at_ms": 7991,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco.",
+      "final": false
+    },
+    {
+      "at_ms": 8552,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou-",
+      "final": false
+    },
+    {
+      "at_ms": 9661,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no puleco-",
+      "final": false
+    },
+    {
+      "at_ms": 10567,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no-",
+      "final": false
+    },
+    {
+      "at_ms": 11668,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do ca-",
+      "final": false
+    },
+    {
+      "at_ms": 12571,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo.",
+      "final": false
+    },
+    {
+      "at_ms": 13577,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo, levou-",
+      "final": false
+    },
+    {
+      "at_ms": 14389,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo, levou um coice...",
+      "final": false
+    },
+    {
+      "at_ms": 15394,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo, levou um coice e criou-",
+      "final": false
+    },
+    {
+      "at_ms": 16342,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo, levou um coice e criou um galo.",
+      "final": false
+    },
+    {
+      "at_ms": 17252,
+      "text": "Pato, pateta, pintou o caneco, furou a galinha, bateu no marreco, pulou no poleiro, no pé do cavalo, levou um coice e criou um galo.",
+      "final": true
+    },
+    { "at_ms": 17952, "text": "Pobre meu.", "final": false },
+    { "at_ms": 18965, "text": "Pôr meu pet", "final": false },
+    { "at_ms": 20770, "text": "Comi um pedaço de geni-", "final": false },
+    { "at_ms": 21776, "text": "Comi um pedaço de genipapo, fi-", "final": false },
+    { "at_ms": 22784, "text": "Comi um pedaço de genipapo, ficou engasgado.", "final": false },
+    {
+      "at_ms": 24849,
+      "text": "Comi um pedaço de genipapo, ficou engasgado, com dor no-",
+      "final": false
+    },
+    {
+      "at_ms": 25919,
+      "text": "Comeu um pedaço de genipapo, ficou engasgado, com dor no papo.",
+      "final": false
+    },
+    {
+      "at_ms": 26171,
+      "text": "Comeu um pedaço de genipapo, ficou engasgado, com dor no papo.",
+      "final": true
+    }
+  ]
+}

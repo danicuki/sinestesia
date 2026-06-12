@@ -1,0 +1,161 @@
+{
+  "name": "garota-de-ipanema",
+  "style": "Colorful Expressionism",
+  "events": [
+    { "at_ms": 0, "text": "Olha-", "final": false },
+    { "at_ms": 909, "text": "Olha que coisa, mano.", "final": false },
+    { "at_ms": 1943, "text": "Olha que coisa mais linda, mais-", "final": false },
+    { "at_ms": 2955, "text": "Olha que coisa mais linda, mais cheia de graaça.", "final": false },
+    {
+      "at_ms": 4187,
+      "text": "Olha que coisa mais linda, mais cheia de graça ééé...",
+      "final": false
+    },
+    {
+      "at_ms": 4791,
+      "text": "Olha que coisa mais linda, mais cheia de graça, é ela, meniiina.",
+      "final": false
+    },
+    {
+      "at_ms": 5836,
+      "text": "Olha que coisa mais linda, mais cheia de graça, é ela, menina, que vem e que-",
+      "final": false
+    },
+    {
+      "at_ms": 6907,
+      "text": "Olha que coisa mais linda, mais cheia de graça, ela, menina, que vem e que passa.",
+      "final": false
+    },
+    {
+      "at_ms": 7812,
+      "text": "Olha que coisa mais linda, mais cheia de graça, ela, menina, que vem e que passa no doce-",
+      "final": false
+    },
+    {
+      "at_ms": 8820,
+      "text": "Olha que coisa mais linda, mais cheia de graça, ela, menina, que vem e que passa no doce balanço a ca-",
+      "final": false
+    },
+    {
+      "at_ms": 9808,
+      "text": "Olha que coisa mais linda, mais cheia de graça, é ela, menina, que vem e que passa no doce balanço a caminho do mar.",
+      "final": false
+    },
+    {
+      "at_ms": 10406,
+      "text": "Olha que coisa mais linda, mais cheia de graça, é ela, menina, que vem e que passa no doce balanço a caminho do mar.",
+      "final": true
+    },
+    { "at_ms": 13937, "text": "Moça do corpo-", "final": false },
+    { "at_ms": 14901, "text": "Moça do corpo dourado do", "final": false },
+    { "at_ms": 16004, "text": "Moça do corpo dourado do sol de Ipanema-", "final": false },
+    { "at_ms": 17009, "text": "Moça do corpo dourado do sol de Ipanema, o seu-", "final": false },
+    {
+      "at_ms": 18020,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançar-",
+      "final": false
+    },
+    {
+      "at_ms": 19139,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que-",
+      "final": false
+    },
+    {
+      "at_ms": 19842,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que poema.",
+      "final": false
+    },
+    {
+      "at_ms": 20751,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que poema, é a coisa mais-",
+      "final": false
+    },
+    {
+      "at_ms": 21859,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que poema, é a coisa mais linda que eu já vi.",
+      "final": false
+    },
+    {
+      "at_ms": 22865,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que poema, é a coisa mais linda que eu já vi passar.",
+      "final": false
+    },
+    {
+      "at_ms": 23426,
+      "text": "Moça do corpo dourado do sol de Ipanema, o seu balançado é mais que poema, é a coisa mais linda que eu já vi passar.",
+      "final": true
+    },
+    { "at_ms": 26188, "text": "Aaaah.", "final": false },
+    { "at_ms": 26624, "text": "Aaaah.", "final": true },
+    { "at_ms": 28416, "text": "Por que estou-", "final": false },
+    { "at_ms": 29171, "text": "Por que estou tão soziiinho?", "final": false },
+    { "at_ms": 30606, "text": "Por que estou tão soziiinho?", "final": true },
+    { "at_ms": 35112, "text": "Porque tu ded-", "final": false },
+    { "at_ms": 36196, "text": "Por que tudo é tão triste?", "final": false },
+    { "at_ms": 36915, "text": "Por que tudo é tão tristeee?", "final": false },
+    { "at_ms": 37898, "text": "Por que tudo é tããão tristeee?", "final": true },
+    { "at_ms": 41698, "text": "Ah, beleza.", "final": false },
+    { "at_ms": 43508, "text": "A beleza que exiiiiiste.", "final": false },
+    { "at_ms": 45518, "text": "A beleza que exiiiiiste, a beleza que exiiiiiste.", "final": false },
+    { "at_ms": 46452, "text": "A beleza que exiiiste, a beleza que não-", "final": false },
+    {
+      "at_ms": 47535,
+      "text": "A beleza que exiiiiste, a beleza que não é só miiiiim.",
+      "final": false
+    },
+    {
+      "at_ms": 48454,
+      "text": "A beleza que exiiiiste, a beleza que não é só miiinha.",
+      "final": true
+    },
+    { "at_ms": 50176, "text": "Que também passa-", "final": false },
+    { "at_ms": 50881, "text": "Que também passa soziinha.", "final": false },
+    { "at_ms": 51988, "text": "Que também passa soziiinhaaa.", "final": false },
+    { "at_ms": 52992, "text": "Que também passa soziiinhaaa. Aaa se ela-", "final": false },
+    {
+      "at_ms": 54001,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse...",
+      "final": false
+    },
+    {
+      "at_ms": 55024,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela-",
+      "final": false
+    },
+    {
+      "at_ms": 56065,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa...",
+      "final": false
+    },
+    {
+      "at_ms": 57036,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteiro-",
+      "final": false
+    },
+    {
+      "at_ms": 57738,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteirinho se-",
+      "final": false
+    },
+    {
+      "at_ms": 58780,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteirinho se enche de graaça.",
+      "final": false
+    },
+    {
+      "at_ms": 60791,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteirinho se enche de graça e fica mais lind-",
+      "final": false
+    },
+    {
+      "at_ms": 61798,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteirinho se enche de graça e fica mais lindo por causa do amor.",
+      "final": false
+    },
+    {
+      "at_ms": 62904,
+      "text": "Que também passa soziiinha. Ah, se ela soubesse que quando ela passa, o mundo inteirinho se enche de graça e fica mais lindo por causa do amor.",
+      "final": true
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Delete demo sample sequences: removes the folder AND the index.json entry.
+
+    tools/delete_sample exp-t2i-pato
+    tools/delete_sample exp-t2i-pato run-aquarela-tarsila
+    tools/delete_sample 'exp-*'          # glob patterns work (quote them)
+
+The hand-made originals (aquarela, cityscape, cosmic) are protected.
+"""
+import fnmatch
+import json
+import shutil
+import sys
+from pathlib import Path
+
+SAMPLES = Path(__file__).resolve().parent.parent / "frontend" / "public" / "samples"
+PROTECTED = {"aquarela", "cityscape", "cosmic"}
+
+
+def main(patterns):
+    if not patterns:
+        sys.exit(__doc__.strip())
+
+    index_path = SAMPLES / "index.json"
+    index = json.loads(index_path.read_text())
+    in_index = {s["slug"] for s in index["sequences"]}
+    on_disk = {d.name for d in SAMPLES.iterdir() if d.is_dir()}
+
+    targets = {
+        slug
+        for slug in in_index | on_disk
+        if any(fnmatch.fnmatch(slug, p) for p in patterns)
+    }
+    skipped = sorted(targets & PROTECTED)
+    targets -= PROTECTED
+
+    if not targets:
+        print(f"nothing matched {patterns} (available: {sorted((in_index | on_disk) - PROTECTED)})")
+        return
+
+    for slug in sorted(targets):
+        notes = []
+        if slug in on_disk:
+            shutil.rmtree(SAMPLES / slug)
+            notes.append("folder")
+        if slug in in_index:
+            notes.append("index entry")
+        print(f"deleted {slug} ({' + '.join(notes)})")
+
+    index["sequences"] = [s for s in index["sequences"] if s["slug"] not in targets]
+    index_path.write_text(json.dumps(index, indent=2, ensure_ascii=False) + "\n")
+
+    for slug in skipped:
+        print(f"SKIPPED {slug} (protected original sample)")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

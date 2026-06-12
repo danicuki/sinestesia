@@ -545,11 +545,16 @@ defmodule Sinestesia.Pipeline do
       refresh == 0 or count < refresh ->
         {stamped, [], %{state | frames_since_style: count}}
 
-      Sinestesia.ImageGen.provider() == :local_sdxl ->
-        {stamped, [style_pass: state.style], %{state | frames_since_style: 0}}
-
       true ->
-        {"#{stamped}. #{state.style}", [], %{state | frames_since_style: 0}}
+        # Refresh frame: full style in the prompt TEXT (global passes hear it
+        # canvas-wide) and, on the local sidecar, ALSO a real whole-canvas
+        # style_pass — text alone is weak under Turbo's CFG-free conditioning.
+        extra =
+          if Sinestesia.ImageGen.provider() == :local_sdxl,
+            do: [style_pass: state.style],
+            else: []
+
+        {"#{stamped}. #{state.style}", extra, %{state | frames_since_style: 0}}
     end
   end
 

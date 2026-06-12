@@ -131,11 +131,14 @@ IMG_URL_RE = re.compile(r"/img/([A-Za-z0-9_.-]+)$")
 # (real steps = int(steps * strength)).
 INPAINT_STRENGTH = float(os.environ.get("INPAINT_STRENGTH", "0.95"))
 INPAINT_STEPS = int(os.environ.get("INPAINT_STEPS", "5"))
-# Style consolidation pass (`style_pass` in the request): a gentle whole-canvas
-# img2img with the style note as the prompt, chained AFTER the main op. Strong
-# enough to pull a drifting canvas back to the look and harmonize inpaint
-# seams, weak enough to keep the accumulated composition.
-STYLE_PASS_STRENGTH = float(os.environ.get("STYLE_PASS_STRENGTH", "0.35"))
+# Style consolidation pass (`style_pass` in the request): a whole-canvas
+# img2img with the style note as the prompt, chained AFTER the main op. It
+# must outpull the drift accumulated by N frames of img2img at ~0.78 —
+# at 0.35/5 steps it was int(5*0.35)=1 real denoise step and the style died
+# anyway. 0.5/6 steps = 3 real steps: a real re-style that still keeps the
+# composition. Lower it if every Nth frame visibly "snaps".
+STYLE_PASS_STRENGTH = float(os.environ.get("STYLE_PASS_STRENGTH", "0.5"))
+STYLE_PASS_STEPS = int(os.environ.get("STYLE_PASS_STEPS", "6"))
 # Soft edge so the new element blends into the canvas instead of showing a
 # hard ellipse seam, in pixels of gaussian blur on the mask.
 MASK_FEATHER_PX = int(os.environ.get("MASK_FEATHER_PX", "24"))
@@ -479,7 +482,7 @@ def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
                 prompt=fit_clip_prompt(style_pass),
                 image=lat_out,
                 strength=STYLE_PASS_STRENGTH,
-                num_inference_steps=5,
+                num_inference_steps=STYLE_PASS_STEPS,
                 guidance_scale=0.0,
                 output_type="latent",
             ).images

@@ -33,6 +33,18 @@ defmodule Sinestesia.Director do
     end
   end
 
+  # How many scene elements the Director may re-list per prompt. The window is
+  # the song's VISUAL memory: elements inside it stay textually anchored
+  # (crisp, persistent); elements that fall out live on only through img2img
+  # inheritance and naturally fade over the following frames. Big enough for
+  # context, small enough that recent lyrics carry the most weight.
+  defp scene_window do
+    case Integer.parse(System.get_env("SCENE_WINDOW", "5")) do
+      {n, _} when n > 1 -> n
+      _ -> 5
+    end
+  end
+
   defp system_prompt(style, :classic) do
     """
     You are the visual director for a LIVE VJ system accompanying a singer (any language).
@@ -57,13 +69,52 @@ defmodule Sinestesia.Director do
   # frame re-applies it to the whole canvas each cycle and drags the image
   # toward the style's fixed point (e.g. "geometric shapes" → flat polygons by
   # frame 19). Dropping it also frees the CLIP token budget for the scene list.
-  defp system_prompt(_style, :story) do
+  defp system_prompt(style, :story) do
+    if compose?(), do: compose_story_prompt(), else: global_story_prompt(style)
+  end
+
+  defp compose_story_prompt do
     """
     You are the visual director for a LIVE VJ system painting ONE evolving picture for a song sung live, in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of whatever lyrics you receive.
 
-    Each new image is painted ON TOP of the previous one. For EACH lyric line, reply with ONE compact comma-separated description of the WHOLE scene: the key elements already drawn (max 8, oldest first, 1-3 words each), ENDING with the NEW element this line adds.
+    The picture grows element by element: each reply paints ONE new thing onto the existing canvas. For EACH lyric line, reply with EXACTLY ONE line in ONE of these two formats:
+
+    NEW: <one concrete element, 4-12 words, purely visual> | POS: <position>
+    ATMOS: <one subtle whole-scene atmospheric shift, 4-10 words>
+
+    POS is exactly one of: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right.
 
     Rules:
+    - Use NEW whenever the line names anything drawable: object, landscape, weather, animal, plant, vehicle — or a PERSON. Translate it to English.
+    - PEOPLE ARE WELCOME and should be painted when the lyrics are about them: as stylized full-body figures or silhouettes with a pose, clothing and color that express the lyric. Never close-up faces, never photorealistic portraits.
+    - When the lyric describes a type or quality of person ("mulher atrevida", "solteira feliz"), paint ONE distinct figure embodying it — each new type is a NEW different figure, so the picture becomes a gallery.
+    - ATMOS only when there is truly nothing to draw (pure feelings, time passing) or when the line just repeats imagery already painted.
+    - Name elements plainly ("a sailboat", "a yellow sun"). NEVER use minimizers like "small", "tiny", "distant", "in the background" — but don't force size words either.
+    - Choose a POS likely to be EMPTY space. VARY the position across the song — never repeat the previous POS.
+    - The FIRST line of a song is always NEW, POS top or center.
+    - Do NOT mention any art style, medium, technique or artist — content only.
+    - NEVER ask the singer for input. NEVER write meta-commentary. No text. No logos. No quotes. English only.
+
+    EXAMPLES (illustration only — these are NOT drawn, start fresh for the real song):
+      Lyric: "eu desenho um sol amarelo" → NEW: a round yellow sun | POS: top
+      Lyric: "é fácil fazer um castelo" → NEW: a castle with tall towers | POS: right
+      Lyric: "já tive mulheres de todas as cores" → NEW: a woman dancing in a flowing red dress | POS: left
+      Lyric: "do tipo acanhada" → NEW: a shy woman figure hiding under a wide straw hat | POS: bottom-right
+      Lyric: "molha o céu, molha o chão" → NEW: heavy diagonal rain streaks | POS: top-left
+      Lyric: "vai voando" → ATMOS: a gentle sense of upward drift
+    """
+  end
+
+  defp global_story_prompt(_style) do
+    window = scene_window()
+
+    """
+    You are the visual director for a LIVE VJ system painting ONE evolving picture for a song sung live, in ANY language (Portuguese, English, Spanish, French, etc.) — interpret the imagery of whatever lyrics you receive.
+
+    Each new image is painted ON TOP of the previous one. For EACH lyric line, reply with ONE compact comma-separated list: the #{window} MOST RECENT scene elements (1-3 words each, older first), ENDING with the NEW element this line adds.
+
+    Rules:
+    - HARD LIMIT: never list more than #{window} elements. When the scene has more, DROP the oldest from your reply — dropped elements remain in the picture by themselves and slowly fade, which is desired.
     - The NEW element is the concrete imagery of the current line: an object, landscape, weather, animal, motion. Translate it to English.
     - Give the NEW element a size and a placement into empty space (e.g. "a small castle on the distant horizon"). Default small/medium — let it dominate ONLY when the lyric itself is about immensity.
     - The FIRST line of a song has no scene yet: reply with just the opening element, modest in size, in a wide airy scene.
@@ -89,6 +140,48 @@ defmodule Sinestesia.Director do
   @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
+
+  @doc """
+  Compose mode (default): each Director reply is ONE new element + a position,
+  rendered by the sidecar as a localized INPAINT — the element is guaranteed
+  to materialize and the rest of the canvas is untouched. `COMPOSE_MODE=global`
+  falls back to whole-canvas img2img with a scene-list prompt.
+  """
+  def compose? do
+    mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global"
+  end
+
+  @placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)
+
+  @doc """
+  Parses a story-mode compose reply into an image request:
+
+      "NEW: a small castle | POS: right" → %{kind: :new, element: "a small castle", placement: "right"}
+      "ATMOS: drifting golden haze"      → %{kind: :atmos, text: "drifting golden haze"}
+
+  Anything unparseable degrades to an atmospheric (global img2img) pass.
+  """
+  def parse_story(text) do
+    case Regex.run(~r/NEW:\s*(.+?)\s*\|\s*POS:\s*([a-zA-Z\-]+)/, text) do
+      [_, element, pos] ->
+        pos = pos |> String.downcase() |> String.trim()
+        %{kind: :new, element: String.trim(element), placement: if(pos in @placements, do: pos, else: "center")}
+
+      nil ->
+        # `[^|]` strips trailing junk Gemma sometimes appends ("ATMOS: a
+        # heavy haze | POS: center") so it never reaches the image prompt.
+        case Regex.run(~r/NEW:\s*([^|]+)/, text) do
+          [_, element] ->
+            %{kind: :new, element: String.trim(element), placement: "center"}
+
+          nil ->
+            case Regex.run(~r/ATMOS:\s*([^|]+)/, text) do
+              [_, t] -> %{kind: :atmos, text: String.trim(t)}
+              nil -> %{kind: :atmos, text: String.trim(text)}
+            end
+        end
+    end
+  end
 
   defp warmup(style, :classic) do
     [
@@ -179,6 +272,8 @@ defmodule Sinestesia.Director do
     end
   end
 
+  def next_prompt(conversation, _), do: {:error, {:empty_line, conversation}}
+
   # Reject meta-commentary / refusals (e.g. "please provide the first line",
   # "I cannot see...") so garbage never reaches the image model. Concise scene
   # descriptions pass; anything that looks like the model talking to the user fails.
@@ -202,8 +297,6 @@ defmodule Sinestesia.Director do
   end
 
   defp valid_scene?(_text, _mode), do: false
-
-  def next_prompt(conversation, _), do: {:error, {:empty_line, conversation}}
 
   def provider do
     case System.get_env("DIRECTOR_PROVIDER", "gemma") |> String.downcase() do

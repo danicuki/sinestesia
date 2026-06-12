@@ -33,13 +33,17 @@ defmodule Sinestesia.ImageGen do
         Sinestesia.ImageGen.Fal.generate(prompt)
 
       {:local_sdxl, url} when is_binary(url) and url != "" ->
-        Sinestesia.ImageGen.LocalSdxl.generate(prompt, url, Keyword.take(opts, [:camera]))
+        Sinestesia.ImageGen.LocalSdxl.generate(
+          prompt,
+          url,
+          Keyword.take(opts, [:camera, :element, :placement, :strength, :steps, :style_pass])
+        )
 
       {:local_sdxl, _} ->
         # First frame: local SDXL sidecar only does img2img. Bootstrap with
         # Flux Schnell on fal (cheap, fast), then everything after stays local.
         Logger.info("[image_gen] bootstrap first frame via fal Schnell (local SDXL is img2img-only)")
-        Sinestesia.ImageGen.Fal.generate(prompt)
+        Sinestesia.ImageGen.Fal.generate(bootstrap_composition(prompt))
 
       {:google, _} ->
         Sinestesia.ImageGen.Google.generate(prompt)
@@ -47,6 +51,16 @@ defmodule Sinestesia.ImageGen do
       {:pollinations, _} ->
         Sinestesia.ImageGen.Pollinations.generate(prompt)
     end
+  end
+
+  # The first frame anchors the whole song: every img2img frame inherits its
+  # low-frequency structure. A poster-like opening (centered subject, radial
+  # rays) leaves no room for the scene to grow — new elements get squeezed
+  # into corners for the rest of the performance. Force a composition with
+  # space to build into.
+  defp bootstrap_composition(prompt) do
+    prompt <>
+      ", wide landscape composition with a clear horizon line, plenty of empty sky and open ground, subject small and off-center"
   end
 
   def provider do

@@ -29,8 +29,10 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
     body = %{
       prompt: prompt,
       image_url: image_url,
-      strength: strength(),
-      num_inference_steps: steps(),
+      # Per-request overrides (compose mode sends gentler values for
+      # atmospheric passes); env defaults otherwise.
+      strength: Keyword.get(opts, :strength, strength()),
+      num_inference_steps: Keyword.get(opts, :steps, steps()),
       image_size: "landscape_16_9"
     }
 
@@ -39,6 +41,26 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
     body =
       case Keyword.get(opts, :camera) do
         %{} = cam -> Map.put(body, :camera, cam)
+        _ -> body
+      end
+
+    # Compose mode: inpaint the element into the placement region only.
+    body =
+      case Keyword.get(opts, :element) do
+        el when is_binary(el) and el != "" ->
+          body
+          |> Map.put(:element, el)
+          |> Map.put(:placement, Keyword.get(opts, :placement, "center"))
+
+        _ ->
+          body
+      end
+
+    # Periodic style recovery: the sidecar chains a gentle whole-canvas
+    # img2img with this text after the main op (see STYLE_PASS_STRENGTH).
+    body =
+      case Keyword.get(opts, :style_pass) do
+        sp when is_binary(sp) and sp != "" -> Map.put(body, :style_pass, sp)
         _ -> body
       end
 

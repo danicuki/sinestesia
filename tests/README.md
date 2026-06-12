@@ -56,6 +56,29 @@ run for A/B comparison, name it: `--slug experiment-strength-085`.
 Requirements (same as a live run): Ollama with the Director model, the
 `local-sdxl` sidecar on :8003, and `FAL_API_KEY` for the bootstrap frame.
 
+## Tuning knobs (set as env on the replay command)
+
+| Var | Default | Meaning |
+|---|---|---|
+| `COMPOSE_MODE` | `inpaint` | `inpaint` = each lyric element is painted into a placement region (guaranteed to appear); `global` = whole-canvas img2img with a scene-list prompt |
+| `COMPOSE_ATMOS_STRENGTH` | `0.4` | how much an atmospheric (abstract-lyric) pass may change the whole canvas |
+| `SCENE_WINDOW` | `5` | global mode only: how many recent elements the Director re-lists |
+| `STYLE_ANCHOR` | off | short per-frame style hint appended to every prompt; `first` = style's first comma-clause (old behavior), custom text overrides. Off by default: repeating a style fragment every frame biases the sequence |
+| `STYLE_REFRESH_EVERY` | `4` | every N images, the request carries `style_pass` and the sidecar chains a gentle whole-canvas re-style with the full style note after the main op (strength `STYLE_PASS_STRENGTH`, sidecar env, default 0.35). `0` disables |
+| `LOCAL_SDXL_STRENGTH` | `0.78` | global-mode change rate per frame (img2img noise) |
+| `LOCAL_SDXL_STEPS` | `3` | scheduler steps; real denoise steps = `int(steps × strength)` |
+
+Note: element-inpaint prompts always carry the full style note — the masked
+region is painted from scratch and the prompt is its only style signal (only
+the ellipse hears it; atmospheric/global prompts stay style-free).
+
+Example A/B:
+
+```bash
+mix sinestesia.replay ../tests/sessions/aquarela-tarsila.json --slug exp-inpaint
+COMPOSE_MODE=global SCENE_WINDOW=4 mix sinestesia.replay ../tests/sessions/aquarela-tarsila.json --slug exp-global-w4
+```
+
 ## Notes
 
 - `REPLAY_SPEED=N` (env) or `--speed N` (task) compresses the *gaps* between

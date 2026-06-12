@@ -143,6 +143,10 @@ defmodule Sinestesia.Pipeline do
        # every frame re-applies it to the whole canvas and drags the image
        # toward the style's fixed point (flat shapes, etc).
        style_stamped?: false,
+       frames_since_style: 0,
+       # Last 3 inpaint placements — used to redirect the Director's POS when
+       # it would repaint (and erase) a region that was just painted.
+       recent_placements: [],
        # Operator-driven virtual camera (zoom/pan_x/pan_y, -1..1). Persistent
        # velocity: applied by the image sidecar to every generated frame while
        # non-neutral. Set via the `camera` WS message; neutral on reset.
@@ -228,6 +232,8 @@ defmodule Sinestesia.Pipeline do
          last_image_url: nil,
          bootstrap_done?: false,
          style_stamped?: false,
+         frames_since_style: 0,
+         recent_placements: [],
          camera: neutral_camera(),
          session_id: new_session,
          pending_pids: MapSet.new()
@@ -321,10 +327,13 @@ defmodule Sinestesia.Pipeline do
     {:noreply, state}
   end
 
-  def handle_info({:director_done, {:ok, prompt, new_conversation}, started_at, _sid}, state) do
+  def handle_info({:director_done, {:ok, raw, new_conversation}, started_at, _sid}, state) do
     director_ms = now_ms() - started_at
-    prompt = stamp_style(prompt, state)
-    Logger.info("[director] +#{director_ms}ms (#{turn_count(new_conversation)} turns): #{prompt}")
+    {prompt, extra, state} = compose_image_request(raw, state)
+
+    Logger.info(
+      "[director] +#{director_ms}ms (#{turn_count(new_conversation)} turns)#{compose_tag(extra)}: #{prompt}"
+    )
 
     timings = %{
       stt_ms: state.last_stt_ms,
@@ -335,7 +344,8 @@ defmodule Sinestesia.Pipeline do
       lyric: state.last_director_text
     }
 
-    img_pid = spawn_image(prompt, timings, state.last_image_url, state.session_id, state.camera)
+    img_pid =
+      spawn_image(prompt, timings, state.last_image_url, state.session_id, state.camera, extra)
 
     pids =
       state.pending_pids
@@ -396,32 +406,6 @@ defmodule Sinestesia.Pipeline do
          style_stamped?: true,
          pending_pids: drop_dead(state.pending_pids)
      }}
-  end
-
-  # Story mode styling, two intensities (found empirically with the replay
-  # harness — see tests/README.md):
-  #
-  #   * FULL style note only until a styled image lands (bootstrap / style
-  #     change). Repeating the full descriptor list every frame re-applies it
-  #     to the whole canvas and drags the image into the style's fixed point
-  #     ("geometric shapes" → flat polygons by frame 19).
-  #   * A short ANCHOR (the style's first comma-clause) on every later frame.
-  #     With no style text at all, img2img at strength ~0.78 decays to SDXL's
-  #     photoreal prior within ~6 frames — the anchor keeps the look without
-  #     shouting over the scene content.
-  #
-  # Classic mode renders each frame from scratch; the Director styles its own
-  # prompts there.
-  defp stamp_style(prompt, state) do
-    cond do
-      Sinestesia.Director.mode() != :story -> prompt
-      not state.style_stamped? -> "#{prompt}. #{state.style}"
-      true -> "#{prompt}. #{style_anchor(state.style)}"
-    end
-  end
-
-  defp style_anchor(style) do
-    style |> String.split(",", parts: 2) |> hd() |> String.trim()
   end
 
   def handle_info({:image_done, {:error, reason}, _timings, _sid}, state) do
@@ -485,6 +469,164 @@ defmodule Sinestesia.Pipeline do
 
   ## Internals
 
+  # Story mode styling (found empirically with the replay harness — see
+  # tests/README.md):
+  #
+  #   * FULL style note in the prompt only until a styled image lands
+  #     (bootstrap / style change). Repeating the full descriptor list every
+  #     frame drags the image into the style's fixed point ("geometric
+  #     shapes" → flat polygons by frame 19); per-frame anchors bias content.
+  #   * Recovery is a real CANVAS pass, not prompt text: every
+  #     STYLE_REFRESH_EVERY images (default 4, counting ALL images) the
+  #     request carries `style_pass` and the sidecar chains a gentle
+  #     whole-canvas img2img with the style note after the main op. Appending
+  #     style text to an element inpaint only styles the ellipse — observed
+  #     live 2026-06-10: ~30 consecutive inpaints turned the canvas abstract
+  #     with no recovery ever firing.
+  #
+  # Classic mode renders each frame from scratch; the Director styles its own
+  # prompts there.
+  # Turn the Director's raw reply into the image request. In compose mode
+  # (default), "NEW: <element> | POS: <pos>" becomes a localized inpaint —
+  # only that region is repainted, with the element as the whole prompt, so
+  # the lyric's words are guaranteed pixels — and "ATMOS: ..." becomes a
+  # GENTLE whole-canvas img2img pass (low strength, so it can't wash away
+  # previously painted elements). COMPOSE_MODE=global keeps the old behavior.
+  defp compose_image_request(raw, state) do
+    if Sinestesia.Director.compose?() do
+      case Sinestesia.Director.parse_story(raw) do
+        %{kind: :new, element: element, placement: pos} ->
+          # An inpaint paints the masked region FROM SCRATCH — the element
+          # prompt is the only style signal that region will ever get, so it
+          # ALWAYS carries the full style note. This is not the per-frame
+          # repetition bias (vetoed for global passes): only the ellipse
+          # hears it, the rest of the canvas is untouched by construction.
+          # Without it elements are born colored/photoreal and the gentle
+          # style_pass can't fix them after the fact (observed live
+          # 2026-06-10: golden/purple dresses on a B&W woodcut canvas).
+          {stamped, state} = stamp_element(element, state)
+
+          # Bootstrap has no canvas yet — it goes to t2i with the plain
+          # prompt; inpaint only applies once a previous image exists.
+          if state.last_image_url do
+            pos = avoid_collision(pos, state)
+            state = %{state | recent_placements: Enum.take([pos | state.recent_placements], 3)}
+            {style_extra, state} = maybe_style_pass(state)
+            {stamped, [element: stamped, placement: pos] ++ style_extra, state}
+          else
+            {stamped, [], state}
+          end
+
+        %{kind: :atmos, text: text} ->
+          {stamped, state} = stamp_style(text, state)
+          {style_extra, state} = maybe_style_pass(state)
+          {stamped, [strength: atmos_strength(), steps: 5] ++ style_extra, state}
+      end
+    else
+      {stamped, state} = stamp_style(raw, state)
+      {style_extra, state} = maybe_style_pass(state)
+      {stamped, style_extra, state}
+    end
+  end
+
+  defp compose_tag(extra) do
+    base =
+      case Keyword.get(extra, :placement) do
+        nil -> if Keyword.has_key?(extra, :strength), do: " [atmos]", else: ""
+        pos -> " [inpaint@#{pos}]"
+      end
+
+    if Keyword.has_key?(extra, :style_pass), do: base <> " [style-pass]", else: base
+  end
+
+  # Atmospheric passes must be subtle: at the default img2img strength (0.78)
+  # they would re-synthesize most of the canvas and erase inpainted elements.
+  defp atmos_strength do
+    case Float.parse(System.get_env("COMPOSE_ATMOS_STRENGTH", "0.4")) do
+      {s, _} when s > 0 and s <= 1 -> s
+      _ -> 0.4
+    end
+  end
+
+  @all_placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)
+
+  # Gemma reuses positions despite being told not to (observed: top-left 4x
+  # in one song), and each reuse erases what was painted there. Redirect a
+  # recently used placement to a free one.
+  defp avoid_collision(pos, %{recent_placements: recent}) do
+    if pos in recent do
+      case Enum.reject(@all_placements, &(&1 in recent)) do
+        [] -> pos
+        free -> Enum.random(free)
+      end
+    else
+      pos
+    end
+  end
+
+  # Every STYLE_REFRESH_EVERY images, attach the full style note as a
+  # `style_pass`: the sidecar runs a gentle whole-canvas re-style after the
+  # main op (see local-sdxl STYLE_PASS_STRENGTH). 0 disables.
+  defp maybe_style_pass(state) do
+    refresh = style_refresh_every()
+    count = state.frames_since_style + 1
+
+    if refresh > 0 and count >= refresh do
+      {[style_pass: state.style], %{state | frames_since_style: 0}}
+    else
+      {[], %{state | frames_since_style: count}}
+    end
+  end
+
+  # Element inpaints: full style note, every time (see compose_image_request).
+  # Doesn't touch frames_since_style — styling one ellipse at birth doesn't
+  # recover whatever drift the rest of the canvas accumulated.
+  defp stamp_element(element, state) do
+    if Sinestesia.Director.mode() == :story and is_binary(state.style) and state.style != "" do
+      {"#{element}. #{state.style}", state}
+    else
+      {element, state}
+    end
+  end
+
+  defp stamp_style(prompt, state) do
+    cond do
+      Sinestesia.Director.mode() != :story ->
+        {prompt, state}
+
+      not state.style_stamped? ->
+        {"#{prompt}. #{state.style}", %{state | frames_since_style: 0}}
+
+      true ->
+        case style_anchor(state.style) do
+          "" -> {prompt, state}
+          anchor -> {"#{prompt}. #{anchor}", state}
+        end
+    end
+  end
+
+  defp style_refresh_every do
+    case Integer.parse(System.get_env("STYLE_REFRESH_EVERY", "4")) do
+      {n, _} when n >= 0 -> n
+      _ -> 4
+    end
+  end
+
+  # Per-frame style anchor: OFF by default. Repeating even a short style
+  # fragment every prompt biases the sequence — an artist name ("Tarsila do
+  # Amaral style") carries composition and content, not just technique, and
+  # fights accumulation. Set STYLE_ANCHOR to a medium-only descriptor (e.g.
+  # "flat painted illustration") to re-enable it; "first" restores the old
+  # behavior (the style's first comma-clause).
+  defp style_anchor(style) do
+    case System.get_env("STYLE_ANCHOR") do
+      nil -> ""
+      "none" -> ""
+      "first" -> style |> String.split(",", parts: 2) |> hd() |> String.trim()
+      custom -> String.trim(custom)
+    end
+  end
+
   @curator_trigger_count 5
 
   defp maybe_curate_style(%{style_locked?: true} = state), do: state
@@ -538,7 +680,9 @@ defmodule Sinestesia.Pipeline do
            last_director_text: "",
            last_image_url: nil,
            # Re-stamp the new style onto the next image (deliberate change).
-           style_stamped?: false
+           style_stamped?: false,
+           frames_since_style: 0,
+           recent_placements: []
        }}
     end
   end
@@ -855,12 +999,13 @@ defmodule Sinestesia.Pipeline do
   defp last_n_words(_, _), do: ""
 
 
-  defp spawn_image(prompt, timings, prev_url, sid, camera) do
+  defp spawn_image(prompt, timings, prev_url, sid, camera, extra \\ []) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
 
     opts = if is_binary(prev_url) and prev_url != "", do: [image_url: prev_url], else: []
     opts = if camera == neutral_camera(), do: opts, else: Keyword.put(opts, :camera, camera)
+    opts = Keyword.merge(opts, extra)
 
     {:ok, pid} =
       Task.start(fn ->

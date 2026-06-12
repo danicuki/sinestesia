@@ -6,14 +6,15 @@
 // backend echoes the accepted (sanitized + capped) value, which we then reflect
 // back into the input. No client-side cap or rate-limiting — the backend owns
 // sanitization/capping (up to 15 words) and no-ops a repeated style. The
-// "nova música" button sends { type: "reset" }; the backend then echoes a style
-// with source "reset" which clears the input back to empty.
+// "nova música" button sends { type: "reset" }; the chosen style is kept across
+// songs (the backend's reset echo, source "reset", is ignored here).
 
 type SendCb = (style: string) => void;
 type ResetCb = () => void;
 
-// Quick-pick palette offered via the input's <datalist>. Free text still works;
-// these are just shortcuts to the looks we know read well on stage.
+// Quick-pick palette offered in the dropdown. Free text still works; these are
+// just shortcuts to the looks we know read well on stage. Sorted alphabetically
+// (case-insensitive) so the list is easy to scan.
 const STYLE_SUGGESTIONS = [
   "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
   "crayon drawing on white paper, childlike, bright simple shapes",
@@ -23,12 +24,11 @@ const STYLE_SUGGESTIONS = [
   "Brazilian cordel woodcut print, black and white, hatched linework",
   "Colorful Expressionism",
   "Tarsila do Amaral style, Brazilian modernism, bold colors and geometric shapes",
-]
-
-let suggestionListId = 0;
+].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
 export class StyleControl {
   private input: HTMLInputElement;
+  private menu: HTMLDivElement;
   // Start as "" so an untouched blur (empty value) doesn't emit a needless send.
   private lastSent = "";
 
@@ -62,21 +62,20 @@ export class StyleControl {
       letterSpacing: "0.1em",
     } as CSSStyleDeclaration);
 
-    // Suggestions dropdown — native <datalist>, free text still allowed.
-    const list = document.createElement("datalist");
-    list.id = `style-suggestions-${suggestionListId++}`;
-    for (const s of STYLE_SUGGESTIONS) {
-      const opt = document.createElement("option");
-      opt.value = s;
-      list.appendChild(opt);
-    }
+    // Input + custom dropdown live in a relative box so the menu can anchor
+    // under the field. A native <datalist> hides every option once the field
+    // holds a full value, so we roll our own list that always opens on focus.
+    const field = document.createElement("div");
+    Object.assign(field.style, {
+      position: "relative",
+      display: "inline-block",
+    } as CSSStyleDeclaration);
 
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.spellcheck = false;
     this.input.autocomplete = "off";
     this.input.placeholder = "";
-    this.input.setAttribute("list", list.id);
     if (initial) {
       this.input.value = initial;
       this.lastSent = initial; // prefilled value is already "current"
@@ -93,6 +92,24 @@ export class StyleControl {
       cursor: "text",
     } as CSSStyleDeclaration);
 
+    this.menu = document.createElement("div");
+    Object.assign(this.menu.style, {
+      position: "absolute",
+      top: "calc(100% + 4px)",
+      left: "0",
+      right: "0",
+      maxHeight: "240px",
+      overflowY: "auto",
+      background: "rgba(10,12,16,0.97)",
+      border: "1px solid #374151",
+      borderRadius: "3px",
+      display: "none",
+      zIndex: "30",
+    } as CSSStyleDeclaration);
+
+    field.appendChild(this.input);
+    field.appendChild(this.menu);
+
     const resetBtn = document.createElement("button");
     resetBtn.type = "button";
     resetBtn.textContent = "nova música";
@@ -108,21 +125,81 @@ export class StyleControl {
     resetBtn.addEventListener("click", () => this.requestReset());
 
     wrap.appendChild(label);
-    wrap.appendChild(this.input);
-    wrap.appendChild(list);
+    wrap.appendChild(field);
     wrap.appendChild(resetBtn);
     document.body.appendChild(wrap);
 
+    // Open the list whenever the field is focused or clicked, even if it already
+    // holds a full value — that was the whole point of replacing <datalist>.
+    this.input.addEventListener("focus", () => this.openMenu());
+    this.input.addEventListener("click", () => this.openMenu());
+    this.input.addEventListener("input", () => this.openMenu());
     this.input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         this.submit();
         this.input.blur();
+      } else if (e.key === "Escape") {
+        this.closeMenu();
+        this.input.blur();
       }
     });
-    this.input.addEventListener("blur", () => this.submit());
-    // Picking a suggestion fires `change` (not while typing) — send it right away.
-    this.input.addEventListener("change", () => this.submit());
+    this.input.addEventListener("blur", () => {
+      this.submit();
+      this.closeMenu();
+    });
+  }
+
+  private openMenu() {
+    this.renderOptions();
+    this.menu.style.display = "block";
+  }
+
+  private closeMenu() {
+    this.menu.style.display = "none";
+  }
+
+  // Options matching the current text. Empty field (or an exact match of a
+  // suggestion) shows the whole list so you can browse alternatives; partial
+  // typing filters by substring.
+  private filtered(): string[] {
+    const q = this.input.value.trim().toLowerCase();
+    if (!q || STYLE_SUGGESTIONS.some((s) => s.toLowerCase() === q)) {
+      return STYLE_SUGGESTIONS;
+    }
+    return STYLE_SUGGESTIONS.filter((s) => s.toLowerCase().includes(q));
+  }
+
+  private renderOptions() {
+    this.menu.innerHTML = "";
+    for (const s of this.filtered()) {
+      const opt = document.createElement("div");
+      opt.textContent = s;
+      Object.assign(opt.style, {
+        padding: "5px 8px",
+        cursor: "pointer",
+        color: "#e5e7eb",
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      } as CSSStyleDeclaration);
+      opt.addEventListener("mouseenter", () => {
+        opt.style.background = "rgba(147,197,253,0.18)";
+      });
+      opt.addEventListener("mouseleave", () => {
+        opt.style.background = "transparent";
+      });
+      // mousedown (not click) so we beat the input's blur and keep focus off the
+      // race: preventDefault stops the blur, we set + submit, then close.
+      opt.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.input.value = s;
+        this.submit();
+        this.closeMenu();
+        this.input.blur();
+      });
+      this.menu.appendChild(opt);
+    }
   }
 
   private submit() {
@@ -132,17 +209,18 @@ export class StyleControl {
     this.send(value);
   }
 
+  /** The style currently in the field (used to keep it across a "nova música"). */
+  currentStyle(): string {
+    return this.input.value.trim();
+  }
+
   /**
-   * Reflect a backend `style` echo. On a "reset" (new song) we clear the input
-   * back to empty rather than showing the default — the singer starts blank,
-   * exactly like session start. Otherwise mirror the accepted/curated value.
+   * Reflect a backend `style` echo. A "reset" (new song) echo is ignored — we
+   * keep the chosen style across songs rather than blanking it. Otherwise mirror
+   * the accepted/curated value.
    */
   setAccepted(style: string, source: string) {
-    if (source === "reset") {
-      this.lastSent = "";
-      this.input.value = "";
-      return;
-    }
+    if (source === "reset") return; // keep the singer's chosen style
     this.lastSent = style;
     // Don't clobber the caret mid-typing; only overwrite if it actually differs.
     if (this.input.value !== style) this.input.value = style;

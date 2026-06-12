@@ -393,8 +393,13 @@ defmodule Sinestesia.Director do
             %{role: gemini_role(role), parts: [%{text: content}]}
           end)
 
+        # 3.1 Flash-Lite: 2.5x faster TTFT than 2.5 Flash at same-or-better
+        # quality — ~200-400ms per Director turn. NOT the "-preview" variant
+        # (discontinued 2026-07-09).
+        model = System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
+
         url =
-          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=#{key}"
+          "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
 
         body = %{
           systemInstruction: %{parts: [%{text: system || ""}]},

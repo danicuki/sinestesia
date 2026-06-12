@@ -80,8 +80,8 @@ PUBLIC_HOST = os.environ.get("PUBLIC_HOST", BIND_HOST)  # what URL we hand back
 # faster than 1024 (inference time scales ~quadratically with pixel count) while
 # still sharp enough for a stage projection, especially with the sketch aesthetic
 # and crossfade transitions softening everything. Drop to 512x288 for ~2x more speed.
-DEFAULT_WIDTH = int(os.environ.get("SDXL_WIDTH", "768"))
-DEFAULT_HEIGHT = int(os.environ.get("SDXL_HEIGHT", "432"))
+DEFAULT_WIDTH = int(os.environ.get("SDXL_WIDTH", "512"))
+DEFAULT_HEIGHT = int(os.environ.get("SDXL_HEIGHT", "288"))
 
 # TAESD: a tiny distilled VAE that decodes latents ~5-10x faster than the full
 # SDXL VAE, with a small quality cost that's invisible for the sketch look.
@@ -211,6 +211,7 @@ app.add_middleware(
 
 pipe: Optional[AutoPipelineForImage2Image] = None
 ipipe = None  # AutoPipelineForInpainting sharing the same weights (from_pipe)
+tpipe = None  # AutoPipelineForText2Image sharing the same weights (from_pipe)
 executor = ThreadPoolExecutor(max_workers=1)  # serialize GPU access
 
 
@@ -405,7 +406,7 @@ def build_mask(placement: Optional[str]) -> Image.Image:
     return mask.filter(ImageFilter.GaussianBlur(MASK_FEATHER_PX))
 
 
-def run_job(prompt: str, image_url: str, strength: float, steps: int,
+def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
             camera: Optional[CameraState] = None,
             element: Optional[str] = None,
             placement: Optional[str] = None,
@@ -416,96 +417,124 @@ def run_job(prompt: str, image_url: str, strength: float, steps: int,
     timings: dict = {}
 
     t0 = time.monotonic()
-    lat_in, pil_in, source = resolve_input(image_url)
-    if pil_in is not None:
-        pil_in = pil_in.resize((DEFAULT_WIDTH, DEFAULT_HEIGHT), Image.LANCZOS)
-        lat_in = encode_latents(pil_in)
-    if camera is not None and not camera.is_neutral():
-        lat_in = apply_camera(lat_in, camera)
-        timings["camera"] = f"z{camera.zoom:+.2f} x{camera.pan_x:+.2f} y{camera.pan_y:+.2f}"
-    timings["fetch_ms"] = int((time.monotonic() - t0) * 1000)
-    timings["input_source"] = source
+    if image_url:
+        lat_in, pil_in, source = resolve_input(image_url)
+        if pil_in is not None:
+            pil_in = pil_in.resize((DEFAULT_WIDTH, DEFAULT_HEIGHT), Image.LANCZOS)
+            lat_in = encode_latents(pil_in)
+        if camera is not None and not camera.is_neutral():
+            lat_in = apply_camera(lat_in, camera)
+            timings["camera"] = f"z{camera.zoom:+.2f} x{camera.pan_x:+.2f} y{camera.pan_y:+.2f}"
+        timings["fetch_ms"] = int((time.monotonic() - t0) * 1000)
+        timings["input_source"] = source
 
-    t1 = time.monotonic()
+        t1 = time.monotonic()
 
-    if element:
-        # ── Inpaint compositing: repaint ONLY the placement region with the
-        # new element as the entire prompt. Decode the (possibly camera-
-        # warped) input latents so the canvas the mask sits on is exactly the
-        # chain state.
-        canvas = decode_latents(lat_in)
-        mask = build_mask(placement)
-        # Without the size bias the model paints "a scene containing a small
-        # X" inside the ellipse — the element ends up a detail. Bias it to
-        # fill the masked region instead.
-        lat_out = ipipe(
-            prompt=fit_clip_prompt(f"{element}, large, bold and prominent, filling the frame"),
-            image=canvas,
-            mask_image=mask,
-            strength=INPAINT_STRENGTH,
-            num_inference_steps=INPAINT_STEPS,
+        if element:
+            # ── Inpaint compositing: repaint ONLY the placement region with the
+            # new element as the entire prompt. Decode the (possibly camera-
+            # warped) input latents so the canvas the mask sits on is exactly the
+            # chain state.
+            canvas = decode_latents(lat_in)
+            mask = build_mask(placement)
+            # Without the size bias the model paints "a scene containing a small
+            # X" inside the ellipse — the element ends up a detail. Bias it to
+            # fill the masked region instead.
+            lat_out = ipipe(
+                prompt=fit_clip_prompt(f"{element}, large, bold and prominent, filling the frame"),
+                image=canvas,
+                mask_image=mask,
+                strength=INPAINT_STRENGTH,
+                num_inference_steps=INPAINT_STEPS,
+                guidance_scale=0.0,
+                width=DEFAULT_WIDTH,
+                height=DEFAULT_HEIGHT,
+                output_type="latent",
+            ).images
+            timings["mode"] = f"inpaint@{placement or 'center'}"
+        else:
+            # ── Global img2img (atmospheric shifts, classic behaviour).
+            # Real denoising work is int(num_inference_steps * strength); strength
+            # also sets how much noise is injected (more = more change). If the
+            # product rounds to 0 nothing happens, so guarantee one step.
+            # (SDXL Turbo: guidance_scale must be 0.)
+            if int(steps * strength) < 1:
+                steps = max(int(round(1.0 / max(strength, 0.05))), 1)
+
+            lat_out = pipe(
+                prompt=fit_clip_prompt(prompt),
+                image=lat_in,
+                strength=strength,
+                num_inference_steps=steps,
+                guidance_scale=0.0,
+                output_type="latent",
+            ).images
+            timings["mode"] = "img2img"
+
+        # Periodic style recovery: re-style the WHOLE canvas (inpainted element
+        # included, so it harmonizes into the look) without erasing composition.
+        if style_pass:
+            ts = time.monotonic()
+            lat_out = pipe(
+                prompt=fit_clip_prompt(style_pass),
+                image=lat_out,
+                strength=STYLE_PASS_STRENGTH,
+                num_inference_steps=5,
+                guidance_scale=0.0,
+                output_type="latent",
+            ).images
+            timings["style_pass_ms"] = int((time.monotonic() - ts) * 1000)
+
+        timings["infer_ms"] = int((time.monotonic() - t1) * 1000)
+
+        # Final image first, so the slowest consumer (the next img2img call and any
+        # client ignoring `frames`) is unblocked as early as possible.
+        final = decode_latents(lat_out)
+        stem = uuid.uuid4().hex
+        final_name = f"{stem}.png"
+        final.save(CACHE_DIR / final_name, "PNG", optimize=False)
+        cache_latents(final_name, lat_out)
+
+        # Morph: slerp between the input and output latents, decode intermediates.
+        # Consecutive frames are img2img-related so the in-betweens decode as
+        # plausible images — a generative morph, not a pixel dissolve.
+        t2 = time.monotonic()
+        frame_names = []
+        for k in range(1, MORPH_FRAMES + 1):
+            t = k / (MORPH_FRAMES + 1)
+            mid = decode_latents(slerp(lat_in, lat_out, t))
+            name = f"{stem}_m{k}.jpg"
+            mid.save(CACHE_DIR / name, "JPEG", quality=88)
+            frame_names.append(name)
+        frame_names.append(final_name)
+        timings["morph_ms"] = int((time.monotonic() - t2) * 1000)
+    else:
+        # ── Text to Image (first frame / bootstrap)
+        timings["fetch_ms"] = 0
+        timings["input_source"] = "none"
+
+        t1 = time.monotonic()
+        # SDXL Turbo: guidance_scale must be 0
+        lat_out = tpipe(
+            prompt=fit_clip_prompt(prompt),
+            num_inference_steps=steps,
             guidance_scale=0.0,
             width=DEFAULT_WIDTH,
             height=DEFAULT_HEIGHT,
             output_type="latent",
         ).images
-        timings["mode"] = f"inpaint@{placement or 'center'}"
-    else:
-        # ── Global img2img (atmospheric shifts, classic behaviour).
-        # Real denoising work is int(num_inference_steps * strength); strength
-        # also sets how much noise is injected (more = more change). If the
-        # product rounds to 0 nothing happens, so guarantee one step.
-        # (SDXL Turbo: guidance_scale must be 0.)
-        if int(steps * strength) < 1:
-            steps = max(int(round(1.0 / max(strength, 0.05))), 1)
+        timings["mode"] = "txt2img"
+        timings["infer_ms"] = int((time.monotonic() - t1) * 1000)
 
-        lat_out = pipe(
-            prompt=fit_clip_prompt(prompt),
-            image=lat_in,
-            strength=strength,
-            num_inference_steps=steps,
-            guidance_scale=0.0,
-            output_type="latent",
-        ).images
-        timings["mode"] = "img2img"
+        final = decode_latents(lat_out)
+        stem = uuid.uuid4().hex
+        final_name = f"{stem}.png"
+        final.save(CACHE_DIR / final_name, "PNG", optimize=False)
+        cache_latents(final_name, lat_out)
 
-    # Periodic style recovery: re-style the WHOLE canvas (inpainted element
-    # included, so it harmonizes into the look) without erasing composition.
-    if style_pass:
-        ts = time.monotonic()
-        lat_out = pipe(
-            prompt=fit_clip_prompt(style_pass),
-            image=lat_out,
-            strength=STYLE_PASS_STRENGTH,
-            num_inference_steps=5,
-            guidance_scale=0.0,
-            output_type="latent",
-        ).images
-        timings["style_pass_ms"] = int((time.monotonic() - ts) * 1000)
-
-    timings["infer_ms"] = int((time.monotonic() - t1) * 1000)
-
-    # Final image first, so the slowest consumer (the next img2img call and any
-    # client ignoring `frames`) is unblocked as early as possible.
-    final = decode_latents(lat_out)
-    stem = uuid.uuid4().hex
-    final_name = f"{stem}.png"
-    final.save(CACHE_DIR / final_name, "PNG", optimize=False)
-    cache_latents(final_name, lat_out)
-
-    # Morph: slerp between the input and output latents, decode intermediates.
-    # Consecutive frames are img2img-related so the in-betweens decode as
-    # plausible images — a generative morph, not a pixel dissolve.
-    t2 = time.monotonic()
-    frame_names = []
-    for k in range(1, MORPH_FRAMES + 1):
-        t = k / (MORPH_FRAMES + 1)
-        mid = decode_latents(slerp(lat_in, lat_out, t))
-        name = f"{stem}_m{k}.jpg"
-        mid.save(CACHE_DIR / name, "JPEG", quality=88)
-        frame_names.append(name)
-    frame_names.append(final_name)
-    timings["morph_ms"] = int((time.monotonic() - t2) * 1000)
+        # No morph frames for the first image
+        frame_names = [final_name]
+        timings["morph_ms"] = 0
 
     return {
         "final_name": final_name,
@@ -518,16 +547,17 @@ def run_job(prompt: str, image_url: str, strength: float, steps: int,
 
 @app.on_event("startup")
 async def startup():
-    global pipe, ipipe
+    global pipe, ipipe, tpipe
     pipe = load_pipeline()
     # Same UNet/VAE/encoders, zero extra memory — only the pipeline wrapper
     # differs. For non-inpaint checkpoints diffusers blends the unmasked
     # region back in latent space at every step, which is exactly what we
     # want: the canvas outside the mask is preserved by construction.
-    from diffusers import AutoPipelineForInpainting
+    from diffusers import AutoPipelineForInpainting, AutoPipelineForText2Image
 
     ipipe = AutoPipelineForInpainting.from_pipe(pipe)
-    log.info("inpaint pipeline ready (shared weights)")
+    tpipe = AutoPipelineForText2Image.from_pipe(pipe)
+    log.info("inpaint and text2img pipelines ready (shared weights)")
 
 
 @app.get("/healthz")
@@ -552,10 +582,6 @@ def img_url(name: str) -> str:
 async def generate(req: GenerateRequest):
     if pipe is None:
         raise HTTPException(503, "pipeline not ready")
-    if not req.image_url:
-        # In img2img mode we always need an input image. For a true t2i mode
-        # we'd swap to AutoPipelineForText2Image — out of scope for v1.
-        raise HTTPException(400, "image_url is required (this server is img2img only)")
 
     strength = req.strength if req.strength is not None else DEFAULT_STRENGTH
     steps = req.num_inference_steps if req.num_inference_steps is not None else DEFAULT_STEPS

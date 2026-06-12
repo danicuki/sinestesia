@@ -2,121 +2,254 @@
   "sequences": [
     {
       "description": "Sun → castle → glove → rain → road → sailboat. Inspired by Toquinho's 'Aquarela'.",
-      "title": "Aquarela — childlike progression",
-      "slug": "aquarela",
-      "style": "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "frame_count": 6,
       "frames": [
         {
           "file": "aquarela/frame_01.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun in the upper corner of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 1
+          "idx": 1,
+          "prompt": "A hand-drawn scene showing a single round sun in the upper corner of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         },
         {
           "file": "aquarela/frame_02.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun, and a small castle with simple square towers below. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 2
+          "idx": 2,
+          "prompt": "A hand-drawn scene showing a single round sun, and a small castle with simple square towers below. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         },
         {
           "file": "aquarela/frame_03.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun, a small castle below, and an outlined glove at the edge of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 3
+          "idx": 3,
+          "prompt": "A hand-drawn scene showing a single round sun, a small castle below, and an outlined glove at the edge of the page. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         },
         {
           "file": "aquarela/frame_04.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun, a small castle, an outlined glove, and a cloud with diagonal rain lines. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 4
+          "idx": 4,
+          "prompt": "A hand-drawn scene showing a single round sun, a small castle, an outlined glove, and a cloud with diagonal rain lines. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         },
         {
           "file": "aquarela/frame_05.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, and a winding road leading toward the horizon. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 5
+          "idx": 5,
+          "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, and a winding road leading toward the horizon. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         },
         {
           "file": "aquarela/frame_06.jpg",
-          "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, a winding road, and a small sailboat drifting on a calm sea. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
-          "idx": 6
+          "idx": 6,
+          "prompt": "A hand-drawn scene showing a single round sun, a small castle, a glove, rain clouds, a winding road, and a small sailboat drifting on a calm sea. loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
         }
       ],
-      "frame_count": 6
+      "slug": "aquarela",
+      "style": "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones",
+      "title": "Aquarela — childlike progression"
     },
     {
       "description": "Building → street → cars → pedestrians → night lights → rain on windows.",
-      "title": "Cityscape — urban growth",
-      "slug": "cityscape",
-      "style": "graffiti marker on concrete wall, raw bold outlines, urban",
+      "frame_count": 6,
       "frames": [
         {
           "file": "cityscape/frame_01.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building at the center of the wall. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 1
+          "idx": 1,
+          "prompt": "A hand-drawn scene showing a tall narrow building at the center of the wall. graffiti marker on concrete wall, raw bold outlines, urban"
         },
         {
           "file": "cityscape/frame_02.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building and a wide street stretching across the foreground. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 2
+          "idx": 2,
+          "prompt": "A hand-drawn scene showing a tall narrow building and a wide street stretching across the foreground. graffiti marker on concrete wall, raw bold outlines, urban"
         },
         {
           "file": "cityscape/frame_03.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, and small angular cars parked along the curb. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 3
+          "idx": 3,
+          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, and small angular cars parked along the curb. graffiti marker on concrete wall, raw bold outlines, urban"
         },
         {
           "file": "cityscape/frame_04.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, parked cars, and silhouettes of pedestrians walking. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 4
+          "idx": 4,
+          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, parked cars, and silhouettes of pedestrians walking. graffiti marker on concrete wall, raw bold outlines, urban"
         },
         {
           "file": "cityscape/frame_05.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, and bright window lights glowing in the night. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 5
+          "idx": 5,
+          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, and bright window lights glowing in the night. graffiti marker on concrete wall, raw bold outlines, urban"
         },
         {
           "file": "cityscape/frame_06.jpg",
-          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, window lights, and rain streaks slanting across the whole scene. graffiti marker on concrete wall, raw bold outlines, urban",
-          "idx": 6
+          "idx": 6,
+          "prompt": "A hand-drawn scene showing a tall narrow building, a wide street, cars, pedestrians, window lights, and rain streaks slanting across the whole scene. graffiti marker on concrete wall, raw bold outlines, urban"
         }
       ],
-      "frame_count": 6
+      "slug": "cityscape",
+      "style": "graffiti marker on concrete wall, raw bold outlines, urban",
+      "title": "Cityscape — urban growth"
     },
     {
       "description": "Moon → stars → comet → planet → orbital ring → distant nebula.",
-      "title": "Cosmic — slow celestial assembly",
-      "slug": "cosmic",
-      "style": "watercolor and ink, pale washes, hand-drawn outlines",
+      "frame_count": 6,
       "frames": [
         {
           "file": "cosmic/frame_01.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon floating in an empty dark sky. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 1
+          "idx": 1,
+          "prompt": "A hand-drawn scene showing a crescent moon floating in an empty dark sky. watercolor and ink, pale washes, hand-drawn outlines"
         },
         {
           "file": "cosmic/frame_02.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon and a scattering of small bright stars across the sky. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 2
+          "idx": 2,
+          "prompt": "A hand-drawn scene showing a crescent moon and a scattering of small bright stars across the sky. watercolor and ink, pale washes, hand-drawn outlines"
         },
         {
           "file": "cosmic/frame_03.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, and a long comet streaking diagonally past. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 3
+          "idx": 3,
+          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, and a long comet streaking diagonally past. watercolor and ink, pale washes, hand-drawn outlines"
         },
         {
           "file": "cosmic/frame_04.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, and a large ringed planet rising at the horizon. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 4
+          "idx": 4,
+          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, and a large ringed planet rising at the horizon. watercolor and ink, pale washes, hand-drawn outlines"
         },
         {
           "file": "cosmic/frame_05.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, and a thin orbital ring of debris around the planet. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 5
+          "idx": 5,
+          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, and a thin orbital ring of debris around the planet. watercolor and ink, pale washes, hand-drawn outlines"
         },
         {
           "file": "cosmic/frame_06.jpg",
-          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, an orbital ring, and a faint glowing nebula spreading across the background. watercolor and ink, pale washes, hand-drawn outlines",
-          "idx": 6
+          "idx": 6,
+          "prompt": "A hand-drawn scene showing a crescent moon, scattered stars, a comet, a ringed planet, an orbital ring, and a faint glowing nebula spreading across the background. watercolor and ink, pale washes, hand-drawn outlines"
         }
       ],
-      "frame_count": 6
+      "slug": "cosmic",
+      "style": "watercolor and ink, pale washes, hand-drawn outlines",
+      "title": "Cosmic — slow celestial assembly"
+    },
+    {
+      "description": "Pipeline replay of aquarela-sepia on 2026-06-12 — 18 images.",
+      "frame_count": 18,
+      "frames": [
+        {
+          "file": "exp-aquarela-global/frame_01.png",
+          "idx": 1,
+          "lyric": "Numa folha qualquer eu desenho um sol amarelooo. E com cinco ou seis retas é fácil",
+          "prompt": "a yellow sun in a wide airy scene. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_02.png",
+          "idx": 2,
+          "lyric": "E se f",
+          "prompt": "a yellow sun, plus flickering light shadows"
+        },
+        {
+          "file": "exp-aquarela-global/frame_03.png",
+          "idx": 3,
+          "lyric": "\"E se faço chover, quando vocês custem um guarda-chuva.\"",
+          "prompt": "a yellow sun, flickering light shadows, heavy rain clouds above. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_04.png",
+          "idx": 4,
+          "lyric": "Se um pinguinho",
+          "prompt": "a yellow sun, flickering light shadows, heavy rain clouds, a single falling droplet"
+        },
+        {
+          "file": "exp-aquarela-global/frame_05.png",
+          "idx": 5,
+          "lyric": "um pinguinho de tinta cai num pedacinho azul do papééé.\"",
+          "prompt": "a yellow sun, flickering light shadows, heavy rain clouds, falling droplet, a blue ink blot on paper"
+        },
+        {
+          "file": "exp-aquarela-global/frame_06.png",
+          "idx": 6,
+          "lyric": "Num instante, imagino uma linda",
+          "prompt": "a yellow sun, flickering light shadows, heavy rain clouds, blue ink blot, a beautiful woman standing center. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_07.png",
+          "idx": 7,
+          "lyric": "\"Num instante, imagino uma linda gaivota voar no céééu.\"",
+          "prompt": "a yellow sun, flickering light shadows, heavy rain clouds, blue ink blot, a seagull soaring high"
+        },
+        {
+          "file": "exp-aquarela-global/frame_08.png",
+          "idx": 8,
+          "lyric": "Continuando a imensa",
+          "prompt": "flickering light shadows, heavy rain clouds, blue ink blot, seagull soaring, immense empty space stretching out"
+        },
+        {
+          "file": "exp-aquarela-global/frame_09.png",
+          "idx": 9,
+          "lyric": "Contornando a imensa curvaaa, Norte-Sul, vou com elaaa",
+          "prompt": "heavy rain clouds, blue ink blot, seagull soaring, immense empty space, woman riding the curved horizon. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_10.png",
+          "idx": 10,
+          "lyric": "Viajando a Havaí, Pequim ou Istambul",
+          "prompt": "blue ink blot, seagull soaring, woman riding curve, distant tropical palm trees"
+        },
+        {
+          "file": "exp-aquarela-global/frame_11.png",
+          "idx": 11,
+          "lyric": "Pintum barco a veeela, branco navegaaando",
+          "prompt": "seagull soaring, woman riding curve, tropical palm trees, white boat sailing nearby"
+        },
+        {
+          "file": "exp-aquarela-global/frame_12.png",
+          "idx": 12,
+          "lyric": "vela, branco navegando, é tanto céu e mar, num beijo",
+          "prompt": "woman riding curve, tropical palm trees, white boat sailing, vast sea and sky, a kiss in the air. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_13.png",
+          "idx": 13,
+          "lyric": "u. Entre as nuuuvêêêêêêêêêêêêêêêêêêêêêêêêê",
+          "prompt": "tropical palm trees, white boat sailing, vast sea and sky, a kiss, drifting heavy clouds"
+        },
+        {
+          "file": "exp-aquarela-global/frame_14.png",
+          "idx": 14,
+          "lyric": "vem surgindo um lindo avião, rosa e grená, tudo em",
+          "prompt": "white boat sailing, vast sea and sky, a kiss, drifting heavy clouds, a pink and maroon airplane"
+        },
+        {
+          "file": "exp-aquarela-global/frame_15.png",
+          "idx": 15,
+          "lyric": "Colorindo com",
+          "prompt": "vast sea and sky, a kiss, drifting heavy clouds, pink and maroon airplane, vibrant color bleeding outward. Brazilian cordel woodcut print, black and white, hatched linework"
+        },
+        {
+          "file": "exp-aquarela-global/frame_16.png",
+          "idx": 16,
+          "lyric": "Colorindo com suas luzes, a pescar, basta ir mais",
+          "prompt": "a kiss, drifting heavy clouds, pink and maroon airplane, vibrant color, shimmering fishing lights"
+        },
+        {
+          "file": "exp-aquarela-global/frame_17.png",
+          "idx": 17,
+          "lyric": "suas luzes, a pescar, basta imaginar e ele está partindo",
+          "prompt": "drifting heavy clouds, pink and maroon airplane, vibrant color, shimmering fishing lights, a departing figure in distance"
+        },
+        {
+          "file": "exp-aquarela-global/frame_18.png",
+          "idx": 18,
+          "lyric": "Sereno eee, e se a geeente quiseeer",
+          "prompt": "pink and maroon airplane, vibrant color, shimmering fishing lights, departing figure, calm still water surface. Brazilian cordel woodcut print, black and white, hatched linework"
+        }
+      ],
+      "params": {
+        "compose_atmos_strength": "0.4",
+        "compose_mode": "global",
+        "director_provider": "gemma",
+        "exported_at": "2026-06-12 18:40:45Z",
+        "image_mode": "story",
+        "image_provider": "local_sdxl",
+        "local_sdxl_steps": "3",
+        "local_sdxl_strength": "0.78",
+        "render_mode": "img2img",
+        "replay_file": "aquarela-sepia.json",
+        "replay_speed": "1.0",
+        "scene_window": "5",
+        "style_anchor": "(off)",
+        "style_refresh_every": "3"
+      },
+      "segment_ms": 4062,
+      "slug": "exp-aquarela-global",
+      "style": "Brazilian cordel woodcut print, black and white, hatched linework",
+      "title": "Replay: aquarela-sepia"
     }
-  ],
-  "generated_at": "2026-06-08T21:08:38.957018Z"
+  ]
 }

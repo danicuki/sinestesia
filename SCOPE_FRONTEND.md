@@ -213,15 +213,19 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
   dedup guard on `lastSent` just avoids re-emitting the same value. The echo's
   `source` (`"user"` / `"curator"` / `"reset"`) is passed through; a `"curator"`
   echo mirrors the auto-picked style into the input too. Next to the input sits a
-  **"nova música"** button that sends `{ type: "reset" }`; the backend then echoes
-  a `style` with `source: "reset"`, on which the input is cleared back to empty
-  (fresh-song start). `socket.ts` gained `sendStyle()`, `sendReset()`, an
+  **"nova música"** button that sends `{ type: "reset" }`; the chosen style is
+  **kept across songs** — the backend's `source: "reset"` echo is ignored and the
+  current style is re-sent so the new song starts in the same look (only the
+  canvas clears). `socket.ts` gained `sendStyle()`, `sendReset()`, an
   `onStyle(style, source)` callback, and a `style` inbound case. The input has a
-  **`<datalist>` of preset looks** (cordel / crayon / graffiti / charcoal /
-  watercolor / ink-sketch) as quick picks while still allowing free text. The
-  active style is **persisted to `localStorage`** (`sinestesia.style`): prefilled
-  into the input on load, re-sent on socket open so a reload restores the look,
-  and cleared on reset. The selected **mic device** is likewise persisted
+  **custom dropdown of preset looks** (alphabetically sorted; cordel / charcoal /
+  crayon / expressionism / graffiti / ink-sketch / Tarsila / watercolor) that
+  opens on focus/click — even when the field already holds a full value — while
+  still allowing free text; typing filters the list by substring. (Replaces the
+  native `<datalist>`, which hid every option once the field had a value.) The
+  active style is **persisted to `localStorage`** (`sinestesia.style`): saved on
+  submit, prefilled into the input on load, and re-sent on socket open so a reload
+  restores the look. The selected **mic device** is likewise persisted
   (`sinestesia.micDeviceId`) and restored on start with a default fallback if the
   device is gone.
 - **Rail 1 (Movement) strengthened** — was computing FFT/RMS/onset and warping

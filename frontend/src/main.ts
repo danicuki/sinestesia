@@ -114,6 +114,9 @@ async function playDemo(slug: string) {
   console.log(
     `[demo] "${seq.slug}" — ${n} frames, continuous morph @ ${DEMO_SEGMENT_MS}ms/step`,
   );
+  // The run recipe is per-sequence, so it's set once; prompt/lyric update per
+  // frame below. Sequences without params just clear the table.
+  debug?.setSampleParams(seq.params);
   demoUpdate = () => {
     const phase = (performance.now() - start) / DEMO_SEGMENT_MS;
     const i = Math.floor(phase) % n;
@@ -122,6 +125,7 @@ async function playDemo(slug: string) {
     scene.setMorph(texes[i], texes[next], t);
     if (next !== shown) {
       debug?.setPrompt(seq.frames[next].prompt);
+      debug?.setSampleLyric(seq.frames[next].lyric);
       shown = next;
     }
   };

@@ -28,8 +28,10 @@ export class DebugOverlay {
   private elExpressive: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
+  private elLyric: HTMLDivElement;
   private elHistory: HTMLDivElement;
   private elSamples: HTMLDivElement;
+  private elParams: HTMLDivElement;
 
   private history: TimingEntry[] = [];
   private lastAudioPaint = 0; // throttle the per-frame meter to ~12Hz
@@ -65,8 +67,10 @@ export class DebugOverlay {
     this.elExpressive = this.section(left, "rail 3 — expression");
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
+    this.elLyric = this.section(left, "sample lyric");
     this.elHistory = this.section(right, "history (last 5)");
     this.elSamples = this.section(right, "sample sequences");
+    this.elParams = this.section(right, "run params");
 
     this.root.appendChild(left);
     this.root.appendChild(right);
@@ -109,6 +113,28 @@ export class DebugOverlay {
   // 2. Last Director prompt
   setPrompt(prompt: string) {
     this.elPrompt.textContent = prompt || "—";
+  }
+
+  // Sample-replay lyric for the current frame (demo player). Cleared with "—".
+  setSampleLyric(lyric?: string) {
+    this.elLyric.textContent = lyric || "—";
+  }
+
+  // Sample-replay run recipe as a sorted key=value table (demo player). Sorted
+  // so two runs line up for visual A/B comparison. Absent params clears it.
+  setSampleParams(params?: Record<string, string>) {
+    const keys = params ? Object.keys(params).sort() : [];
+    if (keys.length === 0) {
+      this.elParams.textContent = "—";
+      return;
+    }
+    this.elParams.innerHTML = keys
+      .map(
+        (k) =>
+          span(`${escapeHtml(k)} = `, COL.dim) +
+          span(escapeHtml(params![k]), COL.final),
+      )
+      .join("\n");
   }
 
   // Live Rail-1 meter (called every frame; throttled to ~12Hz to spare layout).

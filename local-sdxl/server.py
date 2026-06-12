@@ -126,6 +126,41 @@ IMG_URL_RE = re.compile(r"/img/([A-Za-z0-9_.-]+)$")
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# Inpaint compositing: how hard the masked region is re-noised (≈1.0 = fully
+# fresh content inside the mask) and how many scheduler steps to request
+# (real steps = int(steps * strength)).
+INPAINT_STRENGTH = float(os.environ.get("INPAINT_STRENGTH", "0.95"))
+INPAINT_STEPS = int(os.environ.get("INPAINT_STEPS", "5"))
+# Style consolidation pass (`style_pass` in the request): a gentle whole-canvas
+# img2img with the style note as the prompt, chained AFTER the main op. Strong
+# enough to pull a drifting canvas back to the look and harmonize inpaint
+# seams, weak enough to keep the accumulated composition.
+STYLE_PASS_STRENGTH = float(os.environ.get("STYLE_PASS_STRENGTH", "0.35"))
+# Soft edge so the new element blends into the canvas instead of showing a
+# hard ellipse seam, in pixels of gaussian blur on the mask.
+MASK_FEATHER_PX = int(os.environ.get("MASK_FEATHER_PX", "24"))
+
+# 3x3 placement grid → ellipse center (fractions of width/height). Centers
+# are pulled slightly inward so the larger ellipse stays mostly on-canvas.
+PLACEMENTS = {
+    "top-left": (0.25, 0.28),
+    "top": (0.50, 0.26),
+    "top-right": (0.75, 0.28),
+    "left": (0.25, 0.52),
+    "center": (0.50, 0.50),
+    "right": (0.75, 0.52),
+    "bottom-left": (0.25, 0.74),
+    "bottom": (0.50, 0.76),
+    "bottom-right": (0.75, 0.74),
+}
+# Element region size (~19% of the frame). Element visibility comes mostly
+# from the "filling the frame" prompt bias, not from mask area: at 0.27/0.34
+# (~29%) each inpaint repainted nearly a third of the canvas and wrecked the
+# accumulated scene; at 0.20/0.26 (~16%) elements read as details on stage.
+ELLIPSE_RX = float(os.environ.get("ELLIPSE_RX", "0.22"))  # fraction of width
+ELLIPSE_RY = float(os.environ.get("ELLIPSE_RY", "0.28"))  # fraction of height
+
+
 class CameraState(BaseModel):
     """Operator-driven virtual camera, all values -1..1 (0 = still).
     zoom > 0 zooms in; zoom < 0 zooms out (scene recedes, edges open up).
@@ -145,6 +180,17 @@ class GenerateRequest(BaseModel):
     num_inference_steps: Optional[int] = None
     image_size: Optional[str] = None  # kept for fal parity, ignored for now
     camera: Optional[CameraState] = None
+    # Compositing mode: when `element` is present the request is an INPAINT —
+    # only the soft-masked region at `placement` is re-denoised, with `element`
+    # as the whole prompt (single-subject regime, where Turbo's CFG-free
+    # conditioning actually obeys the text). The rest of the canvas is
+    # untouched by construction. `placement` is one of the PLACEMENTS keys.
+    element: Optional[str] = None
+    placement: Optional[str] = None
+    # When present, a gentle whole-canvas img2img pass with this text as the
+    # prompt runs AFTER the main op (periodic style recovery, see
+    # STYLE_PASS_STRENGTH).
+    style_pass: Optional[str] = None
     # Below are accepted but ignored — fal sends them, we don't need them.
     enable_safety_checker: Optional[bool] = None
 
@@ -164,6 +210,7 @@ app.add_middleware(
 )
 
 pipe: Optional[AutoPipelineForImage2Image] = None
+ipipe = None  # AutoPipelineForInpainting sharing the same weights (from_pipe)
 executor = ThreadPoolExecutor(max_workers=1)  # serialize GPU access
 
 
@@ -344,8 +391,25 @@ def resolve_input(image_url: str) -> Tuple[Optional[torch.Tensor], Optional[Imag
     return None, fetch_input_image(image_url), "http"
 
 
+def build_mask(placement: Optional[str]) -> Image.Image:
+    """Soft ellipse mask (white = repaint) at one of the 3x3 grid placements."""
+    from PIL import ImageDraw, ImageFilter
+
+    cx_f, cy_f = PLACEMENTS.get(placement or "center", PLACEMENTS["center"])
+    w, h = DEFAULT_WIDTH, DEFAULT_HEIGHT
+    cx, cy = cx_f * w, cy_f * h
+    rx, ry = ELLIPSE_RX * w, ELLIPSE_RY * h
+
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=255)
+    return mask.filter(ImageFilter.GaussianBlur(MASK_FEATHER_PX))
+
+
 def run_job(prompt: str, image_url: str, strength: float, steps: int,
-            camera: Optional[CameraState] = None) -> dict:
+            camera: Optional[CameraState] = None,
+            element: Optional[str] = None,
+            placement: Optional[str] = None,
+            style_pass: Optional[str] = None) -> dict:
     """The whole GPU job, serialized on the single-worker executor:
     resolve input → camera move → denoise (latents out) → save final →
     decode morph frames."""
@@ -362,27 +426,63 @@ def run_job(prompt: str, image_url: str, strength: float, steps: int,
     timings["fetch_ms"] = int((time.monotonic() - t0) * 1000)
     timings["input_source"] = source
 
-    prompt = fit_clip_prompt(prompt)
-
-    # In diffusers img2img the actual denoising work is:
-    #   real_steps = int(num_inference_steps * strength)
-    # and `strength` ALSO sets how much noise is added to the input — higher
-    # strength = more deviation from the previous frame (more visible change).
-    #
-    # If real_steps rounds to 0 nothing happens, so bump steps to guarantee
-    # at least one denoising step. (SDXL Turbo: guidance_scale must be 0.)
-    if int(steps * strength) < 1:
-        steps = max(int(round(1.0 / max(strength, 0.05))), 1)
-
     t1 = time.monotonic()
-    lat_out = pipe(
-        prompt=prompt,
-        image=lat_in,
-        strength=strength,
-        num_inference_steps=steps,
-        guidance_scale=0.0,
-        output_type="latent",
-    ).images
+
+    if element:
+        # ── Inpaint compositing: repaint ONLY the placement region with the
+        # new element as the entire prompt. Decode the (possibly camera-
+        # warped) input latents so the canvas the mask sits on is exactly the
+        # chain state.
+        canvas = decode_latents(lat_in)
+        mask = build_mask(placement)
+        # Without the size bias the model paints "a scene containing a small
+        # X" inside the ellipse — the element ends up a detail. Bias it to
+        # fill the masked region instead.
+        lat_out = ipipe(
+            prompt=fit_clip_prompt(f"{element}, large, bold and prominent, filling the frame"),
+            image=canvas,
+            mask_image=mask,
+            strength=INPAINT_STRENGTH,
+            num_inference_steps=INPAINT_STEPS,
+            guidance_scale=0.0,
+            width=DEFAULT_WIDTH,
+            height=DEFAULT_HEIGHT,
+            output_type="latent",
+        ).images
+        timings["mode"] = f"inpaint@{placement or 'center'}"
+    else:
+        # ── Global img2img (atmospheric shifts, classic behaviour).
+        # Real denoising work is int(num_inference_steps * strength); strength
+        # also sets how much noise is injected (more = more change). If the
+        # product rounds to 0 nothing happens, so guarantee one step.
+        # (SDXL Turbo: guidance_scale must be 0.)
+        if int(steps * strength) < 1:
+            steps = max(int(round(1.0 / max(strength, 0.05))), 1)
+
+        lat_out = pipe(
+            prompt=fit_clip_prompt(prompt),
+            image=lat_in,
+            strength=strength,
+            num_inference_steps=steps,
+            guidance_scale=0.0,
+            output_type="latent",
+        ).images
+        timings["mode"] = "img2img"
+
+    # Periodic style recovery: re-style the WHOLE canvas (inpainted element
+    # included, so it harmonizes into the look) without erasing composition.
+    if style_pass:
+        ts = time.monotonic()
+        lat_out = pipe(
+            prompt=fit_clip_prompt(style_pass),
+            image=lat_out,
+            strength=STYLE_PASS_STRENGTH,
+            num_inference_steps=5,
+            guidance_scale=0.0,
+            output_type="latent",
+        ).images
+        timings["style_pass_ms"] = int((time.monotonic() - ts) * 1000)
+
     timings["infer_ms"] = int((time.monotonic() - t1) * 1000)
 
     # Final image first, so the slowest consumer (the next img2img call and any
@@ -418,8 +518,16 @@ def run_job(prompt: str, image_url: str, strength: float, steps: int,
 
 @app.on_event("startup")
 async def startup():
-    global pipe
+    global pipe, ipipe
     pipe = load_pipeline()
+    # Same UNet/VAE/encoders, zero extra memory — only the pipeline wrapper
+    # differs. For non-inpaint checkpoints diffusers blends the unmasked
+    # region back in latent space at every step, which is exactly what we
+    # want: the canvas outside the mask is preserved by construction.
+    from diffusers import AutoPipelineForInpainting
+
+    ipipe = AutoPipelineForInpainting.from_pipe(pipe)
+    log.info("inpaint pipeline ready (shared weights)")
 
 
 @app.get("/healthz")
@@ -454,7 +562,8 @@ async def generate(req: GenerateRequest):
 
     try:
         job = await asyncio.get_event_loop().run_in_executor(
-            executor, run_job, req.prompt, req.image_url, strength, steps, req.camera
+            executor, run_job, req.prompt, req.image_url, strength, steps,
+            req.camera, req.element, req.placement, req.style_pass,
         )
     except requests.RequestException as e:
         log.exception("input image fetch failed")

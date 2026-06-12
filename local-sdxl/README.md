@@ -80,10 +80,36 @@ curl -s http://127.0.0.1:8003/healthz
 | `MORPH_FRAMES` | `5` | intermediate latent-morph frames per generation; `0` disables |
 | `CAMERA_ZOOM_RATE` | `0.05` | zoom scale change per frame at full deflection (`camera.zoom = ±1`) |
 | `CAMERA_PAN_RATE` | `0.05` | fraction of the frame panned per frame at full deflection |
+| `INPAINT_STRENGTH` | `0.95` | how fresh the masked region is in element-inpaint requests |
+| `INPAINT_STEPS` | `5` | scheduler steps for inpaint (real = `int(steps*strength)`) |
+| `MASK_FEATHER_PX` | `24` | gaussian blur on the placement mask edge |
+| `ELLIPSE_RX` | `0.22` | element-region half-width (fraction of frame width) |
+| `ELLIPSE_RY` | `0.28` | element-region half-height (fraction of frame height) |
+| `STYLE_PASS_STRENGTH` | `0.35` | strength of the chained whole-canvas re-style when the request carries `style_pass` |
 | `BIND_HOST` | `127.0.0.1` | bind address |
 | `BIND_PORT` | `8003` | bind port |
 | `PUBLIC_HOST` | _same as BIND_HOST_ | hostname embedded in returned image URLs |
 | `SDXL_CACHE_DIR` | `/tmp/local_sdxl_cache` | where generated images live |
+
+### Element inpainting (compose mode)
+
+When the request carries `element` + `placement` (one of the nine grid
+positions `top-left … bottom-right`), the server repaints ONLY a soft ellipse
+at that placement, with `element` as the entire prompt. This is how lyric
+elements are guaranteed to materialize: inside the mask the model is in its
+single-subject regime and the text is the only content signal, while the rest
+of the canvas is untouched by construction. Requests without `element` behave
+as before (whole-canvas img2img).
+
+The inpaint prompt is biased with ", large, bold and prominent, filling the
+frame" — without it the model paints "a scene containing a small X" inside the
+ellipse and elements read as details on a stage screen.
+
+When a request carries `style_pass` (text), a gentle whole-canvas img2img with
+that text as the prompt is chained AFTER the main op (`STYLE_PASS_STRENGTH`).
+The backend sends it every `STYLE_REFRESH_EVERY` images as style recovery: it
+pulls a drifting canvas back to the look and harmonizes inpaint seams without
+erasing the accumulated composition.
 
 ## API
 

@@ -49,6 +49,14 @@ defmodule Mix.Tasks.Sinestesia.Replay do
 
     Mix.shell().info("── replaying #{name} (#{length(session["events"])} events) ──")
 
+    Mix.shell().info(
+      "── params: " <>
+        (run_params()
+         |> Map.delete("exported_at")
+         |> Enum.sort()
+         |> Enum.map_join("  ", fn {k, v} -> "#{k}=#{v}" end))
+    )
+
     acc =
       collect(deadline_ms, %{
         images: [],
@@ -82,7 +90,7 @@ defmodule Mix.Tasks.Sinestesia.Replay do
         Mix.shell().info(
           "[#{pad(n)}] +#{div(now_ms() - acc.started_at, 1000)}s  " <>
             "(director #{t.director_ms}ms + image #{t.image_ms}ms#{frames_note(frames)})\n" <>
-            "      #{msg.prompt}\n      #{msg.url}"
+            "      #{msg.prompt}\n      #{display_url(msg.url)}"
         )
 
         collect(deadline_ms, %{acc | images: acc.images ++ [Map.put(msg, :arrived_at, now_ms())]})
@@ -177,9 +185,8 @@ defmodule Mix.Tasks.Sinestesia.Replay do
       acc.images
       |> Enum.with_index(1)
       |> Enum.map(fn {msg, i} ->
-        ext = if String.contains?(msg.url, ".jpg"), do: "jpg", else: "png"
+        {ext, body} = fetch_image(msg.url)
         file = "frame_#{String.pad_leading(to_string(i), 2, "0")}.#{ext}"
-        %{status: 200, body: body} = Req.get!(msg.url, retry: false, decode_body: false)
         File.write!(Path.join(dir, file), body)
 
         %{
@@ -203,6 +210,9 @@ defmodule Mix.Tasks.Sinestesia.Replay do
       "description" =>
         "Pipeline replay of #{name} on #{Date.utc_today()} — #{length(frames)} images.",
       "style" => acc.style || "",
+      # Every knob that shaped this run — so A/B results stay comparable
+      # after you've forgotten what you set.
+      "params" => run_params(),
       # Real cadence of this run (live-speed equivalent). The demo player can
       # use this as its per-transition duration instead of the hardcoded 5500.
       "segment_ms" => measured_segment_ms(acc.images, speed),
@@ -224,6 +234,71 @@ defmodule Mix.Tasks.Sinestesia.Replay do
 
   defp frames_note([]), do: ""
   defp frames_note(frames), do: ", #{length(frames)} morph frames"
+
+  # The full recipe of the run. Defaults are spelled out (not omitted) so an
+  # old export stays interpretable even after defaults change in code.
+  defp run_params do
+    base = %{
+      "image_provider" => System.get_env("IMAGE_PROVIDER", "fal"),
+      "render_mode" => System.get_env("RENDER_MODE", "img2img"),
+      "image_mode" => System.get_env("IMAGE_MODE", "story"),
+      "compose_mode" => System.get_env("COMPOSE_MODE", "inpaint"),
+      "director_provider" => System.get_env("DIRECTOR_PROVIDER", "gemma"),
+      "scene_window" => System.get_env("SCENE_WINDOW", "5"),
+      "style_anchor" => System.get_env("STYLE_ANCHOR", "(off)"),
+      "style_refresh_every" => System.get_env("STYLE_REFRESH_EVERY", "4"),
+      "replay_file" => System.get_env("REPLAY_FILE", "") |> Path.basename(),
+      "replay_speed" => System.get_env("REPLAY_SPEED", "1.0"),
+      "exported_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> to_string()
+    }
+
+    provider_knobs =
+      case System.get_env("IMAGE_PROVIDER", "fal") do
+        "local" <> _ ->
+          %{
+            "local_sdxl_strength" => System.get_env("LOCAL_SDXL_STRENGTH", "0.78"),
+            "local_sdxl_steps" => System.get_env("LOCAL_SDXL_STEPS", "3"),
+            "compose_atmos_strength" => System.get_env("COMPOSE_ATMOS_STRENGTH", "0.4")
+          }
+
+        "c" <> _ ->
+          %{
+            "cloudflare_strength" => System.get_env("CLOUDFLARE_STRENGTH", "0.7"),
+            "cloudflare_steps" => System.get_env("CLOUDFLARE_STEPS", "20"),
+            "cloudflare_guidance" => System.get_env("CLOUDFLARE_GUIDANCE", "7.5"),
+            "cloudflare_img2img_model" =>
+              System.get_env(
+                "CLOUDFLARE_IMG2IMG_MODEL",
+                "@cf/runwayml/stable-diffusion-v1-5-img2img"
+              )
+          }
+
+        _ ->
+          %{}
+      end
+
+    Map.merge(base, provider_knobs)
+  end
+
+  # Providers like cloudflare/google hand back data URLs — decode them
+  # locally instead of asking Finch to "fetch" a megabyte-long URL.
+  defp fetch_image("data:image/" <> rest = _url) do
+    [meta, b64] = String.split(rest, ",", parts: 2)
+    ext = if String.starts_with?(meta, "jpeg"), do: "jpg", else: "png"
+    {ext, Base.decode64!(b64)}
+  end
+
+  defp fetch_image(url) do
+    ext = if String.contains?(url, ".jpg"), do: "jpg", else: "png"
+    %{status: 200, body: body} = Req.get!(url, retry: false, decode_body: false)
+    {ext, body}
+  end
+
+  # Never print a full data URL — it floods the terminal with base64.
+  defp display_url("data:image/" <> _ = url),
+    do: "data URL (#{div(byte_size(url), 1024)} KB)"
+
+  defp display_url(url), do: url
 
   defp parse_args(args) do
     case OptionParser.parse(args, strict: [speed: :string, slug: :string]) do

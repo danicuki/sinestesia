@@ -76,12 +76,12 @@ BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("BIND_PORT", "8003"))
 PUBLIC_HOST = os.environ.get("PUBLIC_HOST", BIND_HOST)  # what URL we hand back
 
-# SDXL Turbo was trained at 512x512. 768x432 is a good 16:9 compromise: noticeably
-# faster than 1024 (inference time scales ~quadratically with pixel count) while
-# still sharp enough for a stage projection, especially with the sketch aesthetic
-# and crossfade transitions softening everything. Drop to 512x288 for ~2x more speed.
-DEFAULT_WIDTH = int(os.environ.get("SDXL_WIDTH", "512"))
-DEFAULT_HEIGHT = int(os.environ.get("SDXL_HEIGHT", "288"))
+# 1024x576: chosen for the STAGE — anything lower reads blurry on the telão
+# (operator-validated 2026-06-12; total image latency ~3s at this res, fine
+# for the live cadence). Inference scales ~quadratically with pixel count:
+# drop to 512x288 when iterating on prompts and speed matters more than look.
+DEFAULT_WIDTH = int(os.environ.get("SDXL_WIDTH", "1024"))
+DEFAULT_HEIGHT = int(os.environ.get("SDXL_HEIGHT", "576"))
 
 # TAESD: a tiny distilled VAE that decodes latents ~5-10x faster than the full
 # SDXL VAE, with a small quality cost that's invisible for the sketch look.

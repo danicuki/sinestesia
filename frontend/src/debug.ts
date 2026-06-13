@@ -3,7 +3,12 @@
 // `provider` + `latency_ms` on transcripts and the `timings` block on images
 // (PROTOCOL.md). Created only when the URL flag is present.
 
-import type { ExpressiveFeatures, Timings, TranscriptMsg } from "./socket";
+import type {
+  ExpressiveFeatures,
+  MelodyFeatures,
+  Timings,
+  TranscriptMsg,
+} from "./socket";
 import type { SampleSequence } from "./samples";
 
 const COL = {
@@ -26,6 +31,7 @@ export class DebugOverlay {
   private root: HTMLDivElement;
   private elAudio: HTMLDivElement;
   private elExpressive: HTMLDivElement;
+  private elMelody: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
@@ -65,6 +71,7 @@ export class DebugOverlay {
 
     this.elAudio = this.section(left, "rail 1 — movement");
     this.elExpressive = this.section(left, "rail 3 — expression");
+    this.elMelody = this.section(left, "melody → director");
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
     this.elLyric = this.section(left, "sample lyric");
@@ -163,6 +170,19 @@ export class DebugOverlay {
       span(f.valence.toFixed(2), f.valence >= 0 ? COL.stt : COL.img) +
       span("  cent ", COL.dim) +
       span(String(Math.round(f.spectral_centroid)), COL.dir);
+  }
+
+  // Realtime melody hint we last sent to the backend (~2Hz while voiced).
+  setMelody(m: MelodyFeatures) {
+    const parts: string[] = [];
+    if (m.contour) parts.push(span(m.contour, COL.tot, true));
+    if (m.register != null)
+      parts.push(span("reg ", COL.dim) + span(m.register.toFixed(2), COL.stt));
+    if (m.vibrato != null)
+      parts.push(span("vib ", COL.dim) + span(m.vibrato.toFixed(2), COL.dir));
+    if (m.energy != null)
+      parts.push(span("en ", COL.dim) + span(m.energy.toFixed(2), COL.img));
+    this.elMelody.innerHTML = parts.length ? parts.join("  ") : "—";
   }
 
   // Rolling history of the last 5 cycles (top row = latest).

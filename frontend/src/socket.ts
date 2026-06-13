@@ -12,6 +12,16 @@ export interface ExpressiveFeatures {
   valence: number;
 }
 
+// Realtime melodic descriptor (FE->BE `melody`, PROTOCOL.md 2026-06-13). All
+// fields optional — we send what the f0 track supports and omit the rest. The
+// backend ages it out after 6s, so a gap just means "no melody info".
+export interface MelodyFeatures {
+  contour?: string; // "rising" | "falling" | "steady" | "wavering" | "leaping"
+  register?: number; // 0 = low/chest, 1 = high/head
+  vibrato?: number; // 0..1 oscillation strength
+  energy?: number; // 0..1 melodic intensity
+}
+
 // Per-cycle latency breakdown carried on `image` messages (PROTOCOL.md).
 export interface Timings {
   stt_ms: number;
@@ -165,6 +175,15 @@ export class Socket {
     if (!this.ready) return;
     this.ws!.send(
       JSON.stringify({ type: "expressive", ts: Date.now(), features }),
+    );
+  }
+
+  // Realtime melodic descriptor (contour/register/vibrato/energy). Sent while
+  // voiced; the backend folds it into the Director's mood. Purely additive.
+  sendMelody(features: MelodyFeatures) {
+    if (!this.ready) return;
+    this.ws!.send(
+      JSON.stringify({ type: "melody", ts: Date.now(), features }),
     );
   }
 

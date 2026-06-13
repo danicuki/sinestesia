@@ -1,13 +1,14 @@
 // Rail 3 controller (main thread). Buffers ~2s of mic audio and every ~500ms
 // hands it to the worker, which returns ExpressiveFeatures per PROTOCOL.md.
 
-import type { ExpressiveFeatures } from "../socket";
+import type { ExpressiveFeatures, MelodyFeatures } from "../socket";
 
 const SR = 16000; // we feed the worker the 16kHz stream we already produce
 const WINDOW_SAMPLES = SR * 2; // last 2 seconds
 const EMIT_MS = 500;
 
 type FeaturesCb = (f: ExpressiveFeatures) => void;
+type MelodyCb = (m: MelodyFeatures) => void;
 
 export class ExpressiveAnalyzer {
   private worker: Worker;
@@ -15,6 +16,7 @@ export class ExpressiveAnalyzer {
   private filled = 0;
   private timer: number | null = null;
   private cb: FeaturesCb = () => {};
+  private melodyCb: MelodyCb = () => {};
 
   constructor() {
     this.worker = new Worker(
@@ -22,7 +24,10 @@ export class ExpressiveAnalyzer {
       { type: "module" },
     );
     this.worker.onmessage = (ev) => {
-      if (ev.data?.type === "features") this.cb(ev.data.features);
+      if (ev.data?.type !== "features") return;
+      this.cb(ev.data.features);
+      // Melody is null when there's too little voiced pitch to describe.
+      if (ev.data.melody) this.melodyCb(ev.data.melody);
     };
   }
 
@@ -56,6 +61,10 @@ export class ExpressiveAnalyzer {
 
   onFeatures(cb: FeaturesCb) {
     this.cb = cb;
+  }
+
+  onMelody(cb: MelodyCb) {
+    this.melodyCb = cb;
   }
 
   stop() {

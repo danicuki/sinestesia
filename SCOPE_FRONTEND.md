@@ -241,18 +241,35 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
   `uValence`/`uArousal`: positive valence warms + saturates slightly, arousal
   drives image contrast (low = hazy, high = crisp). Expressive still flows to the
   backend unchanged (~2Hz `sendExpressive`).
-- **`?debug=1` live meters** — added two sections to the overlay: `rail 1 —
+- **`?debug=1` live meters** — added sections to the overlay: `rail 1 —
   movement` (RMS bar + centroid bar with warm/cool tag + onset flag, repainted
-  ~12Hz) and `rail 3 — expression` (vocal_quality / arousal / valence /
-  centroid, ~2Hz). Verifies both rails are alive at a glance.
+  ~12Hz), `rail 3 — expression` (vocal_quality / arousal / valence / centroid,
+  ~2Hz), and `melody → director` (contour / register / vibrato / energy, the
+  last hint sent). Verifies the rails are alive at a glance.
 - **Mic panel (`src/mic.ts`)** — top-left rehearsal chrome (hidden under
   `?clean=1`): a **live input-level meter** (fast-attack/slow-release RMS bar,
   green→amber→red as it gets hot, with a numeric readout) so you can confirm
-  sound is being captured, plus a **device picker** `<select>` listing audio
-  inputs. `capture.ts` gained device support: `start(deviceId?)`,
-  `switchDevice(deviceId)` (swaps the source + re-taps Rail 1 without rebuilding
-  the worklet), `currentDeviceId`, and a static `inputDevices()`. The picker
-  hot-swaps the mic mid-session and the list re-enumerates on `devicechange`.
+  sound is being captured; a **device picker** `<select>` listing audio inputs;
+  and a **live pitch "tuner"** (note name + octave, an in-tune needle showing
+  ±cents that greens within ±5¢, and the raw Hz). `capture.ts` gained device
+  support: `start(deviceId?)`, `switchDevice(deviceId)` (swaps the source +
+  re-taps Rail 1 without rebuilding the worklet), `currentDeviceId`, and a
+  static `inputDevices()`. The picker hot-swaps the mic mid-session and the list
+  re-enumerates on `devicechange`.
+- **Live pitch (Rail 1)** — `FastFeatures` now runs a time-domain ACF2+
+  autocorrelation (fftSize bumped to 2048) every frame to detect the sung
+  fundamental, exposed via `pitchHz()` (0 = unvoiced); it feeds the tuner. Pure
+  client-side, no protocol traffic.
+- **`melody` FE→BE message** (PROTOCOL.md 2026-06-13) — the Rail-3 worker tracks
+  the f0 line across its 2s window (per-hop autocorrelation, median-smoothed to
+  drop octave glitches) and condenses it into `{ contour, register, vibrato,
+  energy }`: contour from the regression slope / spread / max jump
+  (rising/falling/steady/wavering/leaping), register relative to the singer's
+  range learned over the session, vibrato from the detrended ~4-8Hz wobble,
+  energy from loudness + register reach. Emitted ~2Hz while voiced (null →
+  skipped) via `ExpressiveAnalyzer.onMelody` → `Socket.sendMelody`. Fields are
+  optional and the message is purely additive; the backend folds it into the
+  Director's mood.
 
 **Open / needs integration:**
 

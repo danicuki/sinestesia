@@ -5,6 +5,47 @@ again**. A session file captures one rehearsal — the transcripts exactly as
 the STT emitted them, with their original timing — and the harness replays it
 through the real pipeline (Gemma Director → local SDXL → frontend).
 
+## From a real MP3 → images in the browser (full path)
+
+Take any finished recording and watch the pipeline react to it, end to end,
+without singing or playing anything live.
+
+**One-time setup:**
+```bash
+pip install demucs                 # vocal isolation (runs on the Mac's GPU)
+# ELEVENLABS_API_KEY must be in the environment, ./.env, or backend/.env
+```
+
+**1. Song → session JSON** (audio → isolated vocals → STT → timed transcript):
+```bash
+python3 tools/song_to_session.py "~/path/to/song.mp3" --name minha-musica --style "watercolor"
+# wrote tests/sessions/minha-musica.json
+```
+(`--skip-separation` if you already have a clean vocal stem. The raw STT is
+cached as `tests/sessions/.minha-musica.words.json`, so re-running is free.)
+
+**2. Start the services the replay needs** (same as a live show):
+- the Director LLM — Ollama with the model, or `DIRECTOR_PROVIDER=gemini` (+ `GOOGLE_API_KEY`);
+- an image provider — the `local-sdxl` sidecar on :8003, or `IMAGE_PROVIDER=cloudflare`/`fal` (+ key);
+- the frontend dev server: `cd frontend && npm run dev`.
+
+**3. Replay it through the pipeline and export the run:**
+```bash
+cd backend
+mix sinestesia.replay ../tests/sessions/minha-musica.json --slug exp-minha-musica
+# (prepend env knobs as needed, e.g. IMAGE_PROVIDER=cloudflare RENDER_MODE=t2i …)
+```
+
+**4. Watch it in the browser:**
+```
+http://localhost:5173/?demo=exp-minha-musica
+```
+Hard-reload (Cmd+Shift+R) right after the export — the dev server can lag a
+beat on the just-written last frame, and one unloadable frame blanks the demo.
+
+The rest of this file is the lower-level harness (sessions from a backend log,
+headless runs, tuning knobs) that step 3 builds on.
+
 ## Create a test from a backend log
 
 Save the backend log to a file and run:

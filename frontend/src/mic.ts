@@ -4,11 +4,20 @@
 
 type SelectCb = (deviceId: string) => void;
 
+const NOTE_NAMES = [
+  "C", "C#", "D", "D#", "E", "F",
+  "F#", "G", "G#", "A", "A#", "B",
+];
+
 export class MicPanel {
   private select: HTMLSelectElement;
   private meterFill: HTMLDivElement;
   private readout: HTMLSpanElement;
   private level = 0; // smoothed display level (peak-hold-ish)
+  private note: HTMLSpanElement;
+  private needle: HTMLDivElement;
+  private freq: HTMLSpanElement;
+  private needlePos = 0.5; // smoothed needle position 0..1 (0.5 = in tune)
 
   constructor(private onSelect: SelectCb) {
     const wrap = document.createElement("div");
@@ -103,8 +112,77 @@ export class MicPanel {
     meterRow.appendChild(track);
     meterRow.appendChild(this.readout);
 
+    // --- Row 3: pitch "tuner" — note name, an in-tune needle, and the Hz ---
+    const tunerRow = document.createElement("div");
+    Object.assign(tunerRow.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+    } as CSSStyleDeclaration);
+
+    this.note = document.createElement("span");
+    this.note.textContent = "—";
+    Object.assign(this.note.style, {
+      minWidth: "34px",
+      fontWeight: "700",
+      fontSize: "13px",
+      color: "#e5e7eb",
+    } as CSSStyleDeclaration);
+
+    // Needle track: a strip with a center "in tune" tick; the needle slides
+    // left (flat) / right (sharp) by the cents offset and greens up near center.
+    const ntrack = document.createElement("div");
+    Object.assign(ntrack.style, {
+      position: "relative",
+      width: "180px",
+      height: "12px",
+      background: "rgba(255,255,255,0.12)",
+      borderRadius: "4px",
+      overflow: "hidden",
+    } as CSSStyleDeclaration);
+
+    const center = document.createElement("div");
+    Object.assign(center.style, {
+      position: "absolute",
+      left: "50%",
+      top: "0",
+      bottom: "0",
+      width: "1px",
+      marginLeft: "-0.5px",
+      background: "rgba(255,255,255,0.45)",
+    } as CSSStyleDeclaration);
+
+    this.needle = document.createElement("div");
+    Object.assign(this.needle.style, {
+      position: "absolute",
+      left: "50%",
+      top: "1px",
+      bottom: "1px",
+      width: "3px",
+      marginLeft: "-1.5px",
+      background: "#6b7280",
+      borderRadius: "2px",
+      transition: "left 0.06s linear, background-color 0.1s linear",
+    } as CSSStyleDeclaration);
+
+    ntrack.appendChild(center);
+    ntrack.appendChild(this.needle);
+
+    this.freq = document.createElement("span");
+    this.freq.textContent = "—";
+    Object.assign(this.freq.style, {
+      color: "#9ca3af",
+      minWidth: "52px",
+      textAlign: "right",
+    } as CSSStyleDeclaration);
+
+    tunerRow.appendChild(this.note);
+    tunerRow.appendChild(ntrack);
+    tunerRow.appendChild(this.freq);
+
     wrap.appendChild(row);
     wrap.appendChild(meterRow);
+    wrap.appendChild(tunerRow);
     document.body.appendChild(wrap);
   }
 
@@ -137,5 +215,42 @@ export class MicPanel {
     this.meterFill.style.background =
       this.level > 0.85 ? "#f87171" : this.level > 0.6 ? "#fcd34d" : "#6ee7b7";
     this.readout.textContent = this.level.toFixed(2);
+  }
+
+  /**
+   * Feed the live fundamental in Hz (0 = no clear pitch). Renders a guitar-
+   * tuner readout: nearest note name, a needle showing how flat/sharp (±50
+   * cents) the voice is, and the raw frequency.
+   */
+  setPitch(hz: number) {
+    if (hz <= 0) {
+      // Unvoiced: ease the needle back to center and dim the labels.
+      this.needlePos += (0.5 - this.needlePos) * 0.2;
+      this.needle.style.left = `${this.needlePos * 100}%`;
+      this.needle.style.background = "#6b7280";
+      this.note.textContent = "—";
+      this.note.style.color = "#6b7280";
+      this.freq.textContent = "—";
+      return;
+    }
+
+    // Map Hz → nearest equal-tempered semitone (A4 = 440) + cents offset.
+    const midi = 69 + 12 * Math.log2(hz / 440);
+    const nearest = Math.round(midi);
+    const cents = (midi - nearest) * 100; // -50..+50
+    const name = NOTE_NAMES[((nearest % 12) + 12) % 12];
+    const octave = Math.floor(nearest / 12) - 1;
+
+    this.note.textContent = `${name}${octave}`;
+    this.note.style.color = "#e5e7eb";
+    this.freq.textContent = `${hz.toFixed(1)} Hz`;
+
+    // Needle: 0.5 = in tune; ±50 cents map to the strip edges. Smoothed so it
+    // glides like a real tuner. Green when within ±5 cents, amber otherwise.
+    const target = Math.max(0, Math.min(1, 0.5 + cents / 100));
+    this.needlePos += (target - this.needlePos) * 0.3;
+    this.needle.style.left = `${this.needlePos * 100}%`;
+    this.needle.style.background =
+      Math.abs(cents) <= 5 ? "#6ee7b7" : Math.abs(cents) <= 20 ? "#fcd34d" : "#f87171";
   }
 }

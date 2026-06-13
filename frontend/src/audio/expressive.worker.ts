@@ -34,6 +34,13 @@ interface Features {
   valence: number;
 }
 
+interface Melody {
+  contour?: string;
+  register?: number;
+  vibrato?: number;
+  energy?: number;
+}
+
 self.onmessage = (ev: MessageEvent) => {
   const { pcm, sampleRate } = ev.data as {
     pcm: Float32Array;
@@ -41,7 +48,10 @@ self.onmessage = (ev: MessageEvent) => {
   };
   if (!pcm || pcm.length === 0) return;
   const features = analyze(pcm, sampleRate);
-  (self as any).postMessage({ type: "features", features });
+  // Melodic descriptor from the f0 track over the window (null when too little
+  // voiced pitch to be meaningful — the main thread then skips sending).
+  const melody = computeMelody(pcm, sampleRate, features.loudness);
+  (self as any).postMessage({ type: "features", features, melody });
 };
 
 function analyze(x: Float32Array, sr: number): Features {
@@ -118,6 +128,204 @@ function deriveQuality(
   if (loud < 0.35 && salience > 0.5) return "intimate";
   if (loud > 0.55 && salience > 0.5) return "soaring";
   return "neutral";
+}
+
+// ---------------- Melody descriptor ----------------
+//
+// Tracks the f0 line across the window and condenses it into the realtime
+// `melody` hint (contour/register/vibrato/energy, PROTOCOL.md). Register is
+// relative to the singer's observed range, which we learn over the session.
+
+// Singer range in semitones, learned across calls (expands toward extremes).
+let regLo = Infinity;
+let regHi = -Infinity;
+
+function computeMelody(
+  x: Float32Array,
+  sr: number,
+  loudness: number,
+): Melody | null {
+  const frame = 1024;
+  const hop = 256;
+  // f0 (in semitones) for each voiced hop, with its time, so we can read the
+  // contour's shape and timing.
+  const semis: number[] = [];
+  const times: number[] = [];
+  for (let start = 0; start + frame <= x.length; start += hop) {
+    const f = x.subarray(start, start + frame);
+    const { f0, clarity } = frameF0(f, sr);
+    if (clarity >= 0.6 && f0 >= 70 && f0 <= 1000) {
+      semis.push(hzToSemitone(f0));
+      times.push((start + frame / 2) / sr);
+    }
+  }
+  if (semis.length < 4) return null; // not enough voiced pitch to describe
+
+  // Median-of-3 smoothing knocks out lone octave-jump errors before we read
+  // the shape, so vibrato/contour aren't fooled by a single bad frame.
+  const sm = median3(semis);
+
+  const med = median(sm);
+  const lo = percentile(sm, 0.1);
+  const hi = percentile(sm, 0.9);
+  const slope = linregSlope(times, sm); // semitones per second
+  const spread = hi - lo;
+
+  // Largest single hop jump (a third+ => discrete leaps, not a glide).
+  let maxJump = 0;
+  for (let i = 1; i < sm.length; i++) {
+    maxJump = Math.max(maxJump, Math.abs(sm[i] - sm[i - 1]));
+  }
+
+  // --- contour ---
+  let contour: string;
+  if (maxJump > 4) contour = "leaping";
+  else if (slope > 1.5) contour = "rising";
+  else if (slope < -1.5) contour = "falling";
+  else if (spread < 1.2) contour = "steady";
+  else contour = "wavering";
+
+  // --- register (relative to the learned range) ---
+  regLo = Math.min(regLo, lo);
+  regHi = Math.max(regHi, hi);
+  let rLo = regLo;
+  let rHi = regHi;
+  if (rHi - rLo < 7) {
+    // Not enough range observed yet — fall back to ~an octave around the median
+    // so early notes still read sensibly low/high.
+    rLo = med - 6;
+    rHi = med + 6;
+  }
+  const register = clamp01((med - rLo) / (rHi - rLo));
+
+  // --- vibrato (oscillation of the detrended f0, ~4-8Hz, ±musical depth) ---
+  const vibrato = estimateVibrato(times, sm, slope, med);
+
+  // --- energy (loudness, lifted a touch by how high in the range it sits) ---
+  const energy = clamp01(0.75 * loudness + 0.25 * register);
+
+  return {
+    contour,
+    register: round2(register),
+    vibrato: round2(vibrato),
+    energy: round2(energy),
+  };
+}
+
+// Per-frame f0 via normalized autocorrelation over the vocal range; returns the
+// peak strength as a clarity score so unvoiced frames can be dropped.
+function frameF0(x: Float32Array, sr: number): { f0: number; clarity: number } {
+  const minLag = Math.floor(sr / 1000);
+  const maxLag = Math.min(x.length - 1, Math.floor(sr / 70));
+  let r0 = 0;
+  for (let i = 0; i < x.length; i++) r0 += x[i] * x[i];
+  if (r0 < 1e-6) return { f0: 0, clarity: 0 };
+
+  let bestLag = -1;
+  let best = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let acc = 0;
+    for (let i = 0; i + lag < x.length; i++) acc += x[i] * x[i + lag];
+    const norm = acc / r0;
+    if (norm > best) {
+      best = norm;
+      bestLag = lag;
+    }
+  }
+  if (bestLag <= 0) return { f0: 0, clarity: 0 };
+  // Parabolic interpolation around the peak using neighbour correlations.
+  let lag = bestLag;
+  if (bestLag > minLag && bestLag < maxLag) {
+    const a = autocorrAt(x, bestLag - 1, r0);
+    const b = autocorrAt(x, bestLag, r0);
+    const c = autocorrAt(x, bestLag + 1, r0);
+    const denom = a - 2 * b + c;
+    if (Math.abs(denom) > 1e-9) lag = bestLag - (0.5 * (c - a)) / denom;
+  }
+  return { f0: sr / lag, clarity: best };
+}
+
+function autocorrAt(x: Float32Array, lag: number, r0: number): number {
+  let acc = 0;
+  for (let i = 0; i + lag < x.length; i++) acc += x[i] * x[i + lag];
+  return acc / r0;
+}
+
+// Strength of pitch oscillation: detrend the f0 line (remove the contour slope),
+// then score by how musical the wobble depth is and whether it cycles at a
+// vibrato-like rate (~4-8Hz).
+function estimateVibrato(
+  times: number[],
+  semis: number[],
+  slope: number,
+  mean: number,
+): number {
+  const n = semis.length;
+  if (n < 6) return 0;
+  const res = new Array(n);
+  for (let i = 0; i < n; i++) res[i] = semis[i] - (mean + slope * (times[i] - times[0]));
+  let sq = 0;
+  let crossings = 0;
+  for (let i = 0; i < n; i++) {
+    sq += res[i] * res[i];
+    if (i > 0 && Math.sign(res[i]) !== Math.sign(res[i - 1])) crossings++;
+  }
+  const rms = Math.sqrt(sq / n); // semitone depth of the wobble
+  const dur = times[n - 1] - times[0];
+  const freq = dur > 0 ? crossings / 2 / dur : 0; // oscillation rate in Hz
+  // Depth: ~0.2 semitone floor up to ~1 semitone = full.
+  const depth = clamp01((rms - 0.2) / 0.8);
+  // Rate: peak around 4-8Hz, tapering outside that band.
+  const rate =
+    freq < 3 || freq > 10
+      ? 0
+      : freq >= 4 && freq <= 8
+        ? 1
+        : 1 - Math.min(Math.abs(freq - 4), Math.abs(freq - 8)) / 2;
+  return clamp01(depth * rate);
+}
+
+function hzToSemitone(hz: number): number {
+  return 12 * Math.log2(hz / 440); // relative to A4; only differences matter
+}
+
+function median(a: number[]): number {
+  const s = [...a].sort((x, y) => x - y);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function percentile(a: number[], p: number): number {
+  const s = [...a].sort((x, y) => x - y);
+  const idx = Math.max(0, Math.min(s.length - 1, Math.round(p * (s.length - 1))));
+  return s[idx];
+}
+
+function median3(a: number[]): number[] {
+  if (a.length < 3) return a.slice();
+  const out = a.slice();
+  for (let i = 1; i < a.length - 1; i++) {
+    const t = [a[i - 1], a[i], a[i + 1]].sort((x, y) => x - y);
+    out[i] = t[1];
+  }
+  return out;
+}
+
+function linregSlope(xs: number[], ys: number[]): number {
+  const n = xs.length;
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sx += xs[i];
+    sy += ys[i];
+    sxx += xs[i] * xs[i];
+    sxy += xs[i] * ys[i];
+  }
+  const denom = n * sxx - sx * sx;
+  return Math.abs(denom) < 1e-9 ? 0 : (n * sxy - sx * sy) / denom;
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
 }
 
 // ---------------- DSP helpers ----------------

@@ -50,6 +50,7 @@ function frame() {
     scene.setFast(u);
     debug?.setAudio(u.rms, u.centroid, u.onset);
     mic?.setLevel(u.rms);
+    mic?.setPitch(fast.pitchHz());
   }
   demoUpdate?.();
   scene.render();
@@ -285,6 +286,14 @@ async function start() {
     else console.log("[mock] expressive", f.vocal_quality, f);
     scene.setExpressive(f); // Rail 3 also nudges client-side color mood
     debug?.setExpressive(f);
+  });
+
+  // Realtime melodic descriptor (contour/register/vibrato/energy) — sent while
+  // voiced; the backend folds it into the Director's mood (PROTOCOL.md).
+  expressive.onMelody((m) => {
+    if (socket) socket.sendMelody(m);
+    else console.log("[mock] melody", m);
+    debug?.setMelody(m);
   });
 
   console.log("[main] audio started. Sing into the mic — the canvas pulses.");

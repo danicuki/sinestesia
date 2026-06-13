@@ -86,4 +86,34 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
         {:error, reason}
     end
   end
+
+  @spec morph(String.t(), String.t()) :: {:ok, String.t(), [String.t()]} | {:error, term()}
+  def morph(image_url, target_url) when is_binary(image_url) and is_binary(target_url) do
+    body = %{
+      image_url: image_url,
+      target_url: target_url
+    }
+
+    case Req.post(base_url() <> "/morph",
+           json: body,
+           receive_timeout: 5000,
+           retry: false
+         ) do
+      {:ok, %{status: 200, body: %{"url" => url} = res}} ->
+        frames =
+          case Map.get(res, "frames") do
+            urls when is_list(urls) -> Enum.filter(urls, &is_binary/1)
+            _ -> []
+          end
+
+        {:ok, url, frames}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:bad_status, status, body}}
+
+      {:error, reason} ->
+        Logger.warning("[local_sdxl] morph request failed: #{inspect(reason)} (is the sidecar running on #{base_url()}?)")
+        {:error, reason}
+    end
+  end
 end

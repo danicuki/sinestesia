@@ -198,6 +198,12 @@ class GenerateRequest(BaseModel):
     enable_safety_checker: Optional[bool] = None
 
 
+class MorphRequest(BaseModel):
+    image_url: str
+    target_url: str
+    morph_frames: Optional[int] = None
+
+
 app = FastAPI()
 
 # Three.js TextureLoader requires CORS headers to use the image as a WebGL
@@ -548,6 +554,64 @@ def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
     }
 
 
+def _resolve_to_latents(url: str) -> Optional[torch.Tensor]:
+    """Latents for an init/target image from whichever source resolve_input
+    finds. CRITICAL: when the URL hits the latent cache, resolve_input returns
+    (lat, None, ...) — the PIL image is intentionally absent. Callers must use
+    the latent, not assume a PIL image (the bug that broke morphs chaining on
+    our own freshly-generated /img/ URLs)."""
+    lat, pil, _ = resolve_input(url)
+    if lat is not None:
+        return lat
+    if pil is not None:
+        return encode_latents(pil.resize((DEFAULT_WIDTH, DEFAULT_HEIGHT), Image.LANCZOS))
+    return None
+
+
+def run_morph(image_url: str, target_url: str, morph_frames: int) -> dict:
+    t0 = time.monotonic()
+
+    lat_in = _resolve_to_latents(image_url)
+    if lat_in is None:
+        raise ValueError(f"Could not load source image: {image_url}")
+
+    lat_out = _resolve_to_latents(target_url)
+    if lat_out is None:
+        raise ValueError(f"Could not load target image: {target_url}")
+
+    # Save the target as the final frame (decode from latents — we may never
+    # have held a PIL image if it came from the cache).
+    pil_target = decode_latents(lat_out)
+    stem = uuid.uuid4().hex
+    final_name = f"{stem}.png"
+    pil_target.save(CACHE_DIR / final_name, "PNG", optimize=False)
+    cache_latents(final_name, lat_out)
+
+    t1 = time.monotonic()
+    frame_names = []
+    for k in range(1, morph_frames + 1):
+        t = k / (morph_frames + 1)
+        mid = decode_latents(slerp(lat_in, lat_out, t))
+        name = f"{stem}_m{k}.jpg"
+        mid.save(CACHE_DIR / name, "JPEG", quality=88)
+        frame_names.append(name)
+    frame_names.append(final_name)
+
+    morph_ms = int((time.monotonic() - t1) * 1000)
+    total_ms = int((time.monotonic() - t0) * 1000)
+
+    return {
+        "final_name": final_name,
+        "frame_names": frame_names,
+        "width": pil_target.width,
+        "height": pil_target.height,
+        "timings": {
+            "morph_ms": morph_ms,
+            "total_ms": total_ms
+        }
+    }
+
+
 @app.on_event("startup")
 async def startup():
     global pipe, ipipe, tpipe
@@ -618,6 +682,41 @@ async def generate(req: GenerateRequest):
                     "height": job["height"],
                 }
             ],
+            "frames": [img_url(n) for n in job["frame_names"]],
+            "timings": t,
+        }
+    )
+
+
+@app.post("/morph")
+async def morph(req: MorphRequest):
+    if pipe is None:
+        raise HTTPException(503, "pipeline not ready")
+
+    num_frames = req.morph_frames if req.morph_frames is not None else MORPH_FRAMES
+    if num_frames <= 0:
+        return JSONResponse({"url": req.target_url, "frames": [req.target_url], "timings": {"morph_ms": 0}})
+
+    try:
+        job = await asyncio.get_event_loop().run_in_executor(
+            executor, run_morph, req.image_url, req.target_url, num_frames
+        )
+    except Exception as e:
+        log.exception("morph failed")
+        raise HTTPException(400, f"morph failed: {e}")
+
+    t = job["timings"]
+    log.info(
+        "morphed %s to %s in %dms (%d frames)",
+        req.image_url[-20:],
+        job["final_name"],
+        t["total_ms"],
+        len(job["frame_names"]) - 1,
+    )
+
+    return JSONResponse(
+        {
+            "url": img_url(job["final_name"]),
             "frames": [img_url(n) for n in job["frame_names"]],
             "timings": t,
         }

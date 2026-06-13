@@ -28,7 +28,27 @@ defmodule Sinestesia.ImageGen do
     image_url = Keyword.get(opts, :image_url)
 
     if render_mode() == :t2i do
-      t2i(prompt)
+      case t2i(prompt) do
+        {:ok, target_url, frames} ->
+          {:ok, target_url, frames}
+
+        {:ok, target_url} ->
+          if is_binary(image_url) and image_url != "" and local_morph?() do
+            case Sinestesia.ImageGen.LocalSdxl.morph(image_url, target_url) do
+              {:ok, local_url, frames} ->
+                {:ok, local_url, frames}
+
+              _err ->
+                # Fallback to original cloud image without frames
+                {:ok, target_url, []}
+            end
+          else
+            {:ok, target_url, []}
+          end
+
+        error ->
+          error
+      end
     else
       img2img(prompt, image_url, opts)
     end
@@ -45,9 +65,14 @@ defmodule Sinestesia.ImageGen do
       :cloudflare -> Sinestesia.ImageGen.Cloudflare.text2img(prompt)
       :google -> Sinestesia.ImageGen.Google.generate(prompt)
       :pollinations -> Sinestesia.ImageGen.Pollinations.generate(prompt)
-      # fal and local_sdxl (img2img-only) both render via Flux Schnell.
+      :local_sdxl -> Sinestesia.ImageGen.LocalSdxl.generate(prompt, nil)
+      # fal (img2img-only) renders via Flux Schnell.
       _ -> Sinestesia.ImageGen.Fal.generate(prompt)
     end
+  end
+
+  defp local_morph? do
+    System.get_env("LOCAL_MORPH", "true") in ~w(true 1 yes)
   end
 
   defp img2img(prompt, image_url, opts) do

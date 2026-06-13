@@ -47,6 +47,10 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.fast_features(pid, Map.drop(msg, ["type"]))
         {:ok, state}
 
+      {:ok, %{"type" => "melody", "features" => features}} when not is_nil(pid) ->
+        Sinestesia.Pipeline.melody(pid, features)
+        {:ok, state}
+
       {:ok, %{"type" => "style", "style" => style}} when not is_nil(pid) ->
         Sinestesia.Pipeline.set_style(pid, style)
         {:ok, state}

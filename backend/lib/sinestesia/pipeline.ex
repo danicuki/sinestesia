@@ -102,6 +102,7 @@ defmodule Sinestesia.Pipeline do
   def audio_chunk(pid, bin), do: GenServer.cast(pid, {:audio_chunk, bin})
   def expressive(pid, features), do: GenServer.cast(pid, {:expressive, features})
   def fast_features(pid, features), do: GenServer.cast(pid, {:fast_features, features})
+  def melody(pid, features), do: GenServer.cast(pid, {:melody, features})
   def set_style(pid, style), do: GenServer.cast(pid, {:set_style, style})
   def set_camera(pid, camera), do: GenServer.cast(pid, {:set_camera, camera})
   def reset_song(pid), do: GenServer.cast(pid, :reset_song)
@@ -128,6 +129,9 @@ defmodule Sinestesia.Pipeline do
        final_lyric_count: 0,
        director_conversation: Sinestesia.Director.init_conversation(),
        expressive: %{},
+       # Latest realtime melody descriptor (FE `melody` message). Stamped onto
+       # the next Director call; ages out after 6s. See melody_hint/1.
+       melody: %{},
        fast: %{},
        last_director_at: 0,
        last_audio_chunk_at: 0,
@@ -175,6 +179,14 @@ defmodule Sinestesia.Pipeline do
   def handle_cast({:fast_features, f}, state) do
     {:noreply, %{state | fast: f}}
   end
+
+  def handle_cast({:melody, f}, state) when is_map(f) do
+    # Stamp server time on arrival — melody_hint/1 ages it against now_ms(),
+    # so we can't trust a (possibly skewed or missing) client clock.
+    {:noreply, %{state | melody: Map.put(f, "ts", now_ms())}}
+  end
+
+  def handle_cast({:melody, _}, state), do: {:noreply, state}
 
   def handle_cast({:set_style, raw_style}, state) do
     apply_style(state, raw_style, _from_curator? = false)
@@ -234,6 +246,7 @@ defmodule Sinestesia.Pipeline do
          style_stamped?: false,
          frames_since_style: 0,
          recent_placements: [],
+         melody: %{},
          camera: neutral_camera(),
          session_id: new_session,
          pending_pids: MapSet.new()
@@ -982,16 +995,50 @@ defmodule Sinestesia.Pipeline do
     started_at = now_ms()
     conversation = state.director_conversation
     sid = state.session_id
-    Logger.debug("[director] spawning (current line: #{inspect(text)})")
+    # Melody hint appended HERE (not to last_director_text) so the
+    # duplicate-line guard keeps comparing raw lyrics.
+    line = text <> melody_hint(state)
+    Logger.debug("[director] spawning (current line: #{inspect(line)})")
 
     {:ok, pid} =
       Task.start(fn ->
-        result = Sinestesia.Director.next_prompt(conversation, text)
+        result = Sinestesia.Director.next_prompt(conversation, line)
         send(parent, {:director_done, result, started_at, sid})
       end)
 
     pid
   end
+
+  # Compact textual summary of HOW the line is being sung (frontend `melody`
+  # message, see PROTOCOL.md). Colors the Director's mood without competing
+  # with the lyric content. Empty when absent or stale (>6s old — the singer
+  # may have stopped).
+  defp melody_hint(%{melody: m}) when map_size(m) > 0 do
+    if now_ms() - Map.get(m, "ts", 0) > 6_000 do
+      ""
+    else
+      parts =
+        [
+          Map.get(m, "contour"),
+          register_word(Map.get(m, "register")),
+          if(Map.get(m, "vibrato", 0) > 0.5, do: "vibrato"),
+          energy_word(Map.get(m, "energy"))
+        ]
+        |> Enum.reject(&is_nil/1)
+
+      if parts == [], do: "", else: " (melody: #{Enum.join(parts, ", ")})"
+    end
+  end
+
+  defp melody_hint(_), do: ""
+
+  defp register_word(r) when is_number(r) and r >= 0.66, do: "high register"
+  defp register_word(r) when is_number(r) and r <= 0.33, do: "low register"
+  defp register_word(_), do: nil
+
+  defp energy_word(e) when is_number(e) and e >= 0.66, do: "energetic"
+  defp energy_word(e) when is_number(e) and e <= 0.25, do: "soft"
+  defp energy_word(_), do: nil
 
   defp turn_count(conversation) do
     # Each user turn = one exchange. System counts as 0.

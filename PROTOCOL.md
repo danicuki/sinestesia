@@ -67,6 +67,47 @@ If the frontend wants to share Rail-1 features with the backend (e.g., for the D
 }
 ```
 
+### `melody` *(added 2026-06-13)*
+
+Realtime **melodic** descriptor of how the current phrase is being SUNG (not
+what — that's the lyric transcript). Computed in the browser from the
+fundamental-frequency (f0) track over the last ~1–2s of singing. Send it
+whenever it meaningfully changes (every ~500ms–1s is plenty); the backend
+stamps its own arrival time and ages the value out after 6s, so a gap just
+means "no melody info" rather than stale data.
+
+```json
+{
+  "type": "melody",
+  "features": {
+    "contour": "rising",
+    "register": 0.8,
+    "vibrato": 0.7,
+    "energy": 0.6
+  }
+}
+```
+
+**Field semantics** (all optional — send what you can compute; omit the rest):
+- `contour` (string): the shape of the f0 line over the window — free text, but
+  `"rising" | "falling" | "steady" | "wavering" | "leaping"` are the useful
+  ones. Passed to the Director **verbatim**, so keep it a short adjective/noun.
+- `register` (0..1): where the pitch sits in the singer's range — `0` = low/
+  chest, `1` = high/head. Backend maps ≥0.66 → "high register", ≤0.33 → "low
+  register" (middle = omitted).
+- `vibrato` (0..1): strength/regularity of pitch oscillation. ≥0.5 → the hint
+  includes "vibrato".
+- `energy` (0..1): melodic intensity (can mirror loudness, or combine loudness
+  + register reach). ≥0.66 → "energetic", ≤0.25 → "soft".
+
+**How the backend uses it**: at the moment a Director call fires for a lyric
+line, the live melody is condensed into a parenthetical and appended to the
+line — e.g. the Director receives `"vai voando (melody: rising, high register,
+vibrato)"`. It colors the *mood* of the chosen imagery without competing with
+the lyric's content, and never affects the duplicate-line guard (the raw lyric
+is what's compared). Sending no `melody` messages at all leaves Director
+behaviour exactly as it is today — purely additive.
+
 ### `style` (visual style override)
 
 Changes the art style for subsequent Director prompts. The backend caps the
@@ -251,3 +292,4 @@ Changes:
 - **2026-06-10**: added optional `frames` array to the `image` message (latent-morph sequence from the local SDXL sidecar). Purely additive — clients ignoring it are unaffected.
 - **2026-06-10**: added FE→BE `camera` message (operator-driven zoom/pan applied per generated frame). Additive — backends ignore unknown fields, and not sending it preserves current behaviour.
 - **2026-06-12**: replay exports in `frontend/public/samples/index.json` gain an optional `params` object per sequence — the full recipe of the run (string→string map: `image_provider`, `render_mode`, `image_mode`, `compose_mode`, `director_provider`, `scene_window`, `style_anchor`, `style_refresh_every`, `replay_file`, `replay_speed`, `exported_at`, plus provider-specific knobs like `cloudflare_steps`). **Frontend ask**: when playing a `?demo=<slug>` sequence with the debug overlay (`?debug=1`) active, render `params` as a small key=value table alongside the existing prompt/lyric display, so A/B runs are comparable on screen. Sequences without `params` (old exports and the hand-made samples) must keep working — treat it as absent.
+- **2026-06-13**: added FE→BE `melody` message (realtime f0/melodic descriptor — contour/register/vibrato/energy). Backend appends it as a parenthetical to the Director's lyric line to color mood. **Frontend ask**: compute it from the existing pitch/f0 track (Essentia or the Rail-1 analyser) and send every ~0.5–1s while voiced; omit fields you can't compute. Fully additive — not sending it leaves current behaviour unchanged.

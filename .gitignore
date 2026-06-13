@@ -31,3 +31,6 @@ local-sdxl/models/
 .idea/
 .vscode/
 *.swp
+
+# song_to_session STT cache (raw word timestamps; regenerable, may hold client lyrics)
+tests/sessions/.*.words.json

@@ -19,7 +19,7 @@ export class FastFeatures {
   private analyser: AnalyserNode;
   private freqData: Uint8Array<ArrayBuffer>;
   private timeData: Uint8Array<ArrayBuffer>;
-  private floatTime: Float32Array; // raw waveform for pitch autocorrelation
+  private floatTime: Float32Array<ArrayBuffer>; // raw waveform for pitch autocorrelation
   private fftOut = new Float32Array(BINS);
   private sr: number;
 

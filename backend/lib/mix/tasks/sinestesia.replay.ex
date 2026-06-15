@@ -184,17 +184,39 @@ defmodule Mix.Tasks.Sinestesia.Replay do
     frames =
       acc.images
       |> Enum.with_index(1)
-      |> Enum.map(fn {msg, i} ->
-        {ext, body} = fetch_image(msg.url)
-        file = "frame_#{String.pad_leading(to_string(i), 2, "0")}.#{ext}"
-        File.write!(Path.join(dir, file), body)
+      |> Enum.flat_map(fn {msg, i} ->
+        subframes = Map.get(msg, :frames, []) || []
 
-        %{
-          "idx" => i,
-          "file" => "#{slug}/#{file}",
-          "prompt" => msg.prompt,
-          "lyric" => Map.get(msg, :lyric)
-        }
+        if subframes == [] do
+          {ext, body} = fetch_image(msg.url)
+          file = "frame_#{String.pad_leading(to_string(i), 2, "0")}.#{ext}"
+          File.write!(Path.join(dir, file), body)
+
+          [
+            %{
+              "idx" => i,
+              "file" => "#{slug}/#{file}",
+              "prompt" => msg.prompt,
+              "lyric" => Map.get(msg, :lyric)
+            }
+          ]
+        else
+          # Download and export each subframe sequentially
+          subframes
+          |> Enum.with_index(1)
+          |> Enum.map(fn {sub_url, j} ->
+            {ext, body} = fetch_image(sub_url)
+            file = "frame_#{String.pad_leading(to_string(i), 2, "0")}_m#{String.pad_leading(to_string(j), 2, "0")}.#{ext}"
+            File.write!(Path.join(dir, file), body)
+
+            %{
+              "idx" => i,
+              "file" => "#{slug}/#{file}",
+              "prompt" => msg.prompt,
+              "lyric" => Map.get(msg, :lyric)
+            }
+          end)
+        end
       end)
 
     index_path = Path.join(samples_dir, "index.json")

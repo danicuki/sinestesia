@@ -53,6 +53,10 @@ export class Scene {
   // session. The non-warp branch in the shader matches the original behaviour.
   private warp = true;
 
+  private activeSequence: THREE.Texture[] | null = null;
+  private sequenceStart = 0;
+  private sequenceDur = 0;
+
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -130,6 +134,22 @@ export class Scene {
     this.fadeStart = performance.now();
     this.fadeDur = durationMs ?? this.adaptiveDur();
     this.fading = true;
+    this.activeSequence = null; // cancel any active sequence
+    this.material.uniforms.uUseWarp.value = this.warp ? 1 : 0; // restore warp
+  }
+
+  private startSequenceTransition(textures: THREE.Texture[], durationMs?: number) {
+    this.activeSequence = textures;
+    this.sequenceStart = performance.now();
+    this.sequenceDur = durationMs ?? this.adaptiveDur();
+    this.fading = false; // disable single-frame fading
+    this.material.uniforms.uUseWarp.value = 0; // disable Perlin warp for pre-rendered morph frames
+    
+    // Set initial state
+    const u = this.material.uniforms;
+    u.uTexPrev.value = textures[0];
+    u.uTexCurrent.value = textures[1];
+    u.uCrossfade.value = 0;
   }
 
   // Stretch the next morph to (a bit past) the measured image cadence so it is
@@ -158,8 +178,8 @@ export class Scene {
     tex.magFilter = THREE.LinearFilter;
   }
 
-  /** Load a new image and warp-transition to it (live backend path). */
-  transitionTo(url: string) {
+  /** Load a new image (and optional morph frames) and transition/morph to it. */
+  transitionTo(url: string, frames?: string[]) {
     // Measure the gap since the previous image (at arrival, not load-complete,
     // so it tracks the backend cadence) and fold it into the EMA used to size
     // the next morph.
@@ -170,18 +190,41 @@ export class Scene {
     }
     this.lastImageAt = now;
 
-    this.loader.load(
-      url,
-      (tex) => {
-        this.configureTex(tex);
-        this.startTransition(tex);
-      },
-      undefined,
-      () => {
-        // Image failed to load — keep the current texture, demo continues.
-        console.warn("[scene] image load failed:", url);
-      },
-    );
+    if (frames && frames.length > 0) {
+      // Preload all frames in the sequence (including the final target image)
+      const prevTex = this.material.uniforms.uTexCurrent.value as THREE.Texture;
+      this.preload(frames)
+        .then((texes) => {
+          // Play the sequence: starting from the currently visible texture
+          this.startSequenceTransition([prevTex, ...texes]);
+        })
+        .catch((err) => {
+          console.warn("[scene] failed to preload morph frames, falling back to direct transition:", err);
+          // Fallback to normal single-frame transition
+          this.loader.load(
+            url,
+            (tex) => {
+              this.configureTex(tex);
+              this.startTransition(tex);
+            },
+            undefined,
+            () => console.warn("[scene] image load failed:", url)
+          );
+        });
+    } else {
+      // Normal single-frame transition
+      this.loader.load(
+        url,
+        (tex) => {
+          this.configureTex(tex);
+          this.startTransition(tex);
+        },
+        undefined,
+        () => {
+          console.warn("[scene] image load failed:", url);
+        },
+      );
+    }
   }
 
   /** Preload a batch of textures (e.g. a whole sample sequence). */
@@ -211,10 +254,12 @@ export class Scene {
   // starts pixel-identical — seamless, no pause, no jump.
   setMorph(a: THREE.Texture, b: THREE.Texture, t: number) {
     this.fading = false;
+    this.activeSequence = null; // cancel any active sequence
     const u = this.material.uniforms;
     u.uTexPrev.value = a;
     u.uTexCurrent.value = b;
     u.uCrossfade.value = t;
+    u.uUseWarp.value = 0; // disable warp for pre-rendered subframes in player
   }
 
   /** Render one frame. */
@@ -237,6 +282,30 @@ export class Scene {
         this.fading = false;
       } else {
         this.material.uniforms.uCrossfade.value = t;
+      }
+    }
+
+    // Multi-frame sequence transition progress
+    if (this.activeSequence) {
+      const elapsed = now - this.sequenceStart;
+      const progress = Math.min(1.0, elapsed / this.sequenceDur);
+      
+      const N = this.activeSequence.length;
+      if (N >= 2) {
+        const segments = N - 1;
+        const scaledProgress = progress * segments;
+        const i = Math.min(segments - 1, Math.floor(scaledProgress));
+        const localT = scaledProgress - i;
+        
+        const u = this.material.uniforms;
+        u.uTexPrev.value = this.activeSequence[i];
+        u.uTexCurrent.value = this.activeSequence[i + 1];
+        u.uCrossfade.value = localT;
+      }
+      
+      if (progress >= 1.0) {
+        this.activeSequence = null;
+        this.material.uniforms.uUseWarp.value = this.warp ? 1 : 0; // restore warp
       }
     }
 

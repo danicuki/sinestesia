@@ -43,6 +43,7 @@ export interface ImageMsg {
   url: string;
   prompt: string;
   timings?: Timings;
+  frames?: string[];
 }
 
 type TranscriptCb = (m: TranscriptMsg) => void;
@@ -142,6 +143,7 @@ export class Socket {
             url: String(msg.url),
             prompt: String(msg.prompt ?? ""),
             timings: msg.timings as Timings | undefined,
+            frames: Array.isArray(msg.frames) ? msg.frames.map(String) : undefined,
           });
         break;
       case "error":

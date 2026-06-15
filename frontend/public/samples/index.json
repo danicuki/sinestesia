@@ -249,7 +249,3160 @@
       "segment_ms": 4062,
       "slug": "exp-aquarela-global",
       "style": "Brazilian cordel woodcut print, black and white, hatched linework",
-      "title": "Replay: aquarela-sepia"
+      "title": "exp-aquarela-global"
+    },
+    {
+      "description": "Pipeline replay of dinda on 2026-06-15 — 521 images.",
+      "frame_count": 521,
+      "frames": [
+        {
+          "file": "exp-dinda-localm/frame_01.jpg",
+          "idx": 1,
+          "lyric": "Queria que a verdade fosse como um fruto que a gente alcançasse a qualquer minuto",
+          "prompt": "A single scene showing: a single ripe fruit hanging in the sky. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m01.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m02.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m03.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m04.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m05.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m06.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m07.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m08.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m09.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m10.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m11.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m12.jpg",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_02_m13.png",
+          "idx": 2,
+          "lyric": "fosse como um doce e que terna fosse",
+          "prompt": "A single scene showing: ripe fruit, a person reaching upward. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m01.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m02.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m03.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m04.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m05.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m06.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m07.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m08.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m09.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m10.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m11.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m12.jpg",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_03_m13.png",
+          "idx": 3,
+          "lyric": "fosse que me iluminasse como a luz da tarde que",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden afternoon light bathing the scene. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m01.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m02.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m03.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m04.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m05.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m06.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m07.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m08.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m09.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m10.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m11.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m12.jpg",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_04_m13.png",
+          "idx": 4,
+          "lyric": "Queria que meu barco",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, a wooden boat floating on water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m01.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m02.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m03.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m04.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m05.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m06.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m07.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m08.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m09.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m10.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m11.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m12.jpg",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_05_m13.png",
+          "idx": 5,
+          "lyric": "que não",
+          "prompt": "A single scene showing: ripe fruit, person reaching, golden light, boat, a gentle ripple moving the water. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m01.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m02.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m03.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m04.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m05.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m06.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m07.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m08.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m09.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m10.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m11.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m12.jpg",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_06_m13.png",
+          "idx": 6,
+          "lyric": "que plantasse",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small seed planted in the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m01.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m02.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m03.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m04.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m05.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m06.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m07.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m08.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m09.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m10.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m11.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m12.jpg",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_07_m13.png",
+          "idx": 7,
+          "lyric": "como a",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a soft morning mist rising. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m01.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m02.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m03.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m04.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m05.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m06.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m07.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m08.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m09.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m10.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m11.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m12.jpg",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_08_m13.png",
+          "idx": 8,
+          "lyric": "Felicidade mora",
+          "prompt": "A single scene showing: person reaching, golden light, boat, ripple, a small house on a distant hill. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m01.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m02.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m03.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m04.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m05.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m06.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m07.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m08.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m09.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m10.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m11.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m12.jpg",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_09_m13.png",
+          "idx": 9,
+          "lyric": "ali onde os namorados",
+          "prompt": "A single scene showing: golden light, boat, ripple, house on hill, two lovers holding hands in the meadow. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m01.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m02.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m03.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m04.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m05.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m06.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m07.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m08.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m09.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m10.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m11.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m12.jpg",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_10_m13.png",
+          "idx": 10,
+          "lyric": "Ali onde a noite cai",
+          "prompt": "A single scene showing: boat, ripple, house on hill, lovers in meadow, deep velvet night sky descending. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m01.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m02.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m03.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m04.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m05.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m06.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m07.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m08.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m09.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m10.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m11.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m12.jpg",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_11_m13.png",
+          "idx": 11,
+          "lyric": "Ali se abre um corpo",
+          "prompt": "A single scene showing: ripple, house on hill, lovers in meadow, night sky, a silhouette stretching toward the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m01.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m02.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m03.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m04.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m05.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m06.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m07.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m08.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m09.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m10.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m11.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m12.jpg",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_12_m13.png",
+          "idx": 12,
+          "lyric": "Ela se faz de tonta",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, a mask dropping to the ground. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m01.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m02.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m03.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m04.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m05.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m06.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m07.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m08.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m09.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m10.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m11.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m12.jpg",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_13_m13.png",
+          "idx": 13,
+          "lyric": "te amo",
+          "prompt": "A single scene showing: house on hill, lovers in meadow, night sky, silhouette stretching, two heartbeats glowing in the dark. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m01.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m02.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m03.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m04.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m05.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m06.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m07.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m08.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m09.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m10.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m11.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m12.jpg",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_14_m13.png",
+          "idx": 14,
+          "lyric": "Meu amor",
+          "prompt": "A single scene showing: lovers in meadow, night sky, silhouette stretching, glowing heartbeats, a hand reaching out to touch another. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m01.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m02.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m03.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m04.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m05.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m06.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m07.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m08.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m09.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m10.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m11.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m12.jpg",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_15_m13.png",
+          "idx": 15,
+          "lyric": "pasem no",
+          "prompt": "A single scene showing: night sky, silhouette stretching, glowing heartbeats, hand reaching out, a path winding through the trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m01.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m02.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m03.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m04.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m05.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m06.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m07.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m08.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m09.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m10.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m11.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m12.jpg",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_16_m13.png",
+          "idx": 16,
+          "lyric": "Queria um só momento essa tranquilidade",
+          "prompt": "A single scene showing: silhouette stretching, glowing heartbeats, hand reaching out, path winding, a calm breeze stirring the leaves. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m01.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m02.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m03.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m04.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m05.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m06.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m07.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m08.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m09.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m10.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m11.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m12.jpg",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_17_m13.png",
+          "idx": 17,
+          "lyric": "balançando ao vento quando",
+          "prompt": "A single scene showing: glowing heartbeats, hand reaching out, path winding, calm breeze, a hammock swaying gently between two trees. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m01.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m02.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m03.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m04.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m05.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m06.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m07.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m08.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m09.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m10.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m11.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m12.jpg",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_18_m13.png",
+          "idx": 18,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: hand reaching out, path winding, calm breeze, hammock swaying, petals scattering in the air. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m01.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m02.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m03.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m04.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m05.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m06.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m07.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m08.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m09.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m10.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m11.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m12.jpg",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_19_m13.png",
+          "idx": 19,
+          "lyric": "no girando gira de",
+          "prompt": "A single scene showing: path winding, calm breeze, hammock swaying, petals scattering, a wooden carousel spinning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m01.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m02.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m03.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m04.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m05.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m06.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m07.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m08.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m09.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m10.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m11.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m12.jpg",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_20_m13.png",
+          "idx": 20,
+          "lyric": "Eu só queria dinda",
+          "prompt": "A single scene showing: calm breeze, hammock swaying, petals scattering, wooden carousel, a woman waving from the carousel. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m01.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m02.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m03.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m04.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m05.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m06.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m07.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m08.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m09.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m10.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m11.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m12.jpg",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_21_m13.png",
+          "idx": 21,
+          "lyric": "Eu só queria dinda um adeus ainda das morenas lindas",
+          "prompt": "A single scene showing: hammock swaying, petals scattering, wooden carousel, woman waving, a group of women dancing in the moonlight. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m01.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m02.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m03.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m04.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m05.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m06.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m07.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m08.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m09.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m10.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m11.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m12.jpg",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_22_m13.png",
+          "idx": 22,
+          "lyric": "quando eu for embora",
+          "prompt": "A single scene showing: petals scattering, wooden carousel, woman waving, women dancing, a solitary figure walking toward the horizon. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m01.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m02.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m03.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m04.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m05.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m06.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m07.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m08.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m09.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m10.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m11.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m12.jpg",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_23_m13.png",
+          "idx": 23,
+          "lyric": "quando eu for embora pra seguir cantando um último chorinho",
+          "prompt": "A single scene showing: wooden carousel, woman waving, women dancing, solitary figure, a phantom guitar playing in the wind. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m01.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m02.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m03.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m04.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m05.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m06.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m07.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m08.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m09.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m10.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m11.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m12.jpg",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_24_m13.png",
+          "idx": 24,
+          "lyric": "dar um abraço em todas pra seguir sozinho",
+          "prompt": "A single scene showing: woman waving, women dancing, solitary figure, phantom guitar, a final embrace under the stars. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m01.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m02.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m03.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m04.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m05.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m06.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m07.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m08.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m09.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m10.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m11.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m12.jpg",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_25_m13.png",
+          "idx": 25,
+          "lyric": "Queria ser alpinista pra escalar teu corpo",
+          "prompt": "A single scene showing: women dancing, solitary figure, phantom guitar, final embrace, a climber ascending a mountain shaped like a body. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m01.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m02.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m03.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m04.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m05.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m06.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m07.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m08.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m09.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m10.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m11.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m12.jpg",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_26_m13.png",
+          "idx": 26,
+          "lyric": "me perder de vista na rosa dos ventos",
+          "prompt": "A single scene showing: solitary figure, phantom guitar, final embrace, climber on mountain, a compass spinning wildly in the center. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m01.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m02.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m03.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m04.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m05.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m06.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m07.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m08.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m09.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m10.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m11.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m12.jpg",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_27_m13.png",
+          "idx": 27,
+          "lyric": "Eu só queria um dia da tua geografia",
+          "prompt": "A single scene showing: phantom guitar, final embrace, climber on mountain, compass spinning, a map unfolding over the landscape. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m01.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m02.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m03.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m04.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m05.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m06.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m07.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m08.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m09.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m10.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m11.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m12.jpg",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_28_m13.png",
+          "idx": 28,
+          "lyric": "depravado e amigo",
+          "prompt": "A single scene showing: final embrace, climber on mountain, compass spinning, map unfolding, a spilled glass of wine staining the earth. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m01.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m02.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m03.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m04.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m05.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m06.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m07.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m08.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m09.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m10.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m11.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m12.jpg",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_29_m13.png",
+          "idx": 29,
+          "lyric": "de aplacar",
+          "prompt": "A single scene showing: climber on mountain, compass spinning, map unfolding, spilled wine, a cool rain falling to cleanse the soil. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m01.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m02.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m03.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m04.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m05.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m06.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m07.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m08.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m09.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m10.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m11.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m12.jpg",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_30_m13.png",
+          "idx": 30,
+          "lyric": "de ser o",
+          "prompt": "A single scene showing: compass spinning, map unfolding, spilled wine, cool rain, a mirror reflecting a smiling face. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m01.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m02.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m03.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m04.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m05.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m06.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m07.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m08.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m09.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m10.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m11.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m12.jpg",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_31_m13.png",
+          "idx": 31,
+          "lyric": "nas manhãs",
+          "prompt": "A single scene showing: map unfolding, spilled wine, cool rain, mirror reflecting face, a bright sun rising over the hills. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m01.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m02.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m03.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m04.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m05.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m06.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m07.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m08.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m09.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m10.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m11.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m12.jpg",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_32_m13.png",
+          "idx": 32,
+          "lyric": "Queria em",
+          "prompt": "A single scene showing: spilled wine, cool rain, mirror reflecting face, bright sun, a silver key held in a palm. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m01.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m02.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m03.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m04.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m05.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m06.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m07.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m08.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m09.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m10.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m11.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m12.jpg",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_33_m13.png",
+          "idx": 33,
+          "lyric": "Queria em só um momento essa tranquilidade que se vê",
+          "prompt": "A single scene showing: cool rain, mirror reflecting face, bright sun, silver key, a person sitting still in a garden. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m01.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m02.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m03.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m04.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m05.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m06.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m07.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m08.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m09.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m10.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m11.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m12.jpg",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_34_m13.png",
+          "idx": 34,
+          "lyric": "quando o",
+          "prompt": "A single scene showing: mirror reflecting face, bright sun, silver key, person in garden, a bird taking flight from a branch. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m01.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m02.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m03.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m04.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m05.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m06.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m07.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m08.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m09.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m10.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m11.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m12.jpg",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_35_m13.png",
+          "idx": 35,
+          "lyric": "remexendo as flores",
+          "prompt": "A single scene showing: bright sun, silver key, person in garden, bird taking flight, a swarm of bees buzzing around blossoms. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m01.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m02.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m03.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m04.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m05.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m06.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m07.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m08.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m09.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m10.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m11.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m12.jpg",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_36_m13.png",
+          "idx": 36,
+          "lyric": "no girando gira de algum",
+          "prompt": "A single scene showing: silver key, person in garden, bird taking flight, swarm of bees, a windmill turning in the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m01.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m02.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m03.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m04.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m05.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m06.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m07.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m08.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m09.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m10.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m11.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m12.jpg",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_37_m13.png",
+          "idx": 37,
+          "lyric": "Eu só queria dinda um adeus",
+          "prompt": "A single scene showing: person in garden, bird taking flight, swarm of bees, windmill turning, a white handkerchief waving goodbye. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m01.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m02.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m03.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m04.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m05.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m06.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m07.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m08.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m09.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m10.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m11.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m12.jpg",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_38_m13.png",
+          "idx": 38,
+          "lyric": "queria dinda um adeus ainda das morenas lindas no final",
+          "prompt": "A single scene showing: bird taking flight, swarm of bees, windmill turning, white handkerchief waving, a sunset painting the sky in deep orange. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m01.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m02.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m03.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m04.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m05.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m06.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m07.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m08.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m09.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m10.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m11.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m12.jpg",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_39_m13.png",
+          "idx": 39,
+          "lyric": "Quando eu for embora pra seguir",
+          "prompt": "A single scene showing: swarm of bees, windmill turning, white handkerchief waving, sunset, a dusty road stretching into the distance. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m01.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m02.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m03.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m04.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m05.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m06.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m07.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m08.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m09.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m10.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m11.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m12.jpg",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_40_m13.png",
+          "idx": 40,
+          "lyric": "dar um",
+          "prompt": "A single scene showing: windmill turning, white handkerchief waving, sunset, dusty road, a single shadow growing long. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m01.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m02.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m03.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m04.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m05.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m06.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m07.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m08.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m09.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m10.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m11.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m12.jpg",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        },
+        {
+          "file": "exp-dinda-localm/frame_41_m13.png",
+          "idx": 41,
+          "lyric": "dar um abraço em todas e seguir sozinho",
+          "prompt": "A single scene showing: white handkerchief waving, sunset, dusty road, single shadow, an empty coat left hanging on a fence. watercolor"
+        }
+      ],
+      "params": {
+        "cloudflare_guidance": "7.5",
+        "cloudflare_img2img_model": "@cf/runwayml/stable-diffusion-v1-5-img2img",
+        "cloudflare_steps": "20",
+        "cloudflare_strength": "0.7",
+        "compose_mode": "global",
+        "director_provider": "gemini",
+        "exported_at": "2026-06-15 18:14:00Z",
+        "image_mode": "story",
+        "image_provider": "cloudflare",
+        "render_mode": "t2i",
+        "replay_file": "dinda.json",
+        "replay_speed": "1.0",
+        "scene_window": "5",
+        "style_anchor": "(off)",
+        "style_refresh_every": "1"
+      },
+      "segment_ms": 3398,
+      "slug": "exp-dinda-localm",
+      "style": "watercolor",
+      "title": "Replay: dinda"
     }
   ]
 }

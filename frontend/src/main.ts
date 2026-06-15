@@ -110,16 +110,21 @@ async function playDemo(slug: string) {
   if (gen !== demoGen) return; // a newer pick superseded us mid-load
 
   const n = texes.length;
+  const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
+  const m = uniqueIdxs.size;
+  const ratio = m > 0 ? n / m : 1;
+  const stepDur = DEMO_SEGMENT_MS / ratio;
+
   const start = performance.now();
   let shown = -1;
   console.log(
-    `[demo] "${seq.slug}" — ${n} frames, continuous morph @ ${DEMO_SEGMENT_MS}ms/step`,
+    `[demo] "${seq.slug}" — ${n} frames, unique idxs: ${m}, continuous morph @ ${stepDur.toFixed(0)}ms/step`,
   );
   // The run recipe is per-sequence, so it's set once; prompt/lyric update per
   // frame below. Sequences without params just clear the table.
   debug?.setSampleParams(seq.params);
   demoUpdate = () => {
-    const phase = (performance.now() - start) / DEMO_SEGMENT_MS;
+    const phase = (performance.now() - start) / stepDur;
     const i = Math.floor(phase) % n;
     const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
     const next = (i + 1) % n;
@@ -209,9 +214,9 @@ async function start() {
   const savedStyle = localStorage.getItem(STYLE_KEY) ?? "";
   const socket = MOCK ? null : new Socket();
   if (socket) {
-    socket.onImage = ({ url, prompt, timings }) => {
-      console.log("[main] image:", prompt, timings ?? "");
-      scene.transitionTo(url);
+    socket.onImage = ({ url, prompt, timings, frames }) => {
+      console.log("[main] image:", prompt, timings ?? "", "frames:", frames ?? "none");
+      scene.transitionTo(url, frames);
       if (debug) {
         debug.setPrompt(prompt);
         if (timings) debug.addTimings(timings);

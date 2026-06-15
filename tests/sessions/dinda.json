@@ -1,0 +1,1886 @@
+{
+  "name": "dinda",
+  "style": "watercolor",
+  "events": [
+    {
+      "at_ms": 460,
+      "text": "Queria-",
+      "final": false
+    },
+    {
+      "at_ms": 540,
+      "text": "Queria que-",
+      "final": false
+    },
+    {
+      "at_ms": 600,
+      "text": "Queria que a-",
+      "final": false
+    },
+    {
+      "at_ms": 1440,
+      "text": "Queria que a verdade-",
+      "final": false
+    },
+    {
+      "at_ms": 1760,
+      "text": "Queria que a verdade fosse-",
+      "final": false
+    },
+    {
+      "at_ms": 2080,
+      "text": "Queria que a verdade fosse como-",
+      "final": false
+    },
+    {
+      "at_ms": 2160,
+      "text": "Queria que a verdade fosse como um-",
+      "final": false
+    },
+    {
+      "at_ms": 3000,
+      "text": "Queria que a verdade fosse como um fruto-",
+      "final": false
+    },
+    {
+      "at_ms": 3120,
+      "text": "Queria que a verdade fosse como um fruto que-",
+      "final": false
+    },
+    {
+      "at_ms": 3200,
+      "text": "Queria que a verdade fosse como um fruto que a-",
+      "final": false
+    },
+    {
+      "at_ms": 3580,
+      "text": "Queria que a verdade fosse como um fruto que a gente-",
+      "final": false
+    },
+    {
+      "at_ms": 4640,
+      "text": "Queria que a verdade fosse como um fruto que a gente alcançasse-",
+      "final": false
+    },
+    {
+      "at_ms": 4800,
+      "text": "Queria que a verdade fosse como um fruto que a gente alcançasse a-",
+      "final": false
+    },
+    {
+      "at_ms": 5260,
+      "text": "Queria que a verdade fosse como um fruto que a gente alcançasse a qualquer-",
+      "final": false
+    },
+    {
+      "at_ms": 5900,
+      "text": "Queria que a verdade fosse como um fruto que a gente alcançasse a qualquer minuto,",
+      "final": false
+    },
+    {
+      "at_ms": 5900,
+      "text": "Queria que a verdade fosse como um fruto que a gente alcançasse a qualquer minuto,",
+      "final": true
+    },
+    {
+      "at_ms": 6600,
+      "text": "fosse-",
+      "final": false
+    },
+    {
+      "at_ms": 6900,
+      "text": "fosse como-",
+      "final": false
+    },
+    {
+      "at_ms": 7059,
+      "text": "fosse como um-",
+      "final": false
+    },
+    {
+      "at_ms": 7640,
+      "text": "fosse como um doce-",
+      "final": false
+    },
+    {
+      "at_ms": 8020,
+      "text": "fosse como um doce e-",
+      "final": false
+    },
+    {
+      "at_ms": 8200,
+      "text": "fosse como um doce e que-",
+      "final": false
+    },
+    {
+      "at_ms": 8800,
+      "text": "fosse como um doce e que terna-",
+      "final": false
+    },
+    {
+      "at_ms": 9840,
+      "text": "fosse como um doce e que terna fosse-",
+      "final": false
+    },
+    {
+      "at_ms": 10100,
+      "text": "fosse como um doce e que terna fosse que-",
+      "final": false
+    },
+    {
+      "at_ms": 10200,
+      "text": "fosse como um doce e que terna fosse que me-",
+      "final": false
+    },
+    {
+      "at_ms": 11140,
+      "text": "fosse como um doce e que terna fosse que me iluminasse-",
+      "final": false
+    },
+    {
+      "at_ms": 11580,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como-",
+      "final": false
+    },
+    {
+      "at_ms": 11680,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a-",
+      "final": false
+    },
+    {
+      "at_ms": 11880,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz-",
+      "final": false
+    },
+    {
+      "at_ms": 12020,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da-",
+      "final": false
+    },
+    {
+      "at_ms": 12760,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde-",
+      "final": false
+    },
+    {
+      "at_ms": 12900,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que-",
+      "final": false
+    },
+    {
+      "at_ms": 12960,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que o-",
+      "final": false
+    },
+    {
+      "at_ms": 13360,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que o azul-",
+      "final": false
+    },
+    {
+      "at_ms": 13480,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que o azul me-",
+      "final": false
+    },
+    {
+      "at_ms": 14060,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que o azul me trouxe.",
+      "final": false
+    },
+    {
+      "at_ms": 14060,
+      "text": "fosse como um doce e que terna fosse que me iluminasse como a luz da tarde que o azul me trouxe.",
+      "final": true
+    },
+    {
+      "at_ms": 15040,
+      "text": "Queria-",
+      "final": false
+    },
+    {
+      "at_ms": 15180,
+      "text": "Queria que-",
+      "final": false
+    },
+    {
+      "at_ms": 15340,
+      "text": "Queria que meu-",
+      "final": false
+    },
+    {
+      "at_ms": 15960,
+      "text": "Queria que meu barco-",
+      "final": false
+    },
+    {
+      "at_ms": 16140,
+      "text": "Queria que meu barco se-",
+      "final": false
+    },
+    {
+      "at_ms": 16740,
+      "text": "Queria que meu barco se fizesse-",
+      "final": false
+    },
+    {
+      "at_ms": 16880,
+      "text": "Queria que meu barco se fizesse ao-",
+      "final": false
+    },
+    {
+      "at_ms": 17520,
+      "text": "Queria que meu barco se fizesse ao largo,",
+      "final": false
+    },
+    {
+      "at_ms": 17520,
+      "text": "Queria que meu barco se fizesse ao largo,",
+      "final": true
+    },
+    {
+      "at_ms": 17759,
+      "text": "se-",
+      "final": false
+    },
+    {
+      "at_ms": 18300,
+      "text": "se soltasse-",
+      "final": false
+    },
+    {
+      "at_ms": 18420,
+      "text": "se soltasse ao-",
+      "final": false
+    },
+    {
+      "at_ms": 18900,
+      "text": "se soltasse ao vento,",
+      "final": false
+    },
+    {
+      "at_ms": 18900,
+      "text": "se soltasse ao vento,",
+      "final": true
+    },
+    {
+      "at_ms": 19350,
+      "text": "que-",
+      "final": false
+    },
+    {
+      "at_ms": 19580,
+      "text": "que não-",
+      "final": false
+    },
+    {
+      "at_ms": 19960,
+      "text": "que não fosse-",
+      "final": false
+    },
+    {
+      "at_ms": 20780,
+      "text": "que não fosse amargo,",
+      "final": false
+    },
+    {
+      "at_ms": 20780,
+      "text": "que não fosse amargo,",
+      "final": true
+    },
+    {
+      "at_ms": 21000,
+      "text": "nem-",
+      "final": false
+    },
+    {
+      "at_ms": 21580,
+      "text": "nem magoasse-",
+      "final": false
+    },
+    {
+      "at_ms": 22140,
+      "text": "nem magoasse tanto,",
+      "final": false
+    },
+    {
+      "at_ms": 22140,
+      "text": "nem magoasse tanto,",
+      "final": true
+    },
+    {
+      "at_ms": 22620,
+      "text": "que-",
+      "final": false
+    },
+    {
+      "at_ms": 23280,
+      "text": "que plantasse-",
+      "final": false
+    },
+    {
+      "at_ms": 24560,
+      "text": "que plantasse auroras-",
+      "final": false
+    },
+    {
+      "at_ms": 24680,
+      "text": "que plantasse auroras de-",
+      "final": false
+    },
+    {
+      "at_ms": 25740,
+      "text": "que plantasse auroras de contentamento,",
+      "final": false
+    },
+    {
+      "at_ms": 25740,
+      "text": "que plantasse auroras de contentamento,",
+      "final": true
+    },
+    {
+      "at_ms": 26260,
+      "text": "como-",
+      "final": false
+    },
+    {
+      "at_ms": 26340,
+      "text": "como a-",
+      "final": false
+    },
+    {
+      "at_ms": 26680,
+      "text": "como a paz-",
+      "final": false
+    },
+    {
+      "at_ms": 26820,
+      "text": "como a paz lá-",
+      "final": false
+    },
+    {
+      "at_ms": 27340,
+      "text": "como a paz lá fora,",
+      "final": false
+    },
+    {
+      "at_ms": 27340,
+      "text": "como a paz lá fora,",
+      "final": true
+    },
+    {
+      "at_ms": 28060,
+      "text": "apaziguando-",
+      "final": false
+    },
+    {
+      "at_ms": 28220,
+      "text": "apaziguando um-",
+      "final": false
+    },
+    {
+      "at_ms": 28840,
+      "text": "apaziguando um canto.",
+      "final": false
+    },
+    {
+      "at_ms": 28840,
+      "text": "apaziguando um canto.",
+      "final": true
+    },
+    {
+      "at_ms": 30040,
+      "text": "Felicidade-",
+      "final": false
+    },
+    {
+      "at_ms": 30600,
+      "text": "Felicidade mora-",
+      "final": false
+    },
+    {
+      "at_ms": 30940,
+      "text": "Felicidade mora logo-",
+      "final": false
+    },
+    {
+      "at_ms": 31320,
+      "text": "Felicidade mora logo atrás-",
+      "final": false
+    },
+    {
+      "at_ms": 31420,
+      "text": "Felicidade mora logo atrás do-",
+      "final": false
+    },
+    {
+      "at_ms": 32140,
+      "text": "Felicidade mora logo atrás do muro,",
+      "final": false
+    },
+    {
+      "at_ms": 32140,
+      "text": "Felicidade mora logo atrás do muro,",
+      "final": true
+    },
+    {
+      "at_ms": 32680,
+      "text": "ali-",
+      "final": false
+    },
+    {
+      "at_ms": 32880,
+      "text": "ali onde-",
+      "final": false
+    },
+    {
+      "at_ms": 33020,
+      "text": "ali onde os-",
+      "final": false
+    },
+    {
+      "at_ms": 33770,
+      "text": "ali onde os namorados-",
+      "final": false
+    },
+    {
+      "at_ms": 33940,
+      "text": "ali onde os namorados se-",
+      "final": false
+    },
+    {
+      "at_ms": 34440,
+      "text": "ali onde os namorados se enrolam-",
+      "final": false
+    },
+    {
+      "at_ms": 34520,
+      "text": "ali onde os namorados se enrolam no-",
+      "final": false
+    },
+    {
+      "at_ms": 35680,
+      "text": "ali onde os namorados se enrolam no escuro.",
+      "final": false
+    },
+    {
+      "at_ms": 35680,
+      "text": "ali onde os namorados se enrolam no escuro.",
+      "final": true
+    },
+    {
+      "at_ms": 35940,
+      "text": "Ali-",
+      "final": false
+    },
+    {
+      "at_ms": 36160,
+      "text": "Ali onde-",
+      "final": false
+    },
+    {
+      "at_ms": 36260,
+      "text": "Ali onde a-",
+      "final": false
+    },
+    {
+      "at_ms": 36680,
+      "text": "Ali onde a noite-",
+      "final": false
+    },
+    {
+      "at_ms": 36900,
+      "text": "Ali onde a noite cai-",
+      "final": false
+    },
+    {
+      "at_ms": 37100,
+      "text": "Ali onde a noite cai nos-",
+      "final": false
+    },
+    {
+      "at_ms": 37540,
+      "text": "Ali onde a noite cai nos claros-",
+      "final": false
+    },
+    {
+      "at_ms": 37660,
+      "text": "Ali onde a noite cai nos claros do-",
+      "final": false
+    },
+    {
+      "at_ms": 38640,
+      "text": "Ali onde a noite cai nos claros do estrelado.",
+      "final": false
+    },
+    {
+      "at_ms": 38640,
+      "text": "Ali onde a noite cai nos claros do estrelado.",
+      "final": true
+    },
+    {
+      "at_ms": 39340,
+      "text": "Ali-",
+      "final": false
+    },
+    {
+      "at_ms": 39520,
+      "text": "Ali se-",
+      "final": false
+    },
+    {
+      "at_ms": 39720,
+      "text": "Ali se abre-",
+      "final": false
+    },
+    {
+      "at_ms": 39800,
+      "text": "Ali se abre um-",
+      "final": false
+    },
+    {
+      "at_ms": 40220,
+      "text": "Ali se abre um corpo-",
+      "final": false
+    },
+    {
+      "at_ms": 40320,
+      "text": "Ali se abre um corpo em-",
+      "final": false
+    },
+    {
+      "at_ms": 40760,
+      "text": "Ali se abre um corpo em fogo-",
+      "final": false
+    },
+    {
+      "at_ms": 41880,
+      "text": "Ali se abre um corpo em fogo ensolarado.",
+      "final": false
+    },
+    {
+      "at_ms": 41880,
+      "text": "Ali se abre um corpo em fogo ensolarado.",
+      "final": true
+    },
+    {
+      "at_ms": 42440,
+      "text": "Ela-",
+      "final": false
+    },
+    {
+      "at_ms": 42620,
+      "text": "Ela se-",
+      "final": false
+    },
+    {
+      "at_ms": 42780,
+      "text": "Ela se faz-",
+      "final": false
+    },
+    {
+      "at_ms": 42900,
+      "text": "Ela se faz de-",
+      "final": false
+    },
+    {
+      "at_ms": 43440,
+      "text": "Ela se faz de tonta,",
+      "final": false
+    },
+    {
+      "at_ms": 43440,
+      "text": "Ela se faz de tonta,",
+      "final": true
+    },
+    {
+      "at_ms": 43660,
+      "text": "ele-",
+      "final": false
+    },
+    {
+      "at_ms": 43900,
+      "text": "ele se-",
+      "final": false
+    },
+    {
+      "at_ms": 44160,
+      "text": "ele se faz-",
+      "final": false
+    },
+    {
+      "at_ms": 44300,
+      "text": "ele se faz de-",
+      "final": false
+    },
+    {
+      "at_ms": 45060,
+      "text": "ele se faz de burro.",
+      "final": false
+    },
+    {
+      "at_ms": 45060,
+      "text": "ele se faz de burro.",
+      "final": true
+    },
+    {
+      "at_ms": 45800,
+      "text": "Meu-",
+      "final": false
+    },
+    {
+      "at_ms": 46120,
+      "text": "Meu amor,",
+      "final": false
+    },
+    {
+      "at_ms": 46120,
+      "text": "Meu amor,",
+      "final": true
+    },
+    {
+      "at_ms": 46380,
+      "text": "te-",
+      "final": false
+    },
+    {
+      "at_ms": 46820,
+      "text": "te amo.",
+      "final": false
+    },
+    {
+      "at_ms": 46820,
+      "text": "te amo.",
+      "final": true
+    },
+    {
+      "at_ms": 47150,
+      "text": "Meu-",
+      "final": false
+    },
+    {
+      "at_ms": 47580,
+      "text": "Meu amor,",
+      "final": false
+    },
+    {
+      "at_ms": 47580,
+      "text": "Meu amor,",
+      "final": true
+    },
+    {
+      "at_ms": 47780,
+      "text": "eu-",
+      "final": false
+    },
+    {
+      "at_ms": 48580,
+      "text": "eu juro.",
+      "final": false
+    },
+    {
+      "at_ms": 48580,
+      "text": "eu juro.",
+      "final": true
+    },
+    {
+      "at_ms": 49060,
+      "text": "Meu-",
+      "final": false
+    },
+    {
+      "at_ms": 49400,
+      "text": "Meu amor,",
+      "final": false
+    },
+    {
+      "at_ms": 49400,
+      "text": "Meu amor,",
+      "final": true
+    },
+    {
+      "at_ms": 49940,
+      "text": "promete.",
+      "final": false
+    },
+    {
+      "at_ms": 49940,
+      "text": "promete.",
+      "final": true
+    },
+    {
+      "at_ms": 50300,
+      "text": "Meu-",
+      "final": false
+    },
+    {
+      "at_ms": 50720,
+      "text": "Meu amor,",
+      "final": false
+    },
+    {
+      "at_ms": 50720,
+      "text": "Meu amor,",
+      "final": true
+    },
+    {
+      "at_ms": 50900,
+      "text": "me-",
+      "final": false
+    },
+    {
+      "at_ms": 51920,
+      "text": "me deixa.",
+      "final": false
+    },
+    {
+      "at_ms": 51920,
+      "text": "me deixa.",
+      "final": true
+    },
+    {
+      "at_ms": 52280,
+      "text": "No-",
+      "final": false
+    },
+    {
+      "at_ms": 52559,
+      "text": "No final-",
+      "final": false
+    },
+    {
+      "at_ms": 52740,
+      "text": "No final das-",
+      "final": false
+    },
+    {
+      "at_ms": 53310,
+      "text": "No final das contas,",
+      "final": false
+    },
+    {
+      "at_ms": 53310,
+      "text": "No final das contas,",
+      "final": true
+    },
+    {
+      "at_ms": 53780,
+      "text": "pasem-",
+      "final": false
+    },
+    {
+      "at_ms": 54000,
+      "text": "pasem no-",
+      "final": false
+    },
+    {
+      "at_ms": 54280,
+      "text": "pasem no chão-",
+      "final": false
+    },
+    {
+      "at_ms": 55080,
+      "text": "pasem no chão duro.",
+      "final": false
+    },
+    {
+      "at_ms": 55080,
+      "text": "pasem no chão duro.",
+      "final": true
+    },
+    {
+      "at_ms": 55560,
+      "text": "Queria-",
+      "final": false
+    },
+    {
+      "at_ms": 55720,
+      "text": "Queria um-",
+      "final": false
+    },
+    {
+      "at_ms": 55860,
+      "text": "Queria um só-",
+      "final": false
+    },
+    {
+      "at_ms": 56480,
+      "text": "Queria um só momento-",
+      "final": false
+    },
+    {
+      "at_ms": 56700,
+      "text": "Queria um só momento essa-",
+      "final": false
+    },
+    {
+      "at_ms": 58160,
+      "text": "Queria um só momento essa tranquilidade-",
+      "final": false
+    },
+    {
+      "at_ms": 58280,
+      "text": "Queria um só momento essa tranquilidade que-",
+      "final": false
+    },
+    {
+      "at_ms": 58520,
+      "text": "Queria um só momento essa tranquilidade que se-",
+      "final": false
+    },
+    {
+      "at_ms": 58720,
+      "text": "Queria um só momento essa tranquilidade que se vê-",
+      "final": false
+    },
+    {
+      "at_ms": 58960,
+      "text": "Queria um só momento essa tranquilidade que se vê nas-",
+      "final": false
+    },
+    {
+      "at_ms": 59480,
+      "text": "Queria um só momento essa tranquilidade que se vê nas folhas,",
+      "final": false
+    },
+    {
+      "at_ms": 59480,
+      "text": "Queria um só momento essa tranquilidade que se vê nas folhas,",
+      "final": true
+    },
+    {
+      "at_ms": 60460,
+      "text": "balançando-",
+      "final": false
+    },
+    {
+      "at_ms": 60680,
+      "text": "balançando ao-",
+      "final": false
+    },
+    {
+      "at_ms": 61300,
+      "text": "balançando ao vento-",
+      "final": false
+    },
+    {
+      "at_ms": 61660,
+      "text": "balançando ao vento quando-",
+      "final": false
+    },
+    {
+      "at_ms": 61760,
+      "text": "balançando ao vento quando o-",
+      "final": false
+    },
+    {
+      "at_ms": 62140,
+      "text": "balançando ao vento quando o vento-",
+      "final": false
+    },
+    {
+      "at_ms": 62700,
+      "text": "balançando ao vento quando o vento mexe,",
+      "final": false
+    },
+    {
+      "at_ms": 62700,
+      "text": "balançando ao vento quando o vento mexe,",
+      "final": true
+    },
+    {
+      "at_ms": 63740,
+      "text": "remexendo-",
+      "final": false
+    },
+    {
+      "at_ms": 63960,
+      "text": "remexendo as-",
+      "final": false
+    },
+    {
+      "at_ms": 64960,
+      "text": "remexendo as flores,",
+      "final": false
+    },
+    {
+      "at_ms": 64960,
+      "text": "remexendo as flores,",
+      "final": true
+    },
+    {
+      "at_ms": 65300,
+      "text": "sol-",
+      "final": false
+    },
+    {
+      "at_ms": 65710,
+      "text": "sol raiando-",
+      "final": false
+    },
+    {
+      "at_ms": 65830,
+      "text": "sol raiando em-",
+      "final": false
+    },
+    {
+      "at_ms": 66360,
+      "text": "sol raiando em cores,",
+      "final": false
+    },
+    {
+      "at_ms": 66360,
+      "text": "sol raiando em cores,",
+      "final": true
+    },
+    {
+      "at_ms": 66780,
+      "text": "no-",
+      "final": false
+    },
+    {
+      "at_ms": 67280,
+      "text": "no girando-",
+      "final": false
+    },
+    {
+      "at_ms": 67880,
+      "text": "no girando gira-",
+      "final": false
+    },
+    {
+      "at_ms": 67980,
+      "text": "no girando gira de-",
+      "final": false
+    },
+    {
+      "at_ms": 68360,
+      "text": "no girando gira de algum-",
+      "final": false
+    },
+    {
+      "at_ms": 69460,
+      "text": "no girando gira de algum catavento.",
+      "final": false
+    },
+    {
+      "at_ms": 69460,
+      "text": "no girando gira de algum catavento.",
+      "final": true
+    },
+    {
+      "at_ms": 69900,
+      "text": "Eu-",
+      "final": false
+    },
+    {
+      "at_ms": 70240,
+      "text": "Eu só-",
+      "final": false
+    },
+    {
+      "at_ms": 70640,
+      "text": "Eu só queria-",
+      "final": false
+    },
+    {
+      "at_ms": 71220,
+      "text": "Eu só queria dinda-",
+      "final": false
+    },
+    {
+      "at_ms": 71420,
+      "text": "Eu só queria dinda um-",
+      "final": false
+    },
+    {
+      "at_ms": 71840,
+      "text": "Eu só queria dinda um adeus-",
+      "final": false
+    },
+    {
+      "at_ms": 72700,
+      "text": "Eu só queria dinda um adeus ainda-",
+      "final": false
+    },
+    {
+      "at_ms": 72960,
+      "text": "Eu só queria dinda um adeus ainda das-",
+      "final": false
+    },
+    {
+      "at_ms": 73540,
+      "text": "Eu só queria dinda um adeus ainda das morenas-",
+      "final": false
+    },
+    {
+      "at_ms": 74400,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas-",
+      "final": false
+    },
+    {
+      "at_ms": 74580,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no-",
+      "final": false
+    },
+    {
+      "at_ms": 75000,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final-",
+      "final": false
+    },
+    {
+      "at_ms": 75100,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da-",
+      "final": false
+    },
+    {
+      "at_ms": 75680,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da festa,",
+      "final": false
+    },
+    {
+      "at_ms": 75680,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da festa,",
+      "final": true
+    },
+    {
+      "at_ms": 76320,
+      "text": "quando-",
+      "final": false
+    },
+    {
+      "at_ms": 76460,
+      "text": "quando eu-",
+      "final": false
+    },
+    {
+      "at_ms": 76720,
+      "text": "quando eu for-",
+      "final": false
+    },
+    {
+      "at_ms": 77620,
+      "text": "quando eu for embora-",
+      "final": false
+    },
+    {
+      "at_ms": 77780,
+      "text": "quando eu for embora pra-",
+      "final": false
+    },
+    {
+      "at_ms": 78220,
+      "text": "quando eu for embora pra seguir-",
+      "final": false
+    },
+    {
+      "at_ms": 79510,
+      "text": "quando eu for embora pra seguir cantando-",
+      "final": false
+    },
+    {
+      "at_ms": 79680,
+      "text": "quando eu for embora pra seguir cantando um-",
+      "final": false
+    },
+    {
+      "at_ms": 80240,
+      "text": "quando eu for embora pra seguir cantando um último-",
+      "final": false
+    },
+    {
+      "at_ms": 81120,
+      "text": "quando eu for embora pra seguir cantando um último chorinho,",
+      "final": false
+    },
+    {
+      "at_ms": 81120,
+      "text": "quando eu for embora pra seguir cantando um último chorinho,",
+      "final": true
+    },
+    {
+      "at_ms": 81320,
+      "text": "dar-",
+      "final": false
+    },
+    {
+      "at_ms": 81400,
+      "text": "dar um-",
+      "final": false
+    },
+    {
+      "at_ms": 81830,
+      "text": "dar um abraço-",
+      "final": false
+    },
+    {
+      "at_ms": 82040,
+      "text": "dar um abraço em-",
+      "final": false
+    },
+    {
+      "at_ms": 82640,
+      "text": "dar um abraço em todas-",
+      "final": false
+    },
+    {
+      "at_ms": 82840,
+      "text": "dar um abraço em todas pra-",
+      "final": false
+    },
+    {
+      "at_ms": 83340,
+      "text": "dar um abraço em todas pra seguir-",
+      "final": false
+    },
+    {
+      "at_ms": 84360,
+      "text": "dar um abraço em todas pra seguir sozinho.",
+      "final": false
+    },
+    {
+      "at_ms": 84360,
+      "text": "dar um abraço em todas pra seguir sozinho.",
+      "final": true
+    },
+    {
+      "at_ms": 84820,
+      "text": "Queria-",
+      "final": false
+    },
+    {
+      "at_ms": 85070,
+      "text": "Queria ser-",
+      "final": false
+    },
+    {
+      "at_ms": 85800,
+      "text": "Queria ser alpinista-",
+      "final": false
+    },
+    {
+      "at_ms": 85920,
+      "text": "Queria ser alpinista pra-",
+      "final": false
+    },
+    {
+      "at_ms": 86420,
+      "text": "Queria ser alpinista pra escalar-",
+      "final": false
+    },
+    {
+      "at_ms": 86780,
+      "text": "Queria ser alpinista pra escalar teu-",
+      "final": false
+    },
+    {
+      "at_ms": 87420,
+      "text": "Queria ser alpinista pra escalar teu corpo,",
+      "final": false
+    },
+    {
+      "at_ms": 87420,
+      "text": "Queria ser alpinista pra escalar teu corpo,",
+      "final": true
+    },
+    {
+      "at_ms": 87960,
+      "text": "me-",
+      "final": false
+    },
+    {
+      "at_ms": 88360,
+      "text": "me perder-",
+      "final": false
+    },
+    {
+      "at_ms": 88540,
+      "text": "me perder de-",
+      "final": false
+    },
+    {
+      "at_ms": 89000,
+      "text": "me perder de vista-",
+      "final": false
+    },
+    {
+      "at_ms": 89200,
+      "text": "me perder de vista na-",
+      "final": false
+    },
+    {
+      "at_ms": 89580,
+      "text": "me perder de vista na rosa-",
+      "final": false
+    },
+    {
+      "at_ms": 89920,
+      "text": "me perder de vista na rosa dos-",
+      "final": false
+    },
+    {
+      "at_ms": 90620,
+      "text": "me perder de vista na rosa dos ventos.",
+      "final": false
+    },
+    {
+      "at_ms": 90620,
+      "text": "me perder de vista na rosa dos ventos.",
+      "final": true
+    },
+    {
+      "at_ms": 90980,
+      "text": "Eu-",
+      "final": false
+    },
+    {
+      "at_ms": 91240,
+      "text": "Eu só-",
+      "final": false
+    },
+    {
+      "at_ms": 91680,
+      "text": "Eu só queria-",
+      "final": false
+    },
+    {
+      "at_ms": 91820,
+      "text": "Eu só queria um-",
+      "final": false
+    },
+    {
+      "at_ms": 92220,
+      "text": "Eu só queria um dia-",
+      "final": false
+    },
+    {
+      "at_ms": 92360,
+      "text": "Eu só queria um dia da-",
+      "final": false
+    },
+    {
+      "at_ms": 92600,
+      "text": "Eu só queria um dia da tua-",
+      "final": false
+    },
+    {
+      "at_ms": 93680,
+      "text": "Eu só queria um dia da tua geografia,",
+      "final": false
+    },
+    {
+      "at_ms": 93680,
+      "text": "Eu só queria um dia da tua geografia,",
+      "final": true
+    },
+    {
+      "at_ms": 94240,
+      "text": "ao-",
+      "final": false
+    },
+    {
+      "at_ms": 94480,
+      "text": "ao sul-",
+      "final": false
+    },
+    {
+      "at_ms": 94620,
+      "text": "ao sul do-",
+      "final": false
+    },
+    {
+      "at_ms": 94870,
+      "text": "ao sul do teu-",
+      "final": false
+    },
+    {
+      "at_ms": 95420,
+      "text": "ao sul do teu umbigo,",
+      "final": false
+    },
+    {
+      "at_ms": 95420,
+      "text": "ao sul do teu umbigo,",
+      "final": true
+    },
+    {
+      "at_ms": 96240,
+      "text": "depravado-",
+      "final": false
+    },
+    {
+      "at_ms": 96270,
+      "text": "depravado e-",
+      "final": false
+    },
+    {
+      "at_ms": 96960,
+      "text": "depravado e amigo.",
+      "final": false
+    },
+    {
+      "at_ms": 96960,
+      "text": "depravado e amigo.",
+      "final": true
+    },
+    {
+      "at_ms": 97480,
+      "text": "Ao-",
+      "final": false
+    },
+    {
+      "at_ms": 97820,
+      "text": "Ao norte-",
+      "final": false
+    },
+    {
+      "at_ms": 97900,
+      "text": "Ao norte eu-",
+      "final": false
+    },
+    {
+      "at_ms": 98610,
+      "text": "Ao norte eu colheria-",
+      "final": false
+    },
+    {
+      "at_ms": 98700,
+      "text": "Ao norte eu colheria em-",
+      "final": false
+    },
+    {
+      "at_ms": 98880,
+      "text": "Ao norte eu colheria em teu-",
+      "final": false
+    },
+    {
+      "at_ms": 99380,
+      "text": "Ao norte eu colheria em teu pomar-",
+      "final": false
+    },
+    {
+      "at_ms": 99600,
+      "text": "Ao norte eu colheria em teu pomar os-",
+      "final": false
+    },
+    {
+      "at_ms": 100410,
+      "text": "Ao norte eu colheria em teu pomar os figos,",
+      "final": false
+    },
+    {
+      "at_ms": 100410,
+      "text": "Ao norte eu colheria em teu pomar os figos,",
+      "final": true
+    },
+    {
+      "at_ms": 100840,
+      "text": "de-",
+      "final": false
+    },
+    {
+      "at_ms": 101340,
+      "text": "de aplacar-",
+      "final": false
+    },
+    {
+      "at_ms": 101500,
+      "text": "de aplacar meu-",
+      "final": false
+    },
+    {
+      "at_ms": 102160,
+      "text": "de aplacar meu sonho,",
+      "final": false
+    },
+    {
+      "at_ms": 102160,
+      "text": "de aplacar meu sonho,",
+      "final": true
+    },
+    {
+      "at_ms": 102260,
+      "text": "de-",
+      "final": false
+    },
+    {
+      "at_ms": 102740,
+      "text": "de acalmar-",
+      "final": false
+    },
+    {
+      "at_ms": 102820,
+      "text": "de acalmar a-",
+      "final": false
+    },
+    {
+      "at_ms": 103560,
+      "text": "de acalmar a sanha,",
+      "final": false
+    },
+    {
+      "at_ms": 103560,
+      "text": "de acalmar a sanha,",
+      "final": true
+    },
+    {
+      "at_ms": 104000,
+      "text": "de-",
+      "final": false
+    },
+    {
+      "at_ms": 104280,
+      "text": "de ser-",
+      "final": false
+    },
+    {
+      "at_ms": 104370,
+      "text": "de ser o-",
+      "final": false
+    },
+    {
+      "at_ms": 104660,
+      "text": "de ser o seu-",
+      "final": false
+    },
+    {
+      "at_ms": 105100,
+      "text": "de ser o seu amor-",
+      "final": false
+    },
+    {
+      "at_ms": 105220,
+      "text": "de ser o seu amor com-",
+      "final": false
+    },
+    {
+      "at_ms": 105540,
+      "text": "de ser o seu amor com muito-",
+      "final": false
+    },
+    {
+      "at_ms": 106000,
+      "text": "de ser o seu amor com muito ardor-",
+      "final": false
+    },
+    {
+      "at_ms": 106080,
+      "text": "de ser o seu amor com muito ardor e-",
+      "final": false
+    },
+    {
+      "at_ms": 106660,
+      "text": "de ser o seu amor com muito ardor e manha,",
+      "final": false
+    },
+    {
+      "at_ms": 106660,
+      "text": "de ser o seu amor com muito ardor e manha,",
+      "final": true
+    },
+    {
+      "at_ms": 107400,
+      "text": "nas-",
+      "final": false
+    },
+    {
+      "at_ms": 107780,
+      "text": "nas manhãs-",
+      "final": false
+    },
+    {
+      "at_ms": 107880,
+      "text": "nas manhãs de-",
+      "final": false
+    },
+    {
+      "at_ms": 108380,
+      "text": "nas manhãs de fogo-",
+      "final": false
+    },
+    {
+      "at_ms": 108800,
+      "text": "nas manhãs de fogo sobre-",
+      "final": false
+    },
+    {
+      "at_ms": 109120,
+      "text": "nas manhãs de fogo sobre tuas-",
+      "final": false
+    },
+    {
+      "at_ms": 110160,
+      "text": "nas manhãs de fogo sobre tuas montanhas.",
+      "final": false
+    },
+    {
+      "at_ms": 110160,
+      "text": "nas manhãs de fogo sobre tuas montanhas.",
+      "final": true
+    },
+    {
+      "at_ms": 125300,
+      "text": "Queria-",
+      "final": false
+    },
+    {
+      "at_ms": 125380,
+      "text": "Queria em-",
+      "final": false
+    },
+    {
+      "at_ms": 125660,
+      "text": "Queria em só-",
+      "final": false
+    },
+    {
+      "at_ms": 125840,
+      "text": "Queria em só um-",
+      "final": false
+    },
+    {
+      "at_ms": 126220,
+      "text": "Queria em só um momento-",
+      "final": false
+    },
+    {
+      "at_ms": 126460,
+      "text": "Queria em só um momento essa-",
+      "final": false
+    },
+    {
+      "at_ms": 127800,
+      "text": "Queria em só um momento essa tranquilidade-",
+      "final": false
+    },
+    {
+      "at_ms": 128000,
+      "text": "Queria em só um momento essa tranquilidade que-",
+      "final": false
+    },
+    {
+      "at_ms": 128240,
+      "text": "Queria em só um momento essa tranquilidade que se-",
+      "final": false
+    },
+    {
+      "at_ms": 128480,
+      "text": "Queria em só um momento essa tranquilidade que se vê-",
+      "final": false
+    },
+    {
+      "at_ms": 128860,
+      "text": "Queria em só um momento essa tranquilidade que se vê nas-",
+      "final": false
+    },
+    {
+      "at_ms": 129449,
+      "text": "Queria em só um momento essa tranquilidade que se vê nas folhas,",
+      "final": false
+    },
+    {
+      "at_ms": 129449,
+      "text": "Queria em só um momento essa tranquilidade que se vê nas folhas,",
+      "final": true
+    },
+    {
+      "at_ms": 130220,
+      "text": "balançando-",
+      "final": false
+    },
+    {
+      "at_ms": 130420,
+      "text": "balançando ao-",
+      "final": false
+    },
+    {
+      "at_ms": 130900,
+      "text": "balançando ao vento,",
+      "final": false
+    },
+    {
+      "at_ms": 130900,
+      "text": "balançando ao vento,",
+      "final": true
+    },
+    {
+      "at_ms": 131440,
+      "text": "quando-",
+      "final": false
+    },
+    {
+      "at_ms": 131520,
+      "text": "quando o-",
+      "final": false
+    },
+    {
+      "at_ms": 132020,
+      "text": "quando o vento-",
+      "final": false
+    },
+    {
+      "at_ms": 132580,
+      "text": "quando o vento mexe,",
+      "final": false
+    },
+    {
+      "at_ms": 132580,
+      "text": "quando o vento mexe,",
+      "final": true
+    },
+    {
+      "at_ms": 133620,
+      "text": "remexendo-",
+      "final": false
+    },
+    {
+      "at_ms": 133860,
+      "text": "remexendo as-",
+      "final": false
+    },
+    {
+      "at_ms": 134900,
+      "text": "remexendo as flores,",
+      "final": false
+    },
+    {
+      "at_ms": 134900,
+      "text": "remexendo as flores,",
+      "final": true
+    },
+    {
+      "at_ms": 135080,
+      "text": "só-",
+      "final": false
+    },
+    {
+      "at_ms": 135550,
+      "text": "só raiando-",
+      "final": false
+    },
+    {
+      "at_ms": 135729,
+      "text": "só raiando em-",
+      "final": false
+    },
+    {
+      "at_ms": 136200,
+      "text": "só raiando em cores,",
+      "final": false
+    },
+    {
+      "at_ms": 136200,
+      "text": "só raiando em cores,",
+      "final": true
+    },
+    {
+      "at_ms": 136340,
+      "text": "no-",
+      "final": false
+    },
+    {
+      "at_ms": 136880,
+      "text": "no girando-",
+      "final": false
+    },
+    {
+      "at_ms": 137690,
+      "text": "no girando gira-",
+      "final": false
+    },
+    {
+      "at_ms": 137860,
+      "text": "no girando gira de-",
+      "final": false
+    },
+    {
+      "at_ms": 138180,
+      "text": "no girando gira de algum-",
+      "final": false
+    },
+    {
+      "at_ms": 139480,
+      "text": "no girando gira de algum catavento.",
+      "final": false
+    },
+    {
+      "at_ms": 139480,
+      "text": "no girando gira de algum catavento.",
+      "final": true
+    },
+    {
+      "at_ms": 139660,
+      "text": "Eu-",
+      "final": false
+    },
+    {
+      "at_ms": 139860,
+      "text": "Eu só-",
+      "final": false
+    },
+    {
+      "at_ms": 140500,
+      "text": "Eu só queria-",
+      "final": false
+    },
+    {
+      "at_ms": 140920,
+      "text": "Eu só queria dinda-",
+      "final": false
+    },
+    {
+      "at_ms": 141160,
+      "text": "Eu só queria dinda um-",
+      "final": false
+    },
+    {
+      "at_ms": 141700,
+      "text": "Eu só queria dinda um adeus-",
+      "final": false
+    },
+    {
+      "at_ms": 142480,
+      "text": "Eu só queria dinda um adeus ainda-",
+      "final": false
+    },
+    {
+      "at_ms": 142760,
+      "text": "Eu só queria dinda um adeus ainda das-",
+      "final": false
+    },
+    {
+      "at_ms": 143460,
+      "text": "Eu só queria dinda um adeus ainda das morenas-",
+      "final": false
+    },
+    {
+      "at_ms": 144140,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas-",
+      "final": false
+    },
+    {
+      "at_ms": 144300,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no-",
+      "final": false
+    },
+    {
+      "at_ms": 144780,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final-",
+      "final": false
+    },
+    {
+      "at_ms": 144960,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da-",
+      "final": false
+    },
+    {
+      "at_ms": 145720,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da festa.",
+      "final": false
+    },
+    {
+      "at_ms": 145720,
+      "text": "Eu só queria dinda um adeus ainda das morenas lindas no final da festa.",
+      "final": true
+    },
+    {
+      "at_ms": 146160,
+      "text": "Quando-",
+      "final": false
+    },
+    {
+      "at_ms": 146170,
+      "text": "Quando eu-",
+      "final": false
+    },
+    {
+      "at_ms": 146440,
+      "text": "Quando eu for-",
+      "final": false
+    },
+    {
+      "at_ms": 147360,
+      "text": "Quando eu for embora-",
+      "final": false
+    },
+    {
+      "at_ms": 147540,
+      "text": "Quando eu for embora pra-",
+      "final": false
+    },
+    {
+      "at_ms": 147980,
+      "text": "Quando eu for embora pra seguir-",
+      "final": false
+    },
+    {
+      "at_ms": 149340,
+      "text": "Quando eu for embora pra seguir cantando-",
+      "final": false
+    },
+    {
+      "at_ms": 149440,
+      "text": "Quando eu for embora pra seguir cantando um-",
+      "final": false
+    },
+    {
+      "at_ms": 150020,
+      "text": "Quando eu for embora pra seguir cantando um último-",
+      "final": false
+    },
+    {
+      "at_ms": 150600,
+      "text": "Quando eu for embora pra seguir cantando um último chorinho,",
+      "final": false
+    },
+    {
+      "at_ms": 150600,
+      "text": "Quando eu for embora pra seguir cantando um último chorinho,",
+      "final": true
+    },
+    {
+      "at_ms": 151160,
+      "text": "dar-",
+      "final": false
+    },
+    {
+      "at_ms": 151260,
+      "text": "dar um-",
+      "final": false
+    },
+    {
+      "at_ms": 151720,
+      "text": "dar um abraço-",
+      "final": false
+    },
+    {
+      "at_ms": 151900,
+      "text": "dar um abraço em-",
+      "final": false
+    },
+    {
+      "at_ms": 152420,
+      "text": "dar um abraço em todas-",
+      "final": false
+    },
+    {
+      "at_ms": 152560,
+      "text": "dar um abraço em todas e-",
+      "final": false
+    },
+    {
+      "at_ms": 153200,
+      "text": "dar um abraço em todas e seguir-",
+      "final": false
+    },
+    {
+      "at_ms": 155020,
+      "text": "dar um abraço em todas e seguir sozinho.",
+      "final": false
+    },
+    {
+      "at_ms": 155020,
+      "text": "dar um abraço em todas e seguir sozinho.",
+      "final": true
+    }
+  ]
+}

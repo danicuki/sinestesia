@@ -102,6 +102,12 @@ PROTOCOL.md               # ★ Single source of truth for FE↔BE protocol
 9. **fal.ai Flux dev img2img requires `num_inference_steps >= 10`**. 8 returns HTTP 422. `@steps 10` in `fal_img2img.ex`.
 10. **First Gemma call is cold** (~4-6s loading the model). `@gemma_timeout_ms 8_000`. Subsequent calls are ~1s warm.
 11. **`sanitize_style` caps at 15 words** (not 5 as originally) so palette entries like `"loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"` fit. PROTOCOL.md is updated; the frontend was told to remove its 5-word cap.
+12. **Glacial 0.18 fps morph stretching bug** → Distributing transition subframe `at_ms` timestamps evenly over the entire segment duration stretches the crossfade across the whole segment. This was fixed by calculating step offsets tightly (e.g., `frame_at_ms = msg.at_ms + (j - 1) * step_dur` with `step_dur` capped at 100ms and floored at 20ms). This ensures transitions complete in ~1.2s and the final frame remains static on screen until the next segment, mirroring the live experience.
+13. **JPEG consistency requirement in ffmpeg** → Mixing PNG and JPEG frames inside ffmpeg's concat demuxer causes silent frame-skipping and errors. We implemented a `write_as_jpg` helper in the replay exporter to convert any incoming PNG frames to JPEG via ffmpeg, ensuring all inputs to the demuxer are strictly `.jpg`.
+14. **Instrumental intro black canvas padding** → Songs with long instrumental intros (where `first_frame_at_ms > 0`) should show a blank black screen. We automatically query the first frame's resolution via `ffprobe`, generate a matching-resolution `black.jpg` dynamically via `ffmpeg`'s `lavfi` color filter, and prepend it to the concat `input.txt` to cover the intro.
+15. **Ffmpeg trailing-frame concat bug** → ffmpeg's concat demuxer can silently truncate the final frame early if it's the last line in the input file. Resolved by duplicating the last frame entry with a small duration to act as a trailing anchor.
+16. **Diagnostic `test_out.mp4` vs `video.mp4`** → The direct CLI test file `test_out.mp4` was a transient diagnostic file created to verify transition-smoothness in isolation (deliberately omitting sound and the blank intro). The true, fully compiled asset containing both synchronized audio and the blank instrumental intro is `video.mp4` under `frontend/public/samples/<slug>/video.mp4`.
+
 
 ## Disabled / dead code
 

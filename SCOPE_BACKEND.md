@@ -23,6 +23,9 @@ backend/
 │   └── runtime.exs             env vars at boot
 ├── .env.example                local env keys
 └── lib/
+    ├── mix/
+    │   └── tasks/
+    │       └── sinestesia.replay.ex  ★ Headless replay & video compiler task
     └── sinestesia/
         ├── application.ex      OTP supervisor tree
         ├── router.ex           Plug.Router; mounts /ws/audio
@@ -31,6 +34,7 @@ backend/
         ├── deepgram.ex         Mint.WebSocket client to Deepgram Nova-3
         ├── director.ex         Anthropic Haiku call (prompt builder)
         └── image_gen.ex        fal.ai Flux Schnell call
+
 ```
 
 ## Suggested deps (in `mix.exs`)
@@ -201,6 +205,8 @@ Update this file with a brief "Status" section noting what works and what's open
 | `deepgram.ex` | ⚠️ Mint.WebSocket client implemented but **untested against real Deepgram** — needs `DEEPGRAM_API_KEY` in `.env` plus a real PCM stream to verify |
 | `director.ex` | ✅ Gemma 4 12B via Ollama `/api/chat` (think:false, num_predict:40); Haiku fallback when `ANTHROPIC_API_KEY` set; benchmarked ~900ms warm |
 | `image_gen.ex` | ✅ Req → fal.ai Flux Schnell |
+| `sinestesia.replay.ex` | ✅ Headless replay & video compiler task; supports audio copying, dynamic black instrumental intro generation, adaptive stop-motion synthetic crossfades, and full audio/video synchronization |
+
 
 **Verified:**
 - `mix compile` clean (no warnings after removing one unused attr).

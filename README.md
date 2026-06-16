@@ -77,6 +77,21 @@ cd frontend && bun install && bun run dev
 
 The `.env` lives at project root and is loaded by `Sinestesia.Application`.
 
+### 🎬 Headless Replay & Video Compilation
+
+You can headlessly replay any recorded session JSON (located under `tests/sessions/`) through the full pipeline (including Director and Image Generation) to export a finished sequence and compile a fully synchronized MP4 video:
+
+```bash
+# Replay a session at 20x speed to fetch and generate frames rapidly
+REPLAY_SPEED=20 mix sinestesia.replay ../tests/sessions/jorge-vercilo---homem-aranha.json --slug homem-aranha
+```
+
+The task automatically exports all generated frames and updates `frontend/public/samples/index.json`.
+
+* **Interactive Audio Sync**: Loading `http://localhost:5173/?demo=homem-aranha` in your browser displays a gorgeous custom glassmorphic audio player at the bottom, keeping the Three.js WebGL crossfade transitions in perfect lockstep with the song's playhead during playback and scrub.
+* **Synchronized MP4 Video**: The task automatically compiles a high-compatibility H.264 & AAC video (`video.mp4` under the sample directory) using `ffmpeg`. If a song begins with a long instrumental introduction (e.g. 41s), the video starts with a matching-resolution blank black canvas, followed by rapid, beautiful stop-motion synthetic crossfades (100ms per step) to align perfectly with the song's real timeline.
+
+
 ### Env vars that matter
 
 | Var | Default | Notes |

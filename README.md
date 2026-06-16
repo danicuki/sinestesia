@@ -92,15 +92,23 @@ The task automatically exports all generated frames and updates `frontend/public
 * **Synchronized MP4 Video**: The task automatically compiles a high-compatibility H.264 & AAC video (`video.mp4` under the sample directory) using `ffmpeg`. If a song begins with a long instrumental introduction (e.g. 41s), the video starts with a matching-resolution blank black canvas, followed by rapid, beautiful stop-motion synthetic crossfades (100ms per step) to align perfectly with the song's real timeline.
 
 
-### Env vars that matter
+### ⚙️ System Configuration
 
-| Var | Default | Notes |
-|---|---|---|
-| `STT_PROVIDER` | `elevenlabs` | or `deepgram` or `both` |
-| `DIRECTOR_PROVIDER` | `gemma` | or `gemini` or `haiku` |
-| `IMAGE_PROVIDER` | `fal` | or `google` or `pollinations` |
-| `IMAGE_MODE` | `story` | `story` = accumulative img2img. `classic` = independent t2i per line |
-| `ELEVEN_VAD_SILENCE` | `0.6` | seconds of silence before ElevenLabs commits a segment |
+Sinestesia is highly configurable, supporting both cloud-bound and 100% offline local AI stacks. Configuration is managed via the `.env` file at the root of the project.
+
+> [!TIP]
+> For a complete, in-depth guide to all **40+ active environment variables**, deep-dive hyperparameters, VRAM tuning, and hardware suggestions, see the **[CONFIGURATION.md](file:///Users/danicuki/dev/vibeton/CONFIGURATION.md)** reference guide.
+
+Here are the primary variables you will want to toggle most frequently:
+
+| Environment Variable | Default | Options / Profiles | Description |
+| :--- | :--- | :--- | :--- |
+| **`STT_PROVIDER`** | `elevenlabs` | `elevenlabs` \| `deepgram` \| `both` \| `local_whisper` | Speech-to-text service used to transcribe real-time vocals. |
+| **`DIRECTOR_PROVIDER`** | `gemma` | `gemma` (local) \| `gemini` (cloud) \| `haiku` (cloud) | LLM dispatcher that compiles the accumulative scene description. |
+| **`IMAGE_PROVIDER`** | `fal` | `fal` (cloud Flux) \| `local_sdxl` \| `google` \| `cloudflare` | Image-to-image generator that renders the stage canvas. |
+| **`IMAGE_MODE`** | `story` | `story` (accumulative canvas) \| `classic` (independent frames) | If `story`, drawings morph and accumulate lyric elements sequentially. |
+| **`COMPOSE_MODE`** | `inpaint` | `inpaint` (grid-based ellipse) \| `global` (full re-denoise) | `inpaint` soft-masks elements to guarantee legibility & scene continuity. |
+
 
 ## Repo layout
 

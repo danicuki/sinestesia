@@ -116,7 +116,7 @@ def build_events(words: list[dict], gap_s: float) -> list[dict]:
     across breaths — so we segment on PUNCTUATION (commas/periods mark sung
     line-ends), with a silence > gap_s as a fallback for instrumental breaks."""
     events: list[dict] = []
-    t0 = words[0]["start"]
+    t0 = 0.0
     utter: list[str] = []
     prev_end = None
 
@@ -184,7 +184,10 @@ def main():
     words = transcribe(vocals, args.lang, args.model, cache, args.refetch)
     events = build_events(words, args.gap)
 
-    session = {"name": name}
+    session = {
+        "name": name,
+        "audio": str(audio.resolve())
+    }
     if args.style:
         session["style"] = args.style
     session["events"] = events

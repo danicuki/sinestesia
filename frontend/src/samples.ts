@@ -7,6 +7,7 @@ export interface SampleFrame {
   file: string; // relative to /samples/, e.g. "aquarela/frame_01.jpg"
   prompt: string;
   lyric?: string; // the sung line that produced this frame (newer exports only)
+  at_ms?: number; // relative start time in milliseconds (audio sync)
 }
 
 export interface SampleSequence {
@@ -16,6 +17,7 @@ export interface SampleSequence {
   style: string;
   frames: SampleFrame[];
   frame_count: number;
+  audio?: string; // relative path to synchronized audio file if available
   // Optional recipe of the run (PROTOCOL.md, 2026-06-12): a flat string→string
   // map of knobs (image_provider, render_mode, …). Absent on old/hand-made
   // sequences — treat as undefined.

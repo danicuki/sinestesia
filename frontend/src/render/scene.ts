@@ -262,6 +262,16 @@ export class Scene {
     u.uUseWarp.value = 0; // disable warp for pre-rendered subframes in player
   }
 
+  setBlack() {
+    this.fading = false;
+    this.activeSequence = null;
+    const ph = placeholderTexture();
+    const u = this.material.uniforms;
+    u.uTexPrev.value = ph;
+    u.uTexCurrent.value = ph;
+    u.uCrossfade.value = 1.0;
+  }
+
   /** Render one frame. */
   render() {
     const now = performance.now();

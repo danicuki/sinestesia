@@ -10,6 +10,12 @@ export interface ExpressiveFeatures {
   vocal_quality: "breathy" | "belted" | "intimate" | "soaring" | "neutral";
   arousal: number;
   valence: number;
+  semiotics?: {
+    passional: number;
+    figurativo: number;
+    tematico: number;
+    oralization: number;
+  };
 }
 
 // Realtime melodic descriptor (FE->BE `melody`, PROTOCOL.md 2026-06-13). All

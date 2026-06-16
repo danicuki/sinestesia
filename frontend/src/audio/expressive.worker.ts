@@ -32,6 +32,12 @@ interface Features {
   vocal_quality: "breathy" | "belted" | "intimate" | "soaring" | "neutral";
   arousal: number;
   valence: number;
+  semiotics?: {
+    passional: number;
+    figurativo: number;
+    tematico: number;
+    oralization: number;
+  };
 }
 
 interface Melody {
@@ -51,8 +57,71 @@ self.onmessage = (ev: MessageEvent) => {
   // Melodic descriptor from the f0 track over the window (null when too little
   // voiced pitch to be meaningful — the main thread then skips sending).
   const melody = computeMelody(pcm, sampleRate, features.loudness);
+  features.semiotics = computeSemiotics(features, melody);
   (self as any).postMessage({ type: "features", features, melody });
 };
+
+function computeSemiotics(f: Features, m: Melody | null): Features["semiotics"] {
+  // Gating de Silêncio (Noise Gate)
+  // Se o volume geral for muito baixo (silêncio na sala / ruído de fundo leve),
+  // retornamos undefined (ausência de atividade semiótica/silêncio).
+  if (f.loudness <= 0.06) {
+    return undefined;
+  }
+
+  const vib = m?.vibrato ?? 0;
+  const salience = f.pitch_salience;
+  const arousal = f.arousal;
+
+  // Usamos valores normalizados para loudness e arousal para esticar a faixa de variação,
+  // pois em condições normais de uso do microfone, loudness e arousal raramente atingem 1.0.
+  const normLoudness = clamp01(f.loudness / 0.35);
+  const normArousal = clamp01(arousal / 0.45);
+
+  // 1. Passionalização (Lamento / Canto Lírico Emotivo)
+  // Sobe com alto vibrato, qualidade soaring/intimate, e arousal expressivo.
+  // Desativado se o pitch não for nítido (baixo salience).
+  let passional = 0.45 * vib + 0.3 * (f.vocal_quality === "soaring" || f.vocal_quality === "intimate" ? 0.8 : 0.2) + 0.25 * normArousal;
+  if (salience < 0.45) passional = 0;
+
+  // 2. Figurativização (Canto-Fala / Oralização / Bossa / Declamado)
+  // Sobe com baixo vibrato, pitch salience moderado (fala é ruidosa), qualidade breathy/intimate e contornos intonativos conversacionais.
+  let figurativo = 0.35 * (1 - vib) + 0.3 * (1 - clamp01(salience - 0.2)) + 0.25 * (f.vocal_quality === "breathy" || f.vocal_quality === "intimate" ? 0.8 : 0.3);
+  if (m?.contour === "wavering" || m?.contour === "leaping") {
+    figurativo += 0.1;
+  } else if (m?.contour === "steady") {
+    figurativo -= 0.15;
+  }
+
+  // 3. Tematização (Rítmico / Dança)
+  // Sobe com alta regularidade, energia melódica firme e contorno rítmico regular (steady ou estacato rítmico).
+  const normEnergy = m ? clamp01(0.7 * normLoudness + 0.3 * (m.energy ?? 0.5)) : normLoudness;
+
+  // Se houver melodia estável (steady) ou se for estacato rítmico (m === null, mas com som),
+  // indica pulsação regular assertiva (motifs curtos e marcados, típicos de dança/marcha).
+  const rhythmBonus = (m === null || m.contour === "steady") ? 0.8 : 0.3;
+  let tematico = 0.4 * normEnergy + 0.3 * normArousal + 0.3 * rhythmBonus;
+
+  // 4. Grau de Oralização (Marcelo Segreto - da fala pura ao canto puro)
+  let oralization = 0;
+  if (m === null) {
+    // Se não há melodia estável acumulada nos últimos 2s e há som, indica fala fragmentada ou sussurro
+    oralization = f.loudness > 0.05 ? 0.85 : 0.0;
+  } else if (salience < 0.45) {
+    oralization = 0.8 + 0.2 * (1 - vib);
+  } else {
+    // Canto (salience alta). Mapeamos a transição: salience >= 0.90 zera a oralidade, salience = 0.45 maximiza.
+    const factor = clamp01((0.9 - salience) / 0.45);
+    oralization = factor * (0.7 + 0.3 * (1 - vib));
+  }
+
+  return {
+    passional: round3(clamp01(passional)),
+    figurativo: round3(clamp01(figurativo)),
+    tematico: round3(clamp01(tematico)),
+    oralization: round3(clamp01(oralization)),
+  };
+}
 
 function analyze(x: Float32Array, sr: number): Features {
   // --- Loudness (0..1) ---

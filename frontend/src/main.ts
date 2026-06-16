@@ -11,6 +11,7 @@ import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
+import { AudioPlayerUI } from "./audio_player";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
@@ -71,6 +72,7 @@ const DEMO_SEGMENT_MS = 5500;
 
 let sampleSeqs: SampleSequence[] = [];
 let demoGen = 0; // invalidates a sequence whose textures are still preloading
+let activePlayer: AudioPlayerUI | null = null;
 
 async function ensureSequences(): Promise<SampleSequence[]> {
   if (sampleSeqs.length === 0) sampleSeqs = await loadSequences();
@@ -80,6 +82,11 @@ async function ensureSequences(): Promise<SampleSequence[]> {
 async function playDemo(slug: string) {
   const gen = ++demoGen;
   demoUpdate = null; // freeze current playback while we resolve the new one
+
+  if (activePlayer) {
+    activePlayer.destroy();
+    activePlayer = null;
+  }
 
   let seqs: SampleSequence[];
   try {
@@ -110,31 +117,91 @@ async function playDemo(slug: string) {
   if (gen !== demoGen) return; // a newer pick superseded us mid-load
 
   const n = texes.length;
-  const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
-  const m = uniqueIdxs.size;
-  const ratio = m > 0 ? n / m : 1;
-  const stepDur = DEMO_SEGMENT_MS / ratio;
-
-  const start = performance.now();
   let shown = -1;
-  console.log(
-    `[demo] "${seq.slug}" — ${n} frames, unique idxs: ${m}, continuous morph @ ${stepDur.toFixed(0)}ms/step`,
-  );
-  // The run recipe is per-sequence, so it's set once; prompt/lyric update per
-  // frame below. Sequences without params just clear the table.
+
   debug?.setSampleParams(seq.params);
-  demoUpdate = () => {
-    const phase = (performance.now() - start) / stepDur;
-    const i = Math.floor(phase) % n;
-    const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
-    const next = (i + 1) % n;
-    scene.setMorph(texes[i], texes[next], t);
-    if (next !== shown) {
-      debug?.setPrompt(seq.frames[next].prompt);
-      debug?.setSampleLyric(seq.frames[next].lyric);
-      shown = next;
-    }
-  };
+
+  if (seq.audio) {
+    console.log(`[demo] "${seq.slug}" — ${n} frames, synchronizing with audio: /samples/${seq.audio}`);
+    
+    // Sort frames by at_ms to ensure monotonic timeline search
+    const sortedFrames = [...seq.frames].sort((a, b) => (a.at_ms ?? 0) - (b.at_ms ?? 0));
+
+    activePlayer = new AudioPlayerUI(`/samples/${seq.audio}`, (timeMs) => {
+      // Manual trigger on playhead updates for instant visual sync
+    });
+
+    demoUpdate = () => {
+      if (!activePlayer) return;
+      const timeMs = activePlayer.currentTimeMs;
+
+      if (sortedFrames.length === 0) return;
+
+      // Handle musical introduction: before first singing event, keep canvas black
+      const firstFrameAt = sortedFrames[0].at_ms ?? 0;
+      if (timeMs < firstFrameAt) {
+        scene.setBlack();
+        if (shown !== -2) {
+          debug?.setPrompt("Musical Introduction — Waiting for vocals…");
+          debug?.setSampleLyric("");
+          shown = -2;
+        }
+        return;
+      }
+
+      // Locate active frame
+      let i = 0;
+      while (i < sortedFrames.length - 1 && (sortedFrames[i + 1].at_ms ?? 0) <= timeMs) {
+        i++;
+      }
+
+      if (i < sortedFrames.length - 1) {
+        const fCurrent = sortedFrames[i];
+        const fNext = sortedFrames[i + 1];
+        const dur = (fNext.at_ms ?? 0) - (fCurrent.at_ms ?? 0);
+        const elapsed = timeMs - (fCurrent.at_ms ?? 0);
+        const t = dur > 0 ? elapsed / dur : 1.0;
+
+        scene.setMorph(texes[i], texes[i + 1], t);
+      } else {
+        // Last frame, hold at 100%
+        scene.setMorph(texes[i], texes[i], 1.0);
+      }
+
+      if (i !== shown) {
+        debug?.setPrompt(sortedFrames[i].prompt);
+        debug?.setSampleLyric(sortedFrames[i].lyric || "");
+        shown = i;
+      }
+    };
+
+    // Auto-play the player
+    activePlayer.play();
+  } else {
+    // Legacy / fallback timer loop
+    const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
+    const m = uniqueIdxs.size;
+    const ratio = m > 0 ? n / m : 1;
+    const stepDur = DEMO_SEGMENT_MS / ratio;
+
+    const start = performance.now();
+    console.log(
+      `[demo] "${seq.slug}" — ${n} frames, legacy loop @ ${stepDur.toFixed(0)}ms/step (no audio)`,
+    );
+
+    demoUpdate = () => {
+      const phase = (performance.now() - start) / stepDur;
+      const i = Math.floor(phase) % n;
+      const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
+      const next = (i + 1) % n;
+      scene.setMorph(texes[i], texes[next], t);
+      if (next !== shown) {
+        debug?.setPrompt(seq.frames[next].prompt);
+        debug?.setSampleLyric(seq.frames[next].lyric);
+        shown = next;
+      }
+    };
+  }
 }
 
 // Populate the debug picker (click a sequence to replay it in the scene).

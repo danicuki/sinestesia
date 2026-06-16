@@ -39,7 +39,13 @@ defmodule Mix.Tasks.Sinestesia.Replay do
     session = file |> File.read!() |> Jason.decode!()
     name = session["name"] || Path.basename(file, ".json")
     duration_ms = session["events"] |> List.last() |> Map.fetch!("at_ms")
-    speed_f = parse_speed(opts[:speed])
+    env_speed = System.get_env("REPLAY_SPEED")
+    speed_f =
+      cond do
+        opts[:speed] -> parse_speed(opts[:speed])
+        env_speed -> parse_speed(env_speed)
+        true -> 1.0
+      end
     # Generous budget: playback time + 30s for trailing director/image work.
     deadline_ms = round(duration_ms / speed_f) + 30_000
 
@@ -65,7 +71,7 @@ defmodule Mix.Tasks.Sinestesia.Replay do
         done?: false
       })
 
-    export_demo(acc, name, opts[:slug] || "run-#{name}", speed_f)
+    export_demo(acc, session, name, opts[:slug] || "run-#{name}", speed_f)
   end
 
   # Fake AudioSocket: forwards every pipeline push to the task process.
@@ -138,15 +144,15 @@ defmodule Mix.Tasks.Sinestesia.Replay do
   # is exported — the player supplies the morph between them; the sidecar's
   # latent morph frames are for the live path.
 
-  defp export_demo(%{images: []}, _name, _slug, _speed) do
+  defp export_demo(%{images: []}, _session, _name, _slug, _speed) do
     Mix.shell().info("no images — nothing to export")
   end
 
-  defp export_demo(acc, name, slug, speed) do
+  defp export_demo(acc, session, name, slug, speed) do
     samples_dir = Path.expand("../frontend/public/samples")
 
     if File.dir?(samples_dir) do
-      do_export(acc, name, slug, samples_dir, speed)
+      do_export(acc, session, name, slug, samples_dir, speed)
     else
       Mix.shell().error("samples dir not found (#{samples_dir}) — skipping demo export")
     end
@@ -176,48 +182,269 @@ defmodule Mix.Tasks.Sinestesia.Replay do
     end
   end
 
-  defp do_export(acc, name, slug, samples_dir, speed) do
+  defp do_export(acc, session, name, slug, samples_dir, speed) do
     dir = Path.join(samples_dir, slug)
     File.rm_rf!(dir)
     File.mkdir_p!(dir)
 
-    frames =
+    # First, calculate monotonic, song-relative at_ms for each image message
+    images_with_at =
       acc.images
+      |> Enum.scan({-1, nil}, fn msg, {prev_at, _} ->
+        event_fired_wall_ms = msg.arrived_at - Map.get(msg.timings, :total_ms, 0) - acc.started_at
+        calculated_at = round(event_fired_wall_ms * speed)
+        at_ms = max(prev_at + 1, max(calculated_at, 0))
+        {at_ms, Map.put(msg, :at_ms, at_ms)}
+      end)
+      |> Enum.map(fn {_, msg} -> msg end)
+
+    frames =
+      images_with_at
       |> Enum.with_index(1)
-      |> Enum.flat_map(fn {msg, i} ->
+      |> Enum.flat_map(fn {msg, k} ->
         subframes = Map.get(msg, :frames, []) || []
+        subframe_count = length(subframes)
+
+        # Segment duration until the next image (to scale the step duration)
+        next_msg = Enum.at(images_with_at, k)
+        segment_dur = if next_msg, do: next_msg.at_ms - msg.at_ms, else: 10_000
 
         if subframes == [] do
           {ext, body} = fetch_image(msg.url)
-          file = "frame_#{String.pad_leading(to_string(i), 2, "0")}.#{ext}"
-          File.write!(Path.join(dir, file), body)
+          pad_k = String.pad_leading(to_string(k), 2, "0")
 
-          [
-            %{
-              "idx" => i,
-              "file" => "#{slug}/#{file}",
-              "prompt" => msg.prompt,
-              "lyric" => Map.get(msg, :lyric)
-            }
-          ]
+          if k == 1 do
+            file = "frame_#{pad_k}.jpg"
+            write_as_jpg(Path.join(dir, file), ext, body)
+
+            [
+              %{
+                "idx" => k,
+                "file" => "#{slug}/#{file}",
+                "prompt" => msg.prompt,
+                "lyric" => Map.get(msg, :lyric),
+                "at_ms" => msg.at_ms
+              }
+            ]
+          else
+            # Find the previous frame file on disk
+            prev_pad = String.pad_leading(to_string(k - 1), 2, "0")
+            matching_files = Path.wildcard(Path.join(dir, "frame_#{prev_pad}*"))
+
+            case matching_files |> Enum.sort() |> List.last() do
+              nil ->
+                file = "frame_#{pad_k}.jpg"
+                write_as_jpg(Path.join(dir, file), ext, body)
+
+                [
+                  %{
+                    "idx" => k,
+                    "file" => "#{slug}/#{file}",
+                    "prompt" => msg.prompt,
+                    "lyric" => Map.get(msg, :lyric),
+                    "at_ms" => msg.at_ms
+                  }
+                ]
+
+              prev_file_path ->
+                # Write current target image temporarily
+                target_file_name = "frame_#{pad_k}_target.jpg"
+                target_path = Path.join(dir, target_file_name)
+                write_as_jpg(target_path, ext, body)
+
+                # Generate 12 intermediate synthetic morph frames
+                steps = 12
+                total_frames = steps + 1
+                step_dur = max(20, min(100, div(segment_dur, total_frames * 2)))
+
+                subframe_entries =
+                  1..steps
+                  |> Enum.map(fn j ->
+                    t = j / total_frames
+                    sub_file_name = "frame_#{pad_k}_m#{String.pad_leading(to_string(j), 2, "0")}.jpg"
+                    sub_path = Path.join(dir, sub_file_name)
+
+                    t_str = :erlang.float_to_binary(t, [decimals: 4])
+
+                    run_cmd!("ffmpeg", [
+                      "-y",
+                      "-i", prev_file_path,
+                      "-i", target_path,
+                      "-filter_complex", "blend=all_expr='A*(1-#{t_str})+B*#{t_str}'",
+                      "-frames:v", "1",
+                      sub_path
+                    ])
+
+                    frame_at_ms = msg.at_ms + (j - 1) * step_dur
+
+                    %{
+                      "idx" => k,
+                      "file" => "#{slug}/#{sub_file_name}",
+                      "prompt" => msg.prompt,
+                      "lyric" => Map.get(msg, :lyric),
+                      "at_ms" => frame_at_ms
+                    }
+                  end)
+
+                # Rename the temporary target to become the final frame (m13)
+                final_file_name = "frame_#{pad_k}_m#{String.pad_leading(to_string(total_frames), 2, "0")}.jpg"
+                final_path = Path.join(dir, final_file_name)
+                File.rename!(target_path, final_path)
+
+                final_at_ms = msg.at_ms + steps * step_dur
+                final_entry = %{
+                  "idx" => k,
+                  "file" => "#{slug}/#{final_file_name}",
+                  "prompt" => msg.prompt,
+                  "lyric" => Map.get(msg, :lyric),
+                  "at_ms" => final_at_ms
+                }
+
+                subframe_entries ++ [final_entry]
+            end
+          end
         else
           # Download and export each subframe sequentially
+          step_dur =
+            if k == 1 do
+              100
+            else
+              max(20, min(100, div(segment_dur, subframe_count * 2)))
+            end
+
           subframes
           |> Enum.with_index(1)
           |> Enum.map(fn {sub_url, j} ->
             {ext, body} = fetch_image(sub_url)
-            file = "frame_#{String.pad_leading(to_string(i), 2, "0")}_m#{String.pad_leading(to_string(j), 2, "0")}.#{ext}"
-            File.write!(Path.join(dir, file), body)
+            file = "frame_#{String.pad_leading(to_string(k), 2, "0")}_m#{String.pad_leading(to_string(j), 2, "0")}.jpg"
+            write_as_jpg(Path.join(dir, file), ext, body)
+
+            frame_at_ms = msg.at_ms + (j - 1) * step_dur
 
             %{
-              "idx" => i,
+              "idx" => k,
               "file" => "#{slug}/#{file}",
               "prompt" => msg.prompt,
-              "lyric" => Map.get(msg, :lyric)
+              "lyric" => Map.get(msg, :lyric),
+              "at_ms" => frame_at_ms
             }
           end)
         end
       end)
+
+    # Copy audio and compile MP4 video if original audio is available
+    audio_path = session["audio"]
+
+    {audio_rel, video_rel} =
+      if audio_path && File.exists?(audio_path) do
+        try do
+          # Copy original audio retention extension
+          audio_ext = Path.extname(audio_path) |> String.downcase()
+          audio_filename = "audio#{audio_ext}"
+          audio_dest = Path.join(dir, audio_filename)
+          {:ok, _} = File.copy(audio_path, audio_dest)
+
+          # Query audio duration
+          audio_duration_str = run_cmd!("ffprobe", [
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            audio_dest
+          ])
+          {audio_duration, _} = Float.parse(audio_duration_str)
+
+          # Prepend a matching black.png if there's a musical introduction
+          first_frame = List.first(frames)
+          first_frame_at_ms = first_frame["at_ms"]
+
+          if first_frame_at_ms > 0 do
+            first_frame_path = Path.join(dir, Path.basename(first_frame["file"]))
+            probe_out = run_cmd!("ffprobe", [
+              "-v", "error",
+              "-select_streams", "v:0",
+              "-show_entries", "stream=width,height",
+              "-of", "csv=s=x:p=0",
+              first_frame_path
+            ])
+            [width_str, height_str] = String.split(probe_out, "x")
+            width = String.to_integer(String.trim(width_str))
+            height = String.to_integer(String.trim(height_str))
+
+            black_path = Path.join(dir, "black.jpg")
+            run_cmd!("ffmpeg", [
+              "-y",
+              "-f", "lavfi",
+              "-i", "color=c=black:s=#{width}x#{height}",
+              "-vframes", "1",
+              black_path
+            ])
+          end
+
+          # Format ffmpeg concat file
+          intro_lines =
+            if first_frame_at_ms > 0 do
+              intro_sec = first_frame_at_ms / 1000.0
+              ["file 'black.jpg'", "duration #{intro_sec}"]
+            else
+              []
+            end
+
+          middle_lines =
+            frames
+            |> Enum.chunk_every(2, 1, :discard)
+            |> Enum.flat_map(fn [f1, f2] ->
+              dur = (f2["at_ms"] - f1["at_ms"]) / 1000.0
+              dur = max(dur, 0.001)
+              basename = Path.basename(f1["file"])
+              ["file '#{basename}'", "duration #{dur}"]
+            end)
+
+          last_frame = List.last(frames)
+          last_basename = Path.basename(last_frame["file"])
+          last_dur = audio_duration - (last_frame["at_ms"] / 1000.0)
+          last_dur = max(last_dur, 0.001)
+
+          final_lines = [
+            "file '#{last_basename}'",
+            "duration #{last_dur}",
+            "file '#{last_basename}'"
+          ]
+
+          input_txt_content = (intro_lines ++ middle_lines ++ final_lines) |> Enum.join("\n")
+          input_txt_path = Path.join(dir, "input.txt")
+          File.write!(input_txt_path, input_txt_content <> "\n")
+
+          # Compile MP4 video with H.264 & AAC audio
+          video_dest = Path.join(dir, "video.mp4")
+          run_cmd!("ffmpeg", [
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", input_txt_path,
+            "-i", audio_dest,
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-preset", "veryfast",
+            "-crf", "22",
+            "-c:a", "aac",
+            "-shortest",
+            video_dest
+          ])
+
+          # Clean up temporary frames
+          if first_frame_at_ms > 0, do: File.rm(Path.join(dir, "black.jpg"))
+          File.rm(input_txt_path)
+
+          {"#{slug}/#{audio_filename}", "#{slug}/video.mp4"}
+        rescue
+          err ->
+            Mix.shell().error("Failed to compile synchronized video: #{inspect(err)}")
+            {nil, nil}
+        end
+      else
+        {nil, nil}
+      end
 
     index_path = Path.join(samples_dir, "index.json")
 
@@ -232,15 +459,13 @@ defmodule Mix.Tasks.Sinestesia.Replay do
       "description" =>
         "Pipeline replay of #{name} on #{Date.utc_today()} — #{length(frames)} images.",
       "style" => acc.style || "",
-      # Every knob that shaped this run — so A/B results stay comparable
-      # after you've forgotten what you set.
       "params" => run_params(),
-      # Real cadence of this run (live-speed equivalent). The demo player can
-      # use this as its per-transition duration instead of the hardcoded 5500.
       "segment_ms" => measured_segment_ms(acc.images, speed),
       "frames" => frames,
       "frame_count" => length(frames)
     }
+    |> then(fn m -> if audio_rel, do: Map.put(m, "audio", audio_rel), else: m end)
+    |> then(fn m -> if video_rel, do: Map.put(m, "video", video_rel), else: m end)
 
     sequences =
       (index["sequences"] || [])
@@ -340,4 +565,35 @@ defmodule Mix.Tasks.Sinestesia.Replay do
 
   defp pad(n), do: String.pad_leading(to_string(n), 2, "0")
   defp now_ms, do: System.system_time(:millisecond)
+
+  defp run_cmd!(cmd, args, cd \\ nil) do
+    opts = if cd, do: [cd: cd, stderr_to_stdout: true], else: [stderr_to_stdout: true]
+    case System.cmd(cmd, args, opts) do
+      {output, 0} ->
+        output |> String.trim()
+
+      {output, status} ->
+        Mix.shell().error("Failed to run #{cmd} #{Enum.join(args, " ")} (status #{status}):\n#{output}")
+        raise "Command failed"
+    end
+  end
+
+  defp write_as_jpg(dest_path, ext, body) do
+    if ext == "jpg" do
+      File.write!(dest_path, body)
+    else
+      temp_path = dest_path <> ".tmp.png"
+      File.write!(temp_path, body)
+      try do
+        run_cmd!("ffmpeg", [
+          "-y",
+          "-i", temp_path,
+          "-q:v", "2",
+          dest_path
+        ])
+      after
+        File.rm(temp_path)
+      end
+    end
+  end
 end

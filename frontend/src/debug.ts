@@ -32,6 +32,7 @@ export class DebugOverlay {
   private elAudio: HTMLDivElement;
   private elExpressive: HTMLDivElement;
   private elMelody: HTMLDivElement;
+  private elSemiotics: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
@@ -72,6 +73,7 @@ export class DebugOverlay {
     this.elAudio = this.section(left, "rail 1 — movement");
     this.elExpressive = this.section(left, "rail 3 — expression");
     this.elMelody = this.section(left, "melody → director");
+    this.elSemiotics = this.section(left, "tatit & segreto semiotics (expressive)");
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
     this.elLyric = this.section(left, "sample lyric");
@@ -170,6 +172,17 @@ export class DebugOverlay {
       span(f.valence.toFixed(2), f.valence >= 0 ? COL.stt : COL.img) +
       span("  cent ", COL.dim) +
       span(String(Math.round(f.spectral_centroid)), COL.dir);
+
+    if (f.semiotics) {
+      const s = f.semiotics;
+      this.elSemiotics.innerHTML =
+        span("ORALIZAÇÃO (Segreto) ", COL.dim) + bar(s.oralization) + span(` ${s.oralization.toFixed(2)}`, COL.tot, true) + "   " +
+        span("PASSIONAL   (Lamento) ", COL.dim) + bar(s.passional) + span(` ${s.passional.toFixed(2)}`, COL.stt) + "\n" +
+        span("FIGURATIVO  (Canto-Fala)", COL.dim) + bar(s.figurativo) + span(` ${s.figurativo.toFixed(2)}`, COL.dir) + "   " +
+        span("TEMÁTICO    (Ritmo)     ", COL.dim) + bar(s.tematico) + span(` ${s.tematico.toFixed(2)}`, COL.img);
+    } else {
+      this.elSemiotics.textContent = "—";
+    }
   }
 
   // Realtime melody hint we last sent to the backend (~2Hz while voiced).

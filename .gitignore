@@ -37,3 +37,6 @@ tests/sessions/.*.words.json
 
 # Demucs vocal-separation output (regenerable, large)
 separated/
+
+# Benchmark output (mix sinestesia.bench): results txt + sample images
+backend/bench-*/

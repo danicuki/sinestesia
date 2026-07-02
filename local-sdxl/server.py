@@ -113,6 +113,18 @@ CAMERA_PAN_RATE = float(os.environ.get("CAMERA_PAN_RATE", "0.05"))
 CACHE_DIR = Path(os.environ.get("SDXL_CACHE_DIR", "/tmp/local_sdxl_cache"))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+
+def save_image(img, name, *args, **kwargs):
+    """Save into CACHE_DIR, recreating it first.
+
+    The default cache lives under /tmp, which macOS periodically reaps out from
+    under a long-running server — so by save time the directory may be gone even
+    though we created it at startup. Recreate it on every write so saves never
+    fail with FileNotFoundError.
+    """
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    img.save(CACHE_DIR / name, *args, **kwargs)
+
 # Output latents of recent generations, keyed by served image filename. When
 # the backend chains img2img on one of our own /img/ URLs we feed these straight
 # back into the pipeline, skipping the HTTP self-fetch AND the VAE re-encode —
@@ -501,7 +513,7 @@ def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
         final = decode_latents(lat_out)
         stem = uuid.uuid4().hex
         final_name = f"{stem}.png"
-        final.save(CACHE_DIR / final_name, "PNG", optimize=False)
+        save_image(final, final_name, "PNG", optimize=False)
         cache_latents(final_name, lat_out)
 
         # Morph: slerp between the input and output latents, decode intermediates.
@@ -513,7 +525,7 @@ def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
             t = k / (MORPH_FRAMES + 1)
             mid = decode_latents(slerp(lat_in, lat_out, t))
             name = f"{stem}_m{k}.jpg"
-            mid.save(CACHE_DIR / name, "JPEG", quality=88)
+            save_image(mid, name, "JPEG", quality=88)
             frame_names.append(name)
         frame_names.append(final_name)
         timings["morph_ms"] = int((time.monotonic() - t2) * 1000)
@@ -538,7 +550,7 @@ def run_job(prompt: str, image_url: Optional[str], strength: float, steps: int,
         final = decode_latents(lat_out)
         stem = uuid.uuid4().hex
         final_name = f"{stem}.png"
-        final.save(CACHE_DIR / final_name, "PNG", optimize=False)
+        save_image(final, final_name, "PNG", optimize=False)
         cache_latents(final_name, lat_out)
 
         # No morph frames for the first image
@@ -584,7 +596,7 @@ def run_morph(image_url: str, target_url: str, morph_frames: int) -> dict:
     pil_target = decode_latents(lat_out)
     stem = uuid.uuid4().hex
     final_name = f"{stem}.png"
-    pil_target.save(CACHE_DIR / final_name, "PNG", optimize=False)
+    save_image(pil_target, final_name, "PNG", optimize=False)
     cache_latents(final_name, lat_out)
 
     t1 = time.monotonic()
@@ -593,7 +605,7 @@ def run_morph(image_url: str, target_url: str, morph_frames: int) -> dict:
         t = k / (morph_frames + 1)
         mid = decode_latents(slerp(lat_in, lat_out, t))
         name = f"{stem}_m{k}.jpg"
-        mid.save(CACHE_DIR / name, "JPEG", quality=88)
+        save_image(mid, name, "JPEG", quality=88)
         frame_names.append(name)
     frame_names.append(final_name)
 

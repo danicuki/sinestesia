@@ -7,11 +7,19 @@ defmodule Sinestesia.ImageGen.Google do
   """
   require Logger
 
-  @model "imagen-4.0-fast-generate-001"
+  @default_model "imagen-4.0-fast-generate-001"
 
-  @spec generate(String.t()) :: {:ok, String.t()} | {:error, term()}
-  def generate(prompt) do
+  @doc """
+  Generate an image from `prompt`.
+
+  Pass `model:` to override the default Imagen model (e.g. to benchmark the
+  early-access "instant ramen" model). Falls back to the `GOOGLE_IMAGE_MODEL`
+  env var, then to `#{@default_model}`.
+  """
+  @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
+  def generate(prompt, opts \\ []) do
     cfg = Application.fetch_env!(:sinestesia, :config)
+    model = opts[:model] || System.get_env("GOOGLE_IMAGE_MODEL") || @default_model
 
     case Keyword.get(cfg, :google_api_key) do
       nil ->
@@ -19,7 +27,7 @@ defmodule Sinestesia.ImageGen.Google do
 
       key ->
         url =
-          "https://generativelanguage.googleapis.com/v1beta/models/#{@model}:predict?key=#{key}"
+          "https://generativelanguage.googleapis.com/v1beta/models/#{model}:predict?key=#{key}"
 
         body = %{
           instances: [%{prompt: prompt}],

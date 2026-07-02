@@ -20,7 +20,13 @@ defmodule Sinestesia.ImageGen.Cloudflare do
   """
   require Logger
 
-  @t2i_model "@cf/black-forest-labs/flux-1-schnell"
+  # Default t2i model is SDXL-Lightning, NOT flux-1-schnell: flux schnell on
+  # Workers AI exposes no width/height input, so it can only emit 1024x1024
+  # squares — wrong for the 16:9 stage. SDXL-Lightning is also a few-step fast
+  # model but accepts width/height (256..2048), so it renders true 16:9.
+  defp t2i_model do
+    System.get_env("CLOUDFLARE_T2I_MODEL", "@cf/bytedance/stable-diffusion-xl-lightning")
+  end
 
   # NOT @cf/stabilityai/stable-diffusion-xl-base-1.0: despite the docs schema
   # listing an `image` input, the deployed build rejects it ("input tensor
@@ -33,8 +39,20 @@ defmodule Sinestesia.ImageGen.Cloudflare do
 
   @spec text2img(String.t()) :: {:ok, String.t()} | {:error, term()}
   def text2img(prompt) do
-    # Flux schnell answers JSON with a base64 JPEG.
-    case post(@t2i_model, %{prompt: prompt, steps: 6}) do
+    body = %{
+      prompt: prompt,
+      width: width(),
+      height: height(),
+      num_steps: t2i_steps(),
+      guidance: guidance()
+    }
+
+    # SDXL models answer with raw image bytes; flux schnell (if configured via
+    # CLOUDFLARE_T2I_MODEL) answers JSON with a base64 image. Handle both.
+    case post(t2i_model(), body) do
+      {:ok, bin} when is_binary(bin) ->
+        {:ok, "data:image/png;base64," <> Base.encode64(bin)}
+
       {:ok, %{"result" => %{"image" => b64}}} ->
         {:ok, "data:image/jpeg;base64," <> b64}
 
@@ -52,6 +70,11 @@ defmodule Sinestesia.ImageGen.Cloudflare do
       body = %{
         prompt: prompt,
         image_b64: b64,
+        # The runwayml SD 1.5 img2img build transposes width/height (verified:
+        # sending 1024x576 yields a 576x1024 portrait). Swap them here so the
+        # OUTPUT honors the configured CLOUDFLARE_WIDTH x CLOUDFLARE_HEIGHT.
+        width: height(),
+        height: width(),
         num_steps: steps(),
         strength: strength(),
         guidance: guidance()
@@ -137,6 +160,25 @@ defmodule Sinestesia.ImageGen.Cloudflare do
     case Integer.parse(System.get_env("CLOUDFLARE_STEPS", "20")) do
       {n, _} when n in 1..20 -> n
       _ -> 20
+    end
+  end
+
+  # SDXL-Lightning is a few-step model; 6 is plenty and keeps t2i fast.
+  defp t2i_steps do
+    case Integer.parse(System.get_env("CLOUDFLARE_T2I_STEPS", "6")) do
+      {n, _} when n in 1..20 -> n
+      _ -> 6
+    end
+  end
+
+  # 16:9 to match fal/local (1024x576). Workers AI SDXL accepts 256..2048.
+  defp width, do: dim("CLOUDFLARE_WIDTH", 1024)
+  defp height, do: dim("CLOUDFLARE_HEIGHT", 576)
+
+  defp dim(env, default) do
+    case Integer.parse(System.get_env(env, "")) do
+      {n, _} when n in 256..2048 -> n
+      _ -> default
     end
   end
 

@@ -70,7 +70,17 @@ log = logging.getLogger("local-sdxl")
 # ──────────────────────────────────────────────────────────────────────────────
 
 MODEL_ID = os.environ.get("SDXL_MODEL", "stabilityai/sdxl-turbo")
-DEVICE = os.environ.get("SDXL_DEVICE", "mps")  # mps | cuda | cpu
+
+
+def default_device():
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+DEVICE = os.environ.get("SDXL_DEVICE", default_device())  # cuda | mps | cpu
 DTYPE = torch.float16 if DEVICE in ("mps", "cuda") else torch.float32
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("BIND_PORT", "8003"))
@@ -238,12 +248,19 @@ executor = ThreadPoolExecutor(max_workers=1)  # serialize GPU access
 
 def load_pipeline():
     log.info("loading %s on %s (%s) — this is slow the first time", MODEL_ID, DEVICE, DTYPE)
-    p = AutoPipelineForImage2Image.from_pretrained(
-        MODEL_ID,
-        torch_dtype=DTYPE,
-        variant="fp16" if DTYPE == torch.float16 else None,
-        use_safetensors=True,
-    )
+    load_opts = {
+        "torch_dtype": DTYPE,
+        "variant": "fp16" if DTYPE == torch.float16 else None,
+        "use_safetensors": True,
+    }
+    try:
+        p = AutoPipelineForImage2Image.from_pretrained(MODEL_ID, **load_opts)
+    except EnvironmentError as e:
+        if "safetensors" not in str(e).lower():
+            raise
+        log.warning("safetensors weights unavailable for %s; retrying with .bin weights", MODEL_ID)
+        load_opts["use_safetensors"] = False
+        p = AutoPipelineForImage2Image.from_pretrained(MODEL_ID, **load_opts)
 
     if USE_TINY_VAE:
         from diffusers import AutoencoderTiny

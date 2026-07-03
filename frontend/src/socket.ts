@@ -58,7 +58,8 @@ type ErrorCb = (message: string, provider?: string) => void;
 // `source`: "user" (our echo), "curator" (auto-picked), or "reset" (new song).
 type StyleCb = (style: string, source: string) => void;
 
-const URL_DEFAULT = "ws://localhost:4000/ws/audio";
+const URL_DEFAULT =
+  import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws/audio";
 
 // Exponential backoff schedule per PROTOCOL.md: 250ms, 500ms, 1s, 2s, max 5s.
 const BACKOFF = [250, 500, 1000, 2000, 5000];

@@ -11,6 +11,8 @@ already understands:
 
 Uses:
   - mlx-whisper       Metal-accelerated Whisper on Apple Silicon (M1+)
+  - openai-whisper    PyTorch backend for ROCm/CUDA GPUs
+  - faster-whisper    CPU/CUDA fallback on Linux/Intel
   - silero-vad        Voice activity detection for segment boundaries
 
 Streaming pattern (similar to ElevenLabs Scribe v2 with VAD commit):
@@ -32,7 +34,27 @@ from typing import Optional
 
 import numpy as np
 import websockets
-import mlx_whisper
+try:
+    import torch
+except Exception:
+    torch = None
+
+torch_whisper = None
+WhisperModel = None
+try:
+    import mlx_whisper
+except Exception:
+    mlx_whisper = None
+
+try:
+    from faster_whisper import WhisperModel
+except Exception:
+    WhisperModel = None
+
+try:
+    import whisper as torch_whisper
+except Exception:
+    torch_whisper = None
 
 # silero-vad ships as a small torch model wrapped in a simple Python API.
 # It's CPU-light and gives sub-100ms latency on M-series.
@@ -49,11 +71,22 @@ log = logging.getLogger("local-whisper")
 # ──────────────────────────────────────────────────────────────────────────────
 
 SAMPLE_RATE = 16_000  # MUST match what the backend / browser sends
+DEFAULT_BACKEND = "mlx" if mlx_whisper is not None else "torch" if torch is not None else "faster-whisper"
+WHISPER_BACKEND = os.environ.get("WHISPER_BACKEND", DEFAULT_BACKEND)
 # Default to small, not medium: when SDXL Turbo + Gemma 12B are also sharing
 # the Apple GPU, medium's ~400ms-per-interim load starves the other two and
 # Director latency balloons from ~1.5s to ~6s. small (~150ms) leaves headroom.
 # If you have a dedicated box for STT (no SDXL/Gemma), bump back to medium.
-MODEL_REPO = os.environ.get("WHISPER_MODEL", "mlx-community/whisper-small-mlx")
+DEFAULT_MODEL = "mlx-community/whisper-small-mlx" if WHISPER_BACKEND == "mlx" else "small"
+MODEL_REPO = os.environ.get("WHISPER_MODEL", DEFAULT_MODEL)
+FASTER_WHISPER_DEVICE = os.environ.get("FASTER_WHISPER_DEVICE", "cpu")
+FASTER_WHISPER_COMPUTE_TYPE = os.environ.get("FASTER_WHISPER_COMPUTE_TYPE", "int8")
+faster_model = None
+TORCH_WHISPER_DEVICE = os.environ.get(
+    "TORCH_WHISPER_DEVICE",
+    "cuda" if torch is not None and torch.cuda.is_available() else "cpu",
+)
+torch_model = None
 # Suggested choices (size / latency tradeoff on M4 Max):
 #   mlx-community/whisper-tiny-mlx-q4     ~40MB  ~50ms/segment, weakest
 #   mlx-community/whisper-base-mlx-q4     ~80MB  ~80ms/segment
@@ -106,24 +139,77 @@ def pcm16_to_float32(buf: bytes) -> np.ndarray:
     return np.frombuffer(buf, dtype="<i2").astype(np.float32) / 32768.0
 
 
+def get_faster_model():
+    global faster_model
+    if WhisperModel is None:
+        raise RuntimeError("faster-whisper is not installed")
+    if faster_model is None:
+        log.info(
+            "loading faster-whisper model: %s on %s (%s)",
+            MODEL_REPO,
+            FASTER_WHISPER_DEVICE,
+            FASTER_WHISPER_COMPUTE_TYPE,
+        )
+        faster_model = WhisperModel(
+            MODEL_REPO,
+            device=FASTER_WHISPER_DEVICE,
+            compute_type=FASTER_WHISPER_COMPUTE_TYPE,
+        )
+    return faster_model
+
+
+def get_torch_model():
+    global torch_model
+    if torch_whisper is None:
+        raise RuntimeError("openai-whisper is not installed")
+    if torch_model is None:
+        log.info("loading torch Whisper model: %s on %s", MODEL_REPO, TORCH_WHISPER_DEVICE)
+        torch_model = torch_whisper.load_model(MODEL_REPO, device=TORCH_WHISPER_DEVICE)
+    return torch_model
+
+
 def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str]]:
-    """Run mlx-whisper on the given mono float32 audio.
+    """Run Whisper on the given mono float32 audio.
     Returns (text, detected_language). `language=None` triggers auto-detect;
     pass an explicit code to skip detection. Errors are swallowed so a bad
     chunk doesn't kill the session."""
     if len(audio) < int(0.2 * SAMPLE_RATE):
         return "", None
     try:
-        result = mlx_whisper.transcribe(
+        if WHISPER_BACKEND == "mlx":
+            result = mlx_whisper.transcribe(
+                audio,
+                path_or_hf_repo=MODEL_REPO,
+                language=language,
+                word_timestamps=False,
+                condition_on_previous_text=False,
+                no_speech_threshold=0.55,
+                verbose=False,
+            )
+            return (result.get("text") or "").strip(), result.get("language")
+
+        if WHISPER_BACKEND == "torch":
+            result = get_torch_model().transcribe(
+                audio.astype(np.float32),
+                language=language,
+                fp16=TORCH_WHISPER_DEVICE == "cuda",
+                condition_on_previous_text=False,
+                no_speech_threshold=0.55,
+                word_timestamps=False,
+                verbose=False,
+            )
+            return (result.get("text") or "").strip(), result.get("language")
+
+        segments, info = get_faster_model().transcribe(
             audio,
-            path_or_hf_repo=MODEL_REPO,
             language=language,
-            word_timestamps=False,
+            vad_filter=False,
             condition_on_previous_text=False,
             no_speech_threshold=0.55,
-            verbose=False,
+            word_timestamps=False,
         )
-        return (result.get("text") or "").strip(), result.get("language")
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        return text, getattr(info, "language", None)
     except Exception:
         log.exception("transcribe failed on %d-sample audio", len(audio))
         return "", None
@@ -283,14 +369,10 @@ async def handle(ws):
 
 
 async def main():
+    log.info("using Whisper backend: %s", WHISPER_BACKEND)
     log.info("loading model: %s", MODEL_REPO)
     # Warm the model so the first transcript isn't penalized.
-    _ = mlx_whisper.transcribe(
-        np.zeros(SAMPLE_RATE, dtype=np.float32),
-        path_or_hf_repo=MODEL_REPO,
-        language=FORCE_LANGUAGE,
-        verbose=False,
-    )
+    _ = transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), FORCE_LANGUAGE)
     mode = f"forced={FORCE_LANGUAGE}" if FORCE_LANGUAGE else "auto-detect"
     log.info("model loaded and warmed (language: %s)", mode)
 

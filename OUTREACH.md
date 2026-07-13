@@ -22,8 +22,10 @@ Everything below serves that framing.
    painting itself (5s), one shot of the audience reacting, one close-up of a lyric
    appearing as a drawing, end card with the wordmark and URL. Vertical (9:16) and
    horizontal (16:9) exports. This does 80% of the selling.
-2. **The landing page live** (`site/index.html`) on a real domain
-   (e.g. `sinestesia.art`), booking email on that domain.
+2. **The landing pages live** on a real domain (e.g. `sinestesia.art`), booking
+   email on that domain. There are two offers on two pages — keep them separate
+   in outreach too: `index.html` sells the full act (agencies, planners),
+   `artists.html` sells "we paint your show" (musicians, bands, managers).
 3. **A one-page PDF** ("agency sheet"): photo, 3-line description, formats &
    durations, net rates, what the venue must provide (condensed rider), contacts.
    Agencies forward PDFs internally; make it forwardable.
@@ -52,9 +54,9 @@ creative director, or founder — not info@).
   send them 3 slides they can paste in (photos + description + tech needs).
 - **Fast quotes.** Promise (and deliver) a quote within 24h — agencies lose
   pitches waiting on suppliers.
-- **A "safe" story.** One line that kills their risk objection: *runs on our own
-  hardware, no internet dependency, performed live at NFC Summit Lisbon — here's
-  the footage.*
+- **A "safe" story.** One line that kills their risk objection: *performed live
+  at NFC Summit Lisbon — here's the footage — and the venue needs are a one-page
+  rider: projector, PA and a stable internet connection.*
 
 ## Outreach sequence
 
@@ -65,11 +67,12 @@ creative director, or founder — not info@).
   > Subject: An act that paints your client's event, live
   >
   > Hi {name} — we're a Lisbon duo with something your clients haven't seen: while
-  > Daniella sings, an AI paints one continuous artwork on the stage wall, built
-  > from the lyrics in real time. 90 seconds of it live: {reel link}.
+  > the singer performs, an AI paints one continuous artwork on the stage wall,
+  > built from the lyrics in real time. 90 seconds of it live: {reel link}.
   >
-  > It premiered at NFC Summit Lisbon. Fully self-contained (our hardware, no
-  > venue internet needed), 15–40 min formats, net rates for agencies.
+  > It premiered at NFC Summit Lisbon. We travel with the creative rig; the venue
+  > provides standard AV (projector, PA, internet). 15–40 min formats, net rates
+  > for agencies.
   >
   > Worth 15 minutes? I'll do a live 2-minute mini-demo on the call — I sing, you
   > watch the painting appear.

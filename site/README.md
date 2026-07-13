@@ -1,7 +1,13 @@
-# Sinestesia landing page
+# Sinestesia landing pages
 
-A single self-contained `index.html` — fonts inlined, no build step, no external
-requests except the YouTube link-outs. Deploy it anywhere that serves static files:
+Two self-contained pages — fonts inlined, no build step, no external requests
+except the YouTube link-outs:
+
+- `index.html` — the full act (agencies, planners, couples).
+- `artists.html` — "we paint your show" for musicians and bands, including the
+  music-video-from-a-track service.
+
+Deploy anywhere that serves static files:
 
 - **GitHub Pages**: Settings → Pages → deploy from branch, folder `/site`.
 - **Netlify / Vercel / Cloudflare Pages**: drag-and-drop the `site/` folder.

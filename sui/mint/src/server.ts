@@ -1,10 +1,12 @@
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import sharp from 'sharp';
 import { createRelease } from './paint-and-mint.js';
 import { WalrusStorage } from './storage/walrus.js';
 import { SuiMinter } from './chains/sui.js';
+import { walrusAggregator } from './config.js';
 import type { Performance } from './provenance.js';
-import { composeAnimatedGif, composeCollage } from './compose.js';
+import { composeAnimatedGif, composeAnimatedWebp, composeCollage } from './compose.js';
 
 /**
  * HTTP sidecar around the mint pipeline, so the live show can mint the finished
@@ -66,13 +68,39 @@ function sampleUrls(urls: string[], max: number): string[] {
   return out;
 }
 
-type ComposeMode = 'gif' | 'collage' | 'final';
+type ComposeMode = 'webp' | 'gif' | 'collage' | 'final';
 
 /** Optional numeric env override (undefined → use the composer's default). */
 function numEnv(name: string): number | undefined {
   const v = process.env[name];
   const n = v ? Number(v) : NaN;
   return Number.isFinite(n) ? n : undefined;
+}
+
+interface MintImage {
+  image: Buffer;
+  kind: string;
+  ext: string;
+  contentType: string;
+}
+
+/** sharp format name → file extension + MIME. */
+function mimeFor(fmt: string | undefined): { ext: string; contentType: string } {
+  switch (fmt) {
+    case 'webp':
+      return { ext: 'webp', contentType: 'image/webp' };
+    case 'gif':
+      return { ext: 'gif', contentType: 'image/gif' };
+    case 'jpeg':
+    case 'jpg':
+      return { ext: 'jpg', contentType: 'image/jpeg' };
+    default:
+      return { ext: 'png', contentType: 'image/png' };
+  }
+}
+
+function mimeForExt(ext: string): string {
+  return mimeFor(ext.toLowerCase()).contentType;
 }
 
 /**
@@ -84,29 +112,46 @@ async function buildMintImage(
   imageBase64: string,
   frameUrls: string[] | undefined,
   mode: ComposeMode,
-): Promise<{ image: Buffer; kind: string }> {
+): Promise<MintImage> {
   const finalStill = Buffer.from(imageBase64, 'base64');
-  if (mode === 'final' || !frameUrls || frameUrls.length < 2) {
-    return { image: finalStill, kind: 'final' };
-  }
+  const asFinal = async (): Promise<MintImage> => {
+    const meta = await sharp(finalStill).metadata().catch(() => ({ format: 'png' }));
+    return { image: finalStill, kind: 'final', ...mimeFor(meta.format) };
+  };
+
+  if (mode === 'final' || !frameUrls || frameUrls.length < 2) return asFinal();
   try {
-    const picked = sampleUrls(frameUrls, 72);
+    // Pre-trim before the (bandwidth-heavy) fetch, but well above the composer's
+    // frame cap so a normal song's beats are all fetched, not thinned early.
+    const picked = sampleUrls(frameUrls, 200);
     const frames = (await Promise.all(picked.map(resolveFrame))).filter(
       (b): b is Buffer => b !== null,
     );
-    if (frames.length < 2) return { image: finalStill, kind: 'final' };
-    const image =
-      mode === 'collage'
-        ? await composeCollage(frames, { maxSide: numEnv('MINT_COLLAGE_MAX_SIDE') })
-        : await composeAnimatedGif(frames, {
-            maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
-            maxSide: numEnv('MINT_GIF_MAX_SIDE'),
-            maxTotalMs: numEnv('MINT_GIF_MS'),
-          });
-    return { image, kind: `${mode} (${frames.length} frames)` };
+    if (frames.length < 2) return asFinal();
+
+    if (mode === 'collage') {
+      const image = await composeCollage(frames, { maxSide: numEnv('MINT_COLLAGE_MAX_SIDE') });
+      return { image, kind: `collage (${frames.length} frames)`, ext: 'png', contentType: 'image/png' };
+    }
+    if (mode === 'gif') {
+      const image = await composeAnimatedGif(frames, {
+        maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
+        maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+        maxTotalMs: numEnv('MINT_GIF_MS'),
+      });
+      return { image, kind: `gif (${frames.length} frames)`, ext: 'gif', contentType: 'image/gif' };
+    }
+    // Default: animated WebP — full colour, smaller, fits the whole song.
+    const image = await composeAnimatedWebp(frames, {
+      maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
+      maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+      maxTotalMs: numEnv('MINT_GIF_MS'),
+      quality: numEnv('MINT_WEBP_QUALITY'),
+    });
+    return { image, kind: `webp (${frames.length} frames)`, ext: 'webp', contentType: 'image/webp' };
   } catch (err) {
     console.warn(`[mint] compose failed, using final still: ${(err as Error).message}`);
-    return { image: finalStill, kind: 'final' };
+    return asFinal();
   }
 }
 
@@ -121,16 +166,30 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
     return json(res, 400, { error: 'imageBase64 and performance are required' });
   }
 
-  const { image, kind } = await buildMintImage(body.imageBase64, body.frameUrls, body.mode ?? 'gif');
+  const { image, kind, ext } = await buildMintImage(
+    body.imageBase64,
+    body.frameUrls,
+    body.mode ?? 'webp',
+  );
   console.log(`[mint] minting image: ${kind}, ${image.length} bytes`);
+
+  // If a public image base is set, the on-chain image_url points at our proxy
+  // (which serves the right Content-Type + extension, so it renders in every
+  // wallet); otherwise it's the raw Walrus URL. Either way walrus_blob_id is
+  // stored on-chain, so the blob stays independently retrievable.
+  const imageBase = process.env.MINT_IMAGE_BASE?.replace(/\/$/, '');
   const result = await createRelease({
     image,
     performance: body.performance,
     storage: new WalrusStorage(),
     minters: [new SuiMinter()],
+    imageUrl: imageBase ? (s) => `${imageBase}/img/${s.id}.${ext}` : undefined,
   });
 
   const rel = result.releases[0];
+  const onChainImage = imageBase
+    ? `${imageBase}/img/${result.stored.id}.${ext}`
+    : result.stored.uri;
   json(res, 200, {
     releaseRef: rel?.releaseRef,
     masterTokenId: rel?.masterTokenId,
@@ -138,7 +197,8 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
     explorerUrl: rel?.explorerUrl,
     provenanceHash: result.provenanceHash,
     traits: result.traits,
-    imageUri: result.stored.uri,
+    imageUri: onChainImage,
+    walrusUri: result.stored.uri,
     blobId: result.stored.id,
     claimUrl: rel?.releaseRef ? claimUrl(rel.releaseRef) : undefined,
   });
@@ -210,6 +270,26 @@ const server = createServer((req, res) => {
         if (!release) return json(res, 400, { error: 'release query param required' });
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         return res.end(claimPage(release));
+      }
+      // Content-type-serving proxy for the NFT image: /img/<blobId>.<ext>.
+      // Streams the Walrus blob with a proper image MIME + extension so the
+      // image renders in wallets/marketplaces that require a content-type
+      // (Walrus itself serves blobs untyped with nosniff).
+      if (req.method === 'GET' && url.pathname.startsWith('/img/')) {
+        const name = decodeURIComponent(url.pathname.slice('/img/'.length));
+        const dot = name.lastIndexOf('.');
+        const blobId = dot >= 0 ? name.slice(0, dot) : name;
+        const ext = dot >= 0 ? name.slice(dot + 1) : 'bin';
+        if (!blobId) return json(res, 400, { error: 'blob id required' });
+        const r = await fetch(`${walrusAggregator}/v1/blobs/${blobId}`);
+        if (!r.ok) return json(res, 502, { error: `walrus ${r.status}` });
+        const buf = Buffer.from(await r.arrayBuffer());
+        res.writeHead(200, {
+          'Content-Type': mimeForExt(ext),
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'Access-Control-Allow-Origin': '*',
+        });
+        return res.end(buf);
       }
       json(res, 404, { error: 'not found' });
     } catch (err) {

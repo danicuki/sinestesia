@@ -160,18 +160,30 @@ cd sui/mint && npm run serve      # http://127.0.0.1:8790
 export MINT_SIDECAR_URL=http://127.0.0.1:8790
 export MINT_ARTIST="…"  MINT_VENUE="…"           # song is sent per-mint from the UI
 export CLAIM_PUBLIC_URL=http://<LAN-or-tunnel>:8790   # so audience phones can reach the QR target
-export MINT_COMPOSE=gif    # NFT image = whole song: gif (default) | collage | final
+export MINT_COMPOSE=webp   # NFT image = whole song: webp (default) | gif | collage | final
+# Point the on-chain image_url at the sidecar's content-type-serving proxy so it
+# renders in every wallet (Walrus serves blobs untyped). Set to the SAME public
+# host as CLAIM_PUBLIC_URL; if unset, image_url falls back to the raw Walrus URL.
+export MINT_IMAGE_BASE=http://<LAN-or-tunnel>:8790
 ```
 
 Flow: when the song ends the operator hits **Finish & Mint** (button, or the
 `m` key in clean/stage mode). The backend assembles the performance record it
 accumulated during the song (transcript + every Director prompt + timestamps)
 plus **every generated frame URL**, and POSTs to the sidecar's `POST /release`.
-The sidecar composes the frames into the NFT image — an **animated GIF of the
-whole song's evolution** by default (`MINT_COMPOSE=collage` for a contact
-sheet, `final` for just the last frame) — stores it on Walrus, and mints the
-master 1/1 on Sui. Frames are evenly sampled + downscaled, so a long song
-produces a similar-sized blob to a short one (no failure on high frame counts). The returned `claimUrl` is
+The sidecar composes the frames into the NFT image — an **animated WebP of the
+whole song's evolution** by default (`MINT_COMPOSE=gif` for max compatibility,
+`collage` for a contact sheet, `final` for just the last frame) — stores it on
+Walrus, and mints the master 1/1 on Sui. Every Director beat is included (a
+4-min song is ~40–60 beats; the interpolation frames never reach the mint), so
+the NFT is the whole song, not a sample. WebP keeps that to a small, full-colour
+file (~0.5MB for 41 beats vs ~2MB as GIF).
+
+**Rendering in wallets:** Walrus serves blobs with no content-type (+ nosniff),
+which some marketplaces require. With `MINT_IMAGE_BASE` set, the on-chain
+`image_url` points at the sidecar's `/img/<blob>.<ext>` proxy, which streams the
+blob with the correct MIME + extension; the canonical `walrus_blob_id` is stored
+on-chain regardless, so the blob stays independently retrievable. The returned `claimUrl` is
 pushed to the frontend, which renders a **QR overlay** (`mint_overlay.ts`);
 scanning it opens the sidecar's `/claim` page and mints a free print. See
 `PROTOCOL.md` (`mint` messages) for the wire format.

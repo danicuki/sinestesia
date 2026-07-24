@@ -78,6 +78,39 @@ export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}
   return Buffer.from(enc.bytes());
 }
 
+/**
+ * Same idea as the GIF, but animated WebP: full colour (no 256-colour banding)
+ * and roughly half to a third the size, so the *entire* song fits comfortably.
+ * The default artifact.
+ */
+export async function composeAnimatedWebp(frames: Buffer[], opts: GifOptions & { quality?: number } = {}): Promise<Buffer> {
+  if (frames.length === 0) throw new Error('no frames to compose');
+  const maxFrames = opts.maxFrames ?? 120;
+  const maxSide = opts.maxSide ?? 448;
+  const maxTotalMs = opts.maxTotalMs ?? 12_000;
+  const holdLastMs = opts.holdLastMs ?? 1_400;
+  const quality = opts.quality ?? 70;
+
+  const selected = sampleEvenly(frames, maxFrames);
+  const meta = await sharp(selected[0]!).metadata();
+  const ar = (meta.width ?? 1) / (meta.height ?? 1);
+  let w = ar >= 1 ? maxSide : Math.round(maxSide * ar);
+  let h = ar >= 1 ? Math.round(maxSide / ar) : maxSide;
+  w -= w % 2;
+  h -= h % 2;
+
+  // All frames must share dimensions before joining into an animation.
+  const resized = await Promise.all(
+    selected.map((f) => sharp(f).resize(w, h, { fit: 'cover' }).toBuffer()),
+  );
+  const per = Math.max(60, Math.min(500, Math.round(maxTotalMs / resized.length)));
+  const delays = resized.map((_, i) => (i === resized.length - 1 ? per + holdLastMs : per));
+
+  return sharp(resized, { join: { animated: true } })
+    .webp({ quality, effort: 4, delay: delays, loop: 0 })
+    .toBuffer();
+}
+
 export interface CollageOptions {
   /** Cap on cells (evenly sampled if more). */
   maxCells?: number;

@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { createZGComputeNetworkBroker } from '@0gfoundation/0g-compute-ts-sdk';
-import { privateKey, providerAddress, rpcUrl, pinnedModel } from './config.js';
+import { privateKey, providerAddress, rpcUrl, pinnedModel, verifyTimeoutMs } from './config.js';
+import { appendProof } from './proof.js';
 
 /**
  * Thin wrapper over the 0G broker. Initializes once, acknowledges the provider,
@@ -58,6 +59,23 @@ export async function getService(): Promise<ServiceInfo> {
   return service;
 }
 
+/**
+ * Prime the broker, provider metadata, AND the request-signing path so the first
+ * real Director call runs on the warm (~1.7s) path instead of the cold (~2.8s)
+ * one. `getRequestHeaders` has a one-time cold cost (nonce/account state); we pay
+ * it here at boot with a throwaway signature rather than during the show.
+ */
+export async function warmup(): Promise<ServiceInfo> {
+  const svc = await getService();
+  const broker = await getBroker();
+  try {
+    await broker.inference.getRequestHeaders(svc.provider, 'warmup');
+  } catch (err) {
+    console.warn(`[0g] signing warmup skipped: ${(err as Error).message}`);
+  }
+  return svc;
+}
+
 export interface VerifiedCompletion {
   /** The assistant text. */
   content: string;
@@ -66,7 +84,7 @@ export interface VerifiedCompletion {
     provider: string;
     model: string;
     chatId: string;
-    /** true = TEE signature verified; false = returned but unverified; null = verification skipped/errored. */
+    /** true = TEE signature verified; false = returned but unverified; null = settlement still pending (didn't confirm within ZG_VERIFY_TIMEOUT_MS; finishing in the background). */
     verified: boolean | null;
     network: '0g-compute';
   };
@@ -113,16 +131,70 @@ export async function verifiedChat(
   const content = json.choices?.[0]?.message?.content ?? '';
   const chatId = json.id ?? '';
 
-  // Verify the TEE signature (and settle the micro-payment). A false/thrown
-  // result means the answer arrived but couldn't be cryptographically tied to
-  // the sealed model — we surface that honestly rather than claiming verified.
-  let verified: boolean | null = null;
-  try {
+  // Verify the TEE signature (and settle the micro-payment). This step sends an
+  // on-chain settlement tx, which on testnet can take longer than the Director's
+  // whole request budget — so we must NOT let it block the response. We race it
+  // against a short window: if the chain answers in time we attach the real
+  // verified flag; otherwise we return `null` (verification pending) and let the
+  // settlement finish in the background. Either way the show gets its text fast.
+  //
+  // A false/thrown result means the answer arrived but couldn't be
+  // cryptographically tied to the sealed model — surfaced honestly, not as
+  // "verified". `null` means "not yet confirmed", distinct from `false`.
+  // Every settlement — whether or not the hot path waited for it — is persisted
+  // to the proof log so we have durable, replayable proof after the show.
+  const settleStart = Date.now();
+  const settle: Promise<boolean> = broker.inference
     // Signature is (providerAddress, chatID, content) in SDK v0.8.
-    verified = await broker.inference.processResponse(provider, chatId, content);
-  } catch (err) {
-    console.warn(`[0g] processResponse: ${(err as Error).message}`);
-    verified = false;
+    .processResponse(provider, chatId, content)
+    .then((ok) => {
+      const verifiedOk = Boolean(ok);
+      void appendProof({
+        ts: new Date().toISOString(),
+        chatId,
+        provider,
+        model,
+        verified: verifiedOk,
+        settleMs: Date.now() - settleStart,
+      });
+      return verifiedOk;
+    })
+    .catch((err) => {
+      console.warn(`[0g] processResponse: ${(err as Error).message}`);
+      void appendProof({
+        ts: new Date().toISOString(),
+        chatId,
+        provider,
+        model,
+        verified: false,
+        settleMs: Date.now() - settleStart,
+        error: (err as Error).message,
+      });
+      return false;
+    });
+
+  let verified: boolean | null = null;
+  const window = verifyTimeoutMs();
+  if (window <= 0) {
+    // Realtime default: never block on the chain. Settle in the background.
+    void settle.then((ok) =>
+      console.log(`[0g] settlement landed (verified=${ok}) chatId=${chatId}`),
+    );
+  } else {
+    // Wait up to `window` ms for confirmation; otherwise return pending (null)
+    // and let settlement finish in the background.
+    const pending = Symbol('pending');
+    const raced = await Promise.race([
+      settle,
+      new Promise<typeof pending>((resolve) => setTimeout(() => resolve(pending), window)),
+    ]);
+    if (raced === pending) {
+      void settle.then((ok) =>
+        console.log(`[0g] settlement landed (verified=${ok}) chatId=${chatId}`),
+      );
+    } else {
+      verified = raced;
+    }
   }
 
   return {

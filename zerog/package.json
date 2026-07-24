@@ -9,6 +9,7 @@
     "serve": "tsx src/server.ts",
     "setup": "tsx src/setup.ts",
     "providers": "tsx src/providers.ts",
+    "status": "tsx src/status.ts",
     "bench:image": "tsx src/bench-image.ts",
     "typecheck": "tsc --noEmit"
   },

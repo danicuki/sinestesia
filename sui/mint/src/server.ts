@@ -4,6 +4,7 @@ import { createRelease } from './paint-and-mint.js';
 import { WalrusStorage } from './storage/walrus.js';
 import { SuiMinter } from './chains/sui.js';
 import type { Performance } from './provenance.js';
+import { composeAnimatedGif, composeCollage } from './compose.js';
 
 /**
  * HTTP sidecar around the mint pipeline, so the live show can mint the finished
@@ -42,16 +43,72 @@ function claimUrl(releaseRef: string): string {
   return `${CLAIM_PUBLIC_URL}/claim?release=${encodeURIComponent(releaseRef)}`;
 }
 
+/** Resolve a frame reference (https URL or inline data: URL) to bytes. */
+async function resolveFrame(ref: string): Promise<Buffer | null> {
+  try {
+    if (ref.startsWith('data:')) {
+      const b64 = ref.split(',', 2)[1];
+      return b64 ? Buffer.from(b64, 'base64') : null;
+    }
+    const r = await fetch(ref);
+    return r.ok ? Buffer.from(await r.arrayBuffer()) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Evenly sample down to `max` before the (bandwidth-heavy) fetch. */
+function sampleUrls(urls: string[], max: number): string[] {
+  if (urls.length <= max) return urls;
+  const out: string[] = [];
+  const step = (urls.length - 1) / (max - 1);
+  for (let i = 0; i < max; i++) out.push(urls[Math.round(i * step)]!);
+  return out;
+}
+
+type ComposeMode = 'gif' | 'collage' | 'final';
+
+/**
+ * Decide what image actually gets minted. With the song's frame sequence and
+ * mode "gif"/"collage", compose the whole-song artifact; otherwise (or on any
+ * failure) fall back to the final still in `imageBase64`.
+ */
+async function buildMintImage(
+  imageBase64: string,
+  frameUrls: string[] | undefined,
+  mode: ComposeMode,
+): Promise<{ image: Buffer; kind: string }> {
+  const finalStill = Buffer.from(imageBase64, 'base64');
+  if (mode === 'final' || !frameUrls || frameUrls.length < 2) {
+    return { image: finalStill, kind: 'final' };
+  }
+  try {
+    const picked = sampleUrls(frameUrls, 72);
+    const frames = (await Promise.all(picked.map(resolveFrame))).filter(
+      (b): b is Buffer => b !== null,
+    );
+    if (frames.length < 2) return { image: finalStill, kind: 'final' };
+    const image = mode === 'collage' ? await composeCollage(frames) : await composeAnimatedGif(frames);
+    return { image, kind: `${mode} (${frames.length} frames)` };
+  } catch (err) {
+    console.warn(`[mint] compose failed, using final still: ${(err as Error).message}`);
+    return { image: finalStill, kind: 'final' };
+  }
+}
+
 async function handleRelease(req: IncomingMessage, res: ServerResponse) {
   const body = JSON.parse(await readBody(req)) as {
     imageBase64?: string;
+    frameUrls?: string[];
+    mode?: ComposeMode;
     performance?: Performance;
   };
   if (!body.imageBase64 || !body.performance) {
     return json(res, 400, { error: 'imageBase64 and performance are required' });
   }
 
-  const image = Buffer.from(body.imageBase64, 'base64');
+  const { image, kind } = await buildMintImage(body.imageBase64, body.frameUrls, body.mode ?? 'gif');
+  console.log(`[mint] minting image: ${kind}, ${image.length} bytes`);
   const result = await createRelease({
     image,
     performance: body.performance,

@@ -38,11 +38,14 @@ export interface GifOptions {
 
 export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}): Promise<Buffer> {
   if (frames.length === 0) throw new Error('no frames to compose');
-  // Defaults tuned for a wallet-friendly weight (~1–1.5MB for a busy song):
-  // 512px/60fr can hit 4MB+ which is sluggish to load. Raise via env if desired.
-  const maxFrames = opts.maxFrames ?? 40;
+  // The backend sends one keyframe per Director beat (~40–60 for a 4-min song),
+  // NOT the interpolation frames — so a normal song fits under this cap and every
+  // beat is included (cutting beats would lose the song's essence). Sampling is
+  // only a safety valve for pathological counts. maxSide keeps 60 frames to a
+  // sane weight; raise either via env for higher fidelity.
+  const maxFrames = opts.maxFrames ?? 120;
   const maxSide = opts.maxSide ?? 384;
-  const maxTotalMs = opts.maxTotalMs ?? 9_000;
+  const maxTotalMs = opts.maxTotalMs ?? 12_000;
   const holdLastMs = opts.holdLastMs ?? 1_400;
 
   const selected = sampleEvenly(frames, maxFrames);

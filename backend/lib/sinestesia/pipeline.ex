@@ -1102,9 +1102,10 @@ defmodule Sinestesia.Pipeline do
       endedAtMs: now_ms()
     }
 
-    # How the NFT image is composed from the song's frames: "gif" (default,
-    # animated evolution), "collage" (contact sheet), or "final" (last frame).
-    mode = opt(opts, "mode", System.get_env("MINT_COMPOSE", "gif"))
+    # How the NFT image is composed from the song's frames: "webp" (default,
+    # animated evolution, full colour + small), "gif" (max compatibility),
+    # "collage" (contact sheet), or "final" (last frame).
+    mode = opt(opts, "mode", System.get_env("MINT_COMPOSE", "webp"))
     frame_urls = state.frame_urls
 
     Task.start(fn ->

@@ -9,6 +9,13 @@ export interface CreateReleaseInput {
   storage: Storage;
   /** One or more chains — release the same painting on all of them in parallel. */
   minters: Minter[];
+  /**
+   * Optional: derive the on-chain `image_url` from the stored blob (e.g. a
+   * content-type-serving proxy URL). Defaults to the raw storage URL. The
+   * canonical `walrus_blob_id` is always stored regardless, so the blob stays
+   * independently retrievable.
+   */
+  imageUrl?: (stored: StoredImage) => string;
 }
 
 export interface CreateReleaseResult {
@@ -35,7 +42,7 @@ export async function createRelease(input: CreateReleaseInput): Promise<CreateRe
     song: performance.song,
     artist: performance.artist,
     venue: performance.venue,
-    imageUri: stored.uri,
+    imageUri: input.imageUrl ? input.imageUrl(stored) : stored.uri,
     imageStorageId: stored.id,
     storageBackend: stored.backend,
     provenanceHash: hash,

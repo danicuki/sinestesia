@@ -15,10 +15,18 @@ performance  ──▶ sha256(transcript+prompts+timestamps) ──▶ provenanc
 
 ## Layout
 
+The client is **chain-agnostic** — storage and blockchain are pluggable
+interfaces. One performance is stored once and can be minted to any number of
+chains.
+
 - `move/sinestesia_nft/` — the on-chain package (`painting` module: `Painting`
   struct, `mint` entry fn, Display metadata, `PaintingMinted` event).
-- `mint/` — TypeScript client: Walrus upload, provenance hashing, and the mint
-  transaction (`@mysten/sui`).
+- `mint/src/storage/` — `Storage` interface + `WalrusStorage` (swap in IPFS/Arweave).
+- `mint/src/chains/` — `Minter` interface + `SuiMinter` (add EVM/Solana by
+  implementing `Minter`; nothing else changes).
+- `mint/src/traits.ts` — rarity derived from the performance itself.
+- `mint/src/paint-and-mint.ts` — the pipeline: store once → hash → derive
+  traits → mint to every configured chain.
 
 ## 1. Publish the Move package (once)
 

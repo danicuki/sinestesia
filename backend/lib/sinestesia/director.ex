@@ -7,12 +7,16 @@ defmodule Sinestesia.Director do
   ONE visual prompt for that line, building narrative continuity across turns.
 
   Provider via `DIRECTOR_PROVIDER`:
+    "zerog"  → verifiable, TEE-sealed inference on the 0G Compute Network
+               (via the local sidecar, `zerog/`), receipt shown on screen
     "gemma"  → Gemma 4 12B via local Ollama
     "gemini" → Google Gemini 2.5 Flash via API
     "haiku"  → Claude Haiku 4.5 via Anthropic API
 
   On primary failure, falls through to remaining providers (in the order:
-  primary → gemma → gemini → haiku, deduped).
+  primary → gemma → gemini → haiku, deduped). This keeps a live show resilient:
+  when 0G is the primary, a hiccup silently falls back to local Gemma so the
+  visuals never stall — and the on-screen receipt reflects which one ran.
   """
   require Logger
 
@@ -145,6 +149,10 @@ defmodule Sinestesia.Director do
   @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
+  # 0G routes to a large (70B) verifiable model over the network plus an
+  # on-chain-signed request + TEE verification, so it's the slowest hop. Generous
+  # timeout keeps it primary for a full turn before falling through to gemma.
+  @zerog_timeout_ms 12_000
 
   @doc """
   Compose mode (default): each Director reply is ONE new element + a position,
@@ -257,6 +265,11 @@ defmodule Sinestesia.Director do
     primary = provider()
     chain = Enum.uniq([primary, :gemma, :gemini, :haiku])
 
+    # A fresh turn: clear any stale 0G receipt so the frontend never shows a
+    # verified badge for a frame the fallback providers actually produced. The
+    # zerog provider re-populates it on success.
+    Sinestesia.Verifiability.put(nil)
+
     case try_chain(chain, messages) do
       {:ok, response} ->
         if valid_scene?(response, mode()) do
@@ -306,6 +319,8 @@ defmodule Sinestesia.Director do
 
   def provider do
     case System.get_env("DIRECTOR_PROVIDER", "gemma") |> String.downcase() do
+      "zerog" -> :zerog
+      "0g" -> :zerog
       "gemini" -> :gemini
       "haiku" -> :haiku
       _ -> :gemma
@@ -343,6 +358,35 @@ defmodule Sinestesia.Director do
   end
 
   ## Providers
+
+  # Verifiable inference on the 0G Compute Network via the local sidecar
+  # (`zerog/`), which speaks OpenAI's chat-completions shape and attaches a
+  # `verification` receipt (provider, model, chatId, TEE-verified bool). We stash
+  # that receipt so the pipeline can put it on screen next to the frame it made.
+  defp call(:zerog, messages) do
+    url = System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <> "/v1/chat/completions"
+    body = %{messages: messages, temperature: 0.8, max_tokens: 100}
+
+    case Req.post(url, json: body, receive_timeout: @zerog_timeout_ms, retry: false) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{"choices" => [%{"message" => %{"content" => content}} | _]} = resp
+       }}
+      when is_binary(content) and byte_size(content) > 0 ->
+        Sinestesia.Verifiability.put(Map.get(resp, "verification"))
+        {:ok, clean(content)}
+
+      {:ok, %{status: 200, body: body}} ->
+        {:error, {:empty_response, body}}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:bad_status, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp call(:gemma, messages) do
     cfg = Application.fetch_env!(:sinestesia, :config)

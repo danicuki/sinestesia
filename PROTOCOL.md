@@ -232,6 +232,17 @@ Liveness check. Backend responds with `pong`.
 - `frames` *(optional, added 2026-06-10)*: only present when `image_provider` is `local_sdxl`. A **generative morph sequence** from the previous image to the new one — slerp interpolation in SDXL latent space, decoded server-side — ordered by progress and **always ending on the same image as `url`**. Intended frontend behaviour: preload all frames, then play them as a chained morph (each consecutive pair is a mini-crossfade segment spread over the image cadence) instead of a single A→B crossfade. The in-between frames are real decoded images (shapes transform, not pixels dissolving). Clients that ignore `frames` and just use `url` keep working exactly as before.
 - `prompt`: included for debugging/overlay; can be ignored visually.
 - `timings`: per-cycle latency breakdown. Useful for the `?debug=1` overlay to compare providers.
+- `verification` *(optional, added 2026-07-24)*: present only when the Director ran on the **0G Compute Network** (`DIRECTOR_PROVIDER=zerog`, via the `zerog/` sidecar). A verifiable-inference receipt for the model that produced `prompt`:
+  ```json
+  "verification": {
+    "provider": "0xa48f01287233509FD694a22Bf840225062E67836",
+    "model": "qwen/qwen2.5-omni-7b",
+    "chatId": "chatcmpl-…",
+    "verified": true,
+    "network": "0g-compute"
+  }
+  ```
+  `verified: true` means the provider's **TEE (TeeML) signature** for that exact response was checked on-chain (`broker.inference.processResponse`); `false`/`null` means the answer arrived but wasn't cryptographically confirmed. Absent when a fallback provider (Gemma/Gemini/Haiku) produced the prompt. Drives the on-screen "Verifiable AI" badge (`frontend/src/verify_badge.ts`).
 
 ### `error`
 

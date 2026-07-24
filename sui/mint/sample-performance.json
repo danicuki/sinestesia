@@ -1,0 +1,19 @@
+{
+  "song": "Ocean of You",
+  "artist": "Sinestesia",
+  "venue": "ETHGlobal Lisbon 2026",
+  "transcript": "a yellow sun over a castle by the sea, a sailing boat, a seagull crossing the light",
+  "directorPrompts": [
+    "watercolor, a warm yellow sun rising, loose wet washes",
+    "a castle on the shore, azulejo blue tones bleeding in",
+    "a small sailing boat, ripples of sea green",
+    "a seagull crossing the light, soft white negative space"
+  ],
+  "timestamps": [
+    "2026-07-26T20:31:02.000Z",
+    "2026-07-26T20:31:19.000Z",
+    "2026-07-26T20:31:37.000Z",
+    "2026-07-26T20:31:52.000Z"
+  ],
+  "endedAtMs": 1785270720000
+}

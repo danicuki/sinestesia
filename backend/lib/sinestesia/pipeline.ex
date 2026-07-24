@@ -354,7 +354,10 @@ defmodule Sinestesia.Pipeline do
       director_ms: director_ms,
       # The lyric window that produced this prompt — carried through to the
       # image message so the front can show what the Director was reacting to.
-      lyric: state.last_director_text
+      lyric: state.last_director_text,
+      # Verifiable-inference receipt when the Director ran on 0G Compute (nil
+      # otherwise). Rides along to the image message for the on-screen badge.
+      verification: Sinestesia.Verifiability.last()
     }
 
     img_pid =
@@ -408,6 +411,13 @@ defmodule Sinestesia.Pipeline do
     # Only attached when the provider produced a morph sequence (local SDXL);
     # absent otherwise so non-sidecar providers keep the old message shape.
     msg = if frames == [], do: msg, else: Map.put(msg, :frames, frames)
+
+    # 0G verifiable-inference receipt, present only when the Director ran on 0G.
+    msg =
+      case Map.get(timings, :verification) do
+        nil -> msg
+        receipt -> Map.put(msg, :verification, receipt)
+      end
 
     push(state.socket, msg)
 

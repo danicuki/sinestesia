@@ -45,11 +45,22 @@ export interface TranscriptMsg {
   latencyMs?: number;
 }
 
+// Verifiable-inference receipt, present on `image` messages only when the
+// Director prompt was computed on the 0G Compute Network (TEE-sealed).
+export interface Verification {
+  provider: string;
+  model: string;
+  chatId: string;
+  verified: boolean | null;
+  network: string;
+}
+
 export interface ImageMsg {
   url: string;
   prompt: string;
   timings?: Timings;
   frames?: string[];
+  verification?: Verification;
 }
 
 type TranscriptCb = (m: TranscriptMsg) => void;
@@ -151,6 +162,7 @@ export class Socket {
             prompt: String(msg.prompt ?? ""),
             timings: msg.timings as Timings | undefined,
             frames: Array.isArray(msg.frames) ? msg.frames.map(String) : undefined,
+            verification: msg.verification as Verification | undefined,
           });
         break;
       case "error":

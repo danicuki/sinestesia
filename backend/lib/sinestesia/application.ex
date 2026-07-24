@@ -9,6 +9,7 @@ defmodule Sinestesia.Application do
 
     children = [
       {Registry, keys: :unique, name: Sinestesia.PipelineRegistry},
+      Sinestesia.Verifiability,
       {Bandit, plug: Sinestesia.Router, port: port}
     ]
 

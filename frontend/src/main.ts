@@ -12,6 +12,7 @@ import { StyleControl } from "./style";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
+import { VerifyBadge } from "./verify_badge";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
@@ -23,6 +24,10 @@ const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across rel
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
 
 const debug = DEBUG ? new DebugOverlay() : null;
+
+// Live "verifiable AI" proof badge — shown on the projection (including clean
+// mode) whenever the Director runs on 0G Compute. Opt out with ?no-verify.
+const verifyBadge = params.has("no-verify") ? null : new VerifyBadge();
 
 // Hard-coded sample images for ?mock=1 development without the backend.
 const MOCK_IMAGES = [
@@ -281,9 +286,10 @@ async function start() {
   const savedStyle = localStorage.getItem(STYLE_KEY) ?? "";
   const socket = MOCK ? null : new Socket();
   if (socket) {
-    socket.onImage = ({ url, prompt, timings, frames }) => {
+    socket.onImage = ({ url, prompt, timings, frames, verification }) => {
       console.log("[main] image:", prompt, timings ?? "", "frames:", frames ?? "none");
       scene.transitionTo(url, frames);
+      verifyBadge?.update(verification);
       if (debug) {
         debug.setPrompt(prompt);
         if (timings) debug.addTimings(timings);

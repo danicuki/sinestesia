@@ -1,6 +1,5 @@
-/** Everything a chain needs to mint a painting, independent of which chain. */
+/** Everything a chain needs to create a release, independent of which chain. */
 export interface MintRequest {
-  name: string;
   song: string;
   artist: string;
   venue: string;
@@ -16,21 +15,37 @@ export interface MintRequest {
   createdAtMs: number;
   /** Derived rarity traits (see traits.ts). */
   traits: Record<string, string | number>;
-  /** Recipient; each minter defaults to its own signer when omitted. */
-  recipient?: string;
-  /** Edition number within this song's claim window (1-based), if editioned. */
-  edition?: number;
 }
 
-export interface MintReceipt {
+/** Result of creating a release: the master 1/1 plus the shared release ref
+ *  audience members claim prints against. */
+export interface ReleaseReceipt {
   chain: string;
-  tokenId: string;
+  /** Chain-native id of the shared release (Sui object id, EVM contract, …). */
+  releaseRef: string;
+  /** The master 1/1 token id. */
+  masterTokenId: string;
   txId: string;
   explorerUrl: string;
 }
 
-/** A blockchain that can mint a painting. Add EVM/Solana by implementing this. */
+/** Result of an audience member claiming an open-edition print. */
+export interface PrintReceipt {
+  chain: string;
+  tokenId: string;
+  edition: number;
+  txId: string;
+  explorerUrl: string;
+}
+
+/**
+ * A blockchain that can mint Sinestesia paintings. Two operations:
+ *  - createRelease: artist mints the master 1/1 and opens the print window;
+ *  - claimPrint: anyone mints a free open-edition print to `recipient`.
+ * Add EVM/Solana by implementing this — nothing else changes.
+ */
 export interface Minter {
   readonly chain: string;
-  mint(req: MintRequest): Promise<MintReceipt>;
+  createRelease(req: MintRequest): Promise<ReleaseReceipt>;
+  claimPrint(releaseRef: string, recipient?: string): Promise<PrintReceipt>;
 }

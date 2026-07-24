@@ -1,4 +1,13 @@
 import { getFullnodeUrl } from '@mysten/sui/client';
+import { fileURLToPath } from 'node:url';
+
+// Populate process.env from sui/mint/.env if it exists, so `npm run mint`/`serve`
+// work right after `cp .env.example .env` (no manual `source` needed).
+try {
+  process.loadEnvFile(fileURLToPath(new URL('../.env', import.meta.url)));
+} catch {
+  /* no .env file — fall back to the ambient environment */
+}
 
 export type Network = 'testnet' | 'devnet' | 'mainnet' | 'localnet';
 

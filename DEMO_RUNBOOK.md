@@ -37,8 +37,11 @@ Ports: **8788** = 0G sidecar · **8790** = mint sidecar · backend/front as usua
    cp .env.example .env
    ```
    In `.env`: `SUI_PACKAGE_ID=<from step 2>`,
-   `SUI_SECRET_KEY=$(sui keytool export --key-identity $(sui client active-address))`
-   (the `suiprivkey1…` value).
+   `SUI_SECRET_KEY=$(sui keytool export --key-identity $(sui client active-address) --json | jq -r .exportedPrivateKey)`
+   (the `suiprivkey1…` value). `.env` auto-loads — no manual `source` needed.
+   - If a mint later fails with **`Unexpected status code: 404`**, the default
+     public RPC is unreachable from your network; add a working one to `.env`:
+     `SUI_FULLNODE_URL=https://rpc-testnet.suiscan.xyz` (verified working).
 4. [ ] **Start the mint sidecar** — set `CLAIM_PUBLIC_URL` to a **phone-reachable**
    address (LAN IP or an ngrok tunnel), or the QR won't work from the room:
    ```bash

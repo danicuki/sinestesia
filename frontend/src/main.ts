@@ -13,6 +13,7 @@ import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
 import { VerifyBadge } from "./verify_badge";
+import { MintOverlay } from "./mint_overlay";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
@@ -28,6 +29,9 @@ const debug = DEBUG ? new DebugOverlay() : null;
 // Live "verifiable AI" proof badge — shown on the projection (including clean
 // mode) whenever the Director runs on 0G Compute. Opt out with ?no-verify.
 const verifyBadge = params.has("no-verify") ? null : new VerifyBadge();
+
+// The song-end mint moment: QR overlay to claim a print of the finished canvas.
+const mintOverlay = new MintOverlay();
 
 // Hard-coded sample images for ?mock=1 development without the backend.
 const MOCK_IMAGES = [
@@ -304,12 +308,52 @@ async function start() {
       console.warn("[backend error]", provider ?? "", message);
       debug?.setError(message, provider);
     };
+    socket.onMintStatus = () => mintOverlay.showMinting();
+    socket.onMint = (m) => {
+      console.log("[main] minted:", m);
+      void mintOverlay.showResult(m);
+    };
+    socket.onMintError = (message) => {
+      console.warn("[main] mint error:", message);
+      mintOverlay.showError(message);
+    };
     socket.onOpen = () => {
       console.log("[main] websocket connected");
       // Re-apply the persisted style so a reload restores the chosen look.
       // (The backend starts each session on its own default.)
       if (savedStyle) socket.sendStyle(savedStyle);
     };
+
+    // Trigger the mint at song's end. Keyboard "m" works even in clean/stage
+    // mode (where the rehearsal chrome is hidden); a visible button is added
+    // below for rehearsal. Ignore "m" while typing in the style input.
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "m" && e.key !== "M") return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      socket.sendMint();
+    });
+
+    if (!CLEAN) {
+      const mintBtn = document.createElement("button");
+      mintBtn.textContent = "Finish & Mint";
+      mintBtn.title = "Store on Walrus + mint on Sui (shortcut: m)";
+      mintBtn.style.cssText = [
+        "position:fixed",
+        "right:16px",
+        "bottom:16px",
+        "z-index:9998",
+        "padding:11px 18px",
+        "border-radius:999px",
+        "border:1px solid rgba(64,224,138,.5)",
+        "background:rgba(64,224,138,.15)",
+        "color:#eafff2",
+        "font:600 14px/1 ui-sans-serif,system-ui,sans-serif",
+        "cursor:pointer",
+      ].join(";");
+      mintBtn.addEventListener("click", () => socket.sendMint());
+      document.body.appendChild(mintBtn);
+    }
   }
 
   // Style control + "nova música" reset — visible during rehearsal, hidden

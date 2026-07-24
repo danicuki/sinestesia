@@ -63,6 +63,10 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.reset_song(pid)
         {:ok, state}
 
+      {:ok, %{"type" => "mint"} = msg} when not is_nil(pid) ->
+        Sinestesia.Pipeline.mint(pid, Map.drop(msg, ["type"]))
+        {:ok, state}
+
       {:ok, other} ->
         Logger.debug("[ws] unknown text msg: #{inspect(other)}")
         {:ok, state}

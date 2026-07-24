@@ -55,6 +55,9 @@ Backend integration (already wired in this branch):
 - Node ≥ 20 (`node -v`).
 - A wallet private key with **0G testnet** tokens. Create one with any EVM
   wallet, then get testnet 0G from the faucet: https://faucet.0g.ai/
+  (ETHGlobal Lisbon promo code for extra tokens: **`ETH-LISBON-26`**).
+  Explorers: chain https://chainscan-galileo.0g.ai/ · storage
+  https://storagescan-galileo.0g.ai/
 
 ### 1. Install + configure
 

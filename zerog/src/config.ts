@@ -26,5 +26,10 @@ export const pinnedModel = () => {
   return v && v.trim() !== '' ? v.trim() : undefined;
 };
 
+/** Verifiable IMAGE provider (for the bench). Live qwen-image-edit by default;
+ * confirm with `npm run providers`. */
+export const imageProviderAddress = () =>
+  optional('ZG_IMAGE_PROVIDER', '0x4b2a941929E39Adbea5316dDF2B9Bd8Ff3134389');
+
 export const depositAmount = () => Number(optional('ZG_DEPOSIT', '0.1'));
 export const port = () => Number(optional('ZG_PORT', '8788'));

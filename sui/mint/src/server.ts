@@ -137,6 +137,7 @@ async function buildMintImage(
       const image = await composeAnimatedGif(frames, {
         maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
         maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+        frameMs: numEnv('MINT_FRAME_MS'),
         maxTotalMs: numEnv('MINT_GIF_MS'),
       });
       return { image, kind: `gif (${frames.length} frames)`, ext: 'gif', contentType: 'image/gif' };
@@ -145,6 +146,7 @@ async function buildMintImage(
     const image = await composeAnimatedWebp(frames, {
       maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
       maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+      frameMs: numEnv('MINT_FRAME_MS'),
       maxTotalMs: numEnv('MINT_GIF_MS'),
       quality: numEnv('MINT_WEBP_QUALITY'),
     });

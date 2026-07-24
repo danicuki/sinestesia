@@ -30,10 +30,27 @@ export interface GifOptions {
   maxFrames?: number;
   /** Longest side in px; frames are cover-fit to a common size. */
   maxSide?: number;
-  /** Target total loop duration (ms); per-frame delay is derived from it. */
+  /**
+   * Per-frame delay in ms — how long each beat of the painting is held. This is
+   * the main pacing knob; the default is deliberately unhurried so a viewer can
+   * actually read each new element appearing.
+   */
+  frameMs?: number;
+  /**
+   * Optional total-duration cap (ms). When set, the per-frame delay is the
+   * smaller of `frameMs` and `maxTotalMs / frames`, so a very long song can be
+   * kept to a bounded loop. Unset by default: pacing wins over total length.
+   */
   maxTotalMs?: number;
   /** Hold the last frame this many ms so the finished painting lingers. */
   holdLastMs?: number;
+}
+
+/** Per-frame delay: unhurried by default, optionally squeezed by a total cap. */
+function frameDelay(count: number, opts: GifOptions): number {
+  const target = opts.frameMs ?? 600;
+  const capped = opts.maxTotalMs ? Math.min(target, opts.maxTotalMs / count) : target;
+  return Math.max(60, Math.round(capped));
 }
 
 export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}): Promise<Buffer> {
@@ -45,8 +62,7 @@ export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}
   // sane weight; raise either via env for higher fidelity.
   const maxFrames = opts.maxFrames ?? 120;
   const maxSide = opts.maxSide ?? 384;
-  const maxTotalMs = opts.maxTotalMs ?? 12_000;
-  const holdLastMs = opts.holdLastMs ?? 1_400;
+  const holdLastMs = opts.holdLastMs ?? 2_000;
 
   const selected = sampleEvenly(frames, maxFrames);
 
@@ -58,8 +74,7 @@ export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}
   w -= w % 2;
   h -= h % 2;
 
-  // Per-frame delay: fill maxTotalMs across the frames, but keep it watchable.
-  const delay = Math.max(80, Math.min(500, Math.round(maxTotalMs / selected.length)));
+  const delay = frameDelay(selected.length, opts);
 
   const enc = GIFEncoder();
   for (let i = 0; i < selected.length; i++) {
@@ -87,8 +102,7 @@ export async function composeAnimatedWebp(frames: Buffer[], opts: GifOptions & {
   if (frames.length === 0) throw new Error('no frames to compose');
   const maxFrames = opts.maxFrames ?? 120;
   const maxSide = opts.maxSide ?? 448;
-  const maxTotalMs = opts.maxTotalMs ?? 12_000;
-  const holdLastMs = opts.holdLastMs ?? 1_400;
+  const holdLastMs = opts.holdLastMs ?? 2_000;
   const quality = opts.quality ?? 70;
 
   const selected = sampleEvenly(frames, maxFrames);
@@ -103,7 +117,7 @@ export async function composeAnimatedWebp(frames: Buffer[], opts: GifOptions & {
   const resized = await Promise.all(
     selected.map((f) => sharp(f).resize(w, h, { fit: 'cover' }).toBuffer()),
   );
-  const per = Math.max(60, Math.min(500, Math.round(maxTotalMs / resized.length)));
+  const per = frameDelay(resized.length, opts);
   const delays = resized.map((_, i) => (i === resized.length - 1 ? per + holdLastMs : per));
 
   return sharp(resized, { join: { animated: true } })

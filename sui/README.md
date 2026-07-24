@@ -161,6 +161,7 @@ export MINT_SIDECAR_URL=http://127.0.0.1:8790
 export MINT_ARTIST="…"  MINT_VENUE="…"           # song is sent per-mint from the UI
 export CLAIM_PUBLIC_URL=http://<LAN-or-tunnel>:8790   # so audience phones can reach the QR target
 export MINT_COMPOSE=webp   # NFT image = whole song: webp (default) | gif | collage | final
+export MINT_FRAME_MS=600   # per-frame delay (pacing). Higher = slower playback.
 # Point the on-chain image_url at the sidecar's content-type-serving proxy so it
 # renders in every wallet (Walrus serves blobs untyped). Set to the SAME public
 # host as CLAIM_PUBLIC_URL; if unset, image_url falls back to the raw Walrus URL.

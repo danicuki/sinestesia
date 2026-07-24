@@ -147,12 +147,42 @@ equals the token's `provenance_hash`, and fetch the image from Walrus by
 `walrus_blob_id` independently of any gateway. The NFT is proof of the exact
 live moment that produced the painting.
 
-## Wiring into the show (next)
+## Wiring into the live show (done)
 
-`createRelease()`, `claimPrint()` and `storeBytes()` are plain functions — the
-live app calls `createRelease` at song end with the canvas `toBlob()` bytes and
-the performance record it already has, shows a QR to the returned `release` id,
-and each phone calls `claimPrint`. A closing tap runs `set_open(false)`.
+The mint is wired end-to-end. Instead of the CLI, run the **mint sidecar** and
+the backend triggers it at song end:
+
+```bash
+# 1. mint sidecar (needs a published package + funded key in sui/mint/.env)
+cd sui/mint && npm run serve      # http://127.0.0.1:8790
+
+# 2. backend points at it; set the show metadata + a phone-reachable claim URL
+export MINT_SIDECAR_URL=http://127.0.0.1:8790
+export MINT_ARTIST="…"  MINT_VENUE="…"           # song is sent per-mint from the UI
+export CLAIM_PUBLIC_URL=http://<LAN-or-tunnel>:8790   # so audience phones can reach the QR target
+```
+
+Flow: when the song ends the operator hits **Finish & Mint** (button, or the
+`m` key in clean/stage mode). The backend assembles the performance record it
+accumulated during the song (transcript + every Director prompt + timestamps),
+fetches the final canvas, and POSTs to the sidecar's `POST /release`, which
+stores on Walrus and mints the master 1/1 on Sui. The returned `claimUrl` is
+pushed to the frontend, which renders a **QR overlay** (`mint_overlay.ts`);
+scanning it opens the sidecar's `/claim` page and mints a free print. See
+`PROTOCOL.md` (`mint` messages) for the wire format.
+
+> For the demo the show wallet pays the print gas. A production build would
+> connect each visitor's own wallet — the `POST /claim` contract already accepts
+> a `to` address for that.
+
+## Status
+
+Verified: Move package **builds** (Sui 1.76); mint client + **sidecar
+typecheck**; sidecar **routes** (health / release-validation / claim page) smoke-
+tested; Walrus store + read-back **live on testnet**; provenance + traits
+**tested**; backend **compiles** and frontend **builds** with the trigger + QR
+overlay. The on-chain publish/mint is pending a funded testnet address (blocked
+only by faucet rate-limits in CI; runs normally on a workstation).
 
 ## Status
 

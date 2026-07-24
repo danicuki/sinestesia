@@ -106,6 +106,7 @@ defmodule Sinestesia.Pipeline do
   def set_style(pid, style), do: GenServer.cast(pid, {:set_style, style})
   def set_camera(pid, camera), do: GenServer.cast(pid, {:set_camera, camera})
   def reset_song(pid), do: GenServer.cast(pid, :reset_song)
+  def mint(pid, opts \\ %{}), do: GenServer.cast(pid, {:mint, opts})
 
   ## Callbacks
 
@@ -133,6 +134,11 @@ defmodule Sinestesia.Pipeline do
        # the next Director call; ages out after 6s. See melody_hint/1.
        melody: %{},
        fast: %{},
+       # Per-song provenance log: one entry per Director prompt, newest-first,
+       # each %{ts: iso8601, prompt: raw_director_output}. Joined with the
+       # accumulated `lyrics` transcript at song end to build the hash that
+       # proves the NFT was made in that exact live moment. Reset each song.
+       performance_steps: [],
        last_director_at: 0,
        last_audio_chunk_at: 0,
        last_stt_ms: nil,
@@ -234,6 +240,7 @@ defmodule Sinestesia.Pipeline do
          style_locked?: false,
          final_lyric_count: 0,
          director_conversation: Sinestesia.Director.init_conversation(),
+         performance_steps: [],
          last_director_at: 0,
          last_stt_ms: nil,
          last_stt_provider: nil,
@@ -251,6 +258,22 @@ defmodule Sinestesia.Pipeline do
          session_id: new_session,
          pending_pids: MapSet.new()
      }}
+  end
+
+  # Mint the finished painting: store on Walrus + mint the master on Sui via the
+  # mint sidecar, then push the claim URL for the QR overlay. Async so the show
+  # never blocks on chain latency. `opts` may carry song/artist/venue overrides.
+  def handle_cast({:mint, opts}, state) do
+    case state.last_image_url do
+      nil ->
+        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
+        {:noreply, state}
+
+      image_url ->
+        spawn_mint(state, image_url, opts)
+        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
+        {:noreply, state}
+    end
   end
 
   defp neutral_camera, do: %{zoom: 0.0, pan_x: 0.0, pan_y: 0.0}
@@ -368,13 +391,49 @@ defmodule Sinestesia.Pipeline do
       |> drop_dead()
       |> MapSet.put(img_pid)
 
+    # Record this prompt in the provenance log (newest-first). `raw` is the
+    # Director's literal output — the "director prompt" the NFT hash attests to.
+    step = %{ts: DateTime.utc_now() |> DateTime.to_iso8601(), prompt: raw}
+
     {:noreply,
-     %{state | generating?: true, director_conversation: new_conversation, bootstrap_done?: true, pending_pids: pids}}
+     %{
+       state
+       | generating?: true,
+         director_conversation: new_conversation,
+         bootstrap_done?: true,
+         performance_steps: [step | state.performance_steps],
+         pending_pids: pids
+     }}
   end
 
   def handle_info({:director_done, {:error, reason}, _started_at, _sid}, state) do
     Logger.warning("[director] error: #{inspect(reason)}")
     {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:mint_done, {:ok, body}}, state) do
+    Logger.info("[mint] released #{inspect(Map.get(body, "releaseRef"))}")
+
+    push(state.socket, %{
+      type: "mint",
+      releaseRef: Map.get(body, "releaseRef"),
+      masterTokenId: Map.get(body, "masterTokenId"),
+      txId: Map.get(body, "txId"),
+      explorerUrl: Map.get(body, "explorerUrl"),
+      provenanceHash: Map.get(body, "provenanceHash"),
+      traits: Map.get(body, "traits"),
+      imageUri: Map.get(body, "imageUri"),
+      claimUrl: Map.get(body, "claimUrl"),
+      ts: now_ms()
+    })
+
+    {:noreply, state}
+  end
+
+  def handle_info({:mint_done, {:error, reason}}, state) do
+    Logger.warning("[mint] failed: #{inspect(reason)}")
+    push(state.socket, %{type: "mint_error", message: mint_error_msg(reason), ts: now_ms()})
+    {:noreply, state}
   end
 
   def handle_info({:image_done, _result, _timings, sid}, %{session_id: cur} = state)
@@ -1018,6 +1077,79 @@ defmodule Sinestesia.Pipeline do
 
     pid
   end
+
+  # Assemble the performance record from song-scoped state and hand the finished
+  # image + provenance to the mint sidecar in a Task, so chain/Walrus latency
+  # never blocks the pipeline. Steps are stored newest-first; reverse to oldest.
+  defp spawn_mint(state, image_url, opts) do
+    parent = self()
+    steps = Enum.reverse(state.performance_steps)
+
+    performance = %{
+      song: opt(opts, "song", System.get_env("MINT_SONG", "Untitled")),
+      artist: opt(opts, "artist", System.get_env("MINT_ARTIST", "Sinestesia")),
+      venue: opt(opts, "venue", System.get_env("MINT_VENUE", "Live")),
+      transcript: state.lyrics |> Enum.join(" "),
+      directorPrompts: Enum.map(steps, & &1.prompt),
+      timestamps: Enum.map(steps, & &1.ts),
+      endedAtMs: now_ms()
+    }
+
+    Task.start(fn -> send(parent, {:mint_done, do_mint(image_url, performance)}) end)
+  end
+
+  defp do_mint(image_url, performance) do
+    url = System.get_env("MINT_SIDECAR_URL", "http://127.0.0.1:8790") <> "/release"
+
+    with {:ok, bytes} <- fetch_image_bytes(image_url),
+         {:ok, %{status: 200, body: body}} <-
+           Req.post(url,
+             json: %{imageBase64: Base.encode64(bytes), performance: performance},
+             receive_timeout: 120_000,
+             retry: false
+           ) do
+      {:ok, body}
+    else
+      {:ok, %{status: status, body: body}} -> {:error, {:bad_status, status, body}}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  # The final canvas is either an https URL (fal.ai/pollinations) or an inline
+  # data: URL (google) — handle both so any image provider can be minted.
+  defp fetch_image_bytes("data:" <> _ = url) do
+    case String.split(url, ",", parts: 2) do
+      [_header, b64] ->
+        case Base.decode64(b64) do
+          {:ok, bytes} -> {:ok, bytes}
+          :error -> {:error, :bad_data_url}
+        end
+
+      _ ->
+        {:error, :bad_data_url}
+    end
+  end
+
+  defp fetch_image_bytes(url) when is_binary(url) do
+    case Req.get(url, receive_timeout: 30_000, retry: false, decode_body: false) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, {:image_fetch, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp opt(opts, key, default) do
+    case Map.get(opts, key) do
+      v when is_binary(v) and v != "" -> v
+      _ -> default
+    end
+  end
+
+  defp mint_error_msg({:image_fetch, status}), do: "could not fetch the painting (#{status})"
+  defp mint_error_msg({:bad_status, status, _body}), do: "mint service error (#{status})"
+  defp mint_error_msg(:bad_data_url), do: "the painting image was malformed"
+  defp mint_error_msg(reason), do: "mint failed: #{inspect(reason)}"
 
   # Compact textual summary of HOW the line is being sung (frontend `melody`
   # message, see PROTOCOL.md). Colors the Director's mood without competing

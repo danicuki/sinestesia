@@ -176,6 +176,21 @@ After the reset the backend pushes a `style` message back with
 `IMAGE_MODE` (story → `"loose ink sketch on aged paper, ..."`). The
 frontend can use this to clear its style input.
 
+### `mint` (song ended — mint the finished painting)
+
+Stores the final canvas on **Walrus** and mints it as a **Sui** NFT (master 1/1
+to the artist + an open print window) with the performance provenance the
+backend accumulated during the song. Async: the backend replies with
+`mint_status` immediately, then `mint` (success) or `mint_error`.
+
+```json
+{ "type": "mint", "song": "Águas de Março", "artist": "…", "venue": "…" }
+```
+
+`song`/`artist`/`venue` are optional; omitted fields fall back to the backend
+env defaults (`MINT_SONG` / `MINT_ARTIST` / `MINT_VENUE`). Requires the mint
+sidecar (`sui/mint`, `npm run serve`) reachable at `MINT_SIDECAR_URL`.
+
 ### `ping`
 Liveness check. Backend responds with `pong`.
 
@@ -253,6 +268,39 @@ Liveness check. Backend responds with `pong`.
 The `provider` field is present when the error is scoped to one STT provider.
 
 Non-fatal. Frontend may log; demo continues.
+
+### `mint_status` / `mint` / `mint_error` (minting the finished painting)
+
+Reply sequence to a client `mint` message. `mint_status` fires immediately so
+the frontend can show a "minting…" overlay while Walrus + Sui settle:
+
+```json
+{ "type": "mint_status", "status": "minting", "ts": 1721800000000 }
+```
+
+On success, `mint` carries everything the QR overlay needs:
+
+```json
+{
+  "type": "mint",
+  "releaseRef": "0x…",             // the shared Release object (audience claims prints against this)
+  "masterTokenId": "0x…",          // the artist's 1/1
+  "txId": "…",
+  "explorerUrl": "https://suiscan.xyz/testnet/object/0x…",
+  "provenanceHash": "sha256…",     // hash of transcript + Director prompts + timestamps
+  "traits": { "rarity": "legendary", "dominantColor": "yellow", "…": "…" },
+  "imageUri": "https://aggregator.walrus-testnet.walrus.space/v1/blobs/…",
+  "claimUrl": "http://…/claim?release=0x…",   // what the QR encodes
+  "ts": 1721800002500
+}
+```
+
+The frontend renders `claimUrl` as a QR (`frontend/src/mint_overlay.ts`) so the
+room can scan to claim a free print. On failure instead:
+
+```json
+{ "type": "mint_error", "message": "could not fetch the painting (502)", "ts": 1721800002500 }
+```
 
 ### `style` (echo of accepted style)
 

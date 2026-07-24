@@ -63,11 +63,28 @@ export interface ImageMsg {
   verification?: Verification;
 }
 
+// Sent when the finished painting has been stored on Walrus and minted on Sui.
+export interface MintMsg {
+  releaseRef?: string;
+  masterTokenId?: string;
+  txId?: string;
+  explorerUrl?: string;
+  provenanceHash?: string;
+  traits?: Record<string, string | number>;
+  imageUri?: string;
+  /** URL the audience QR encodes — opens the claim page. */
+  claimUrl?: string;
+}
+
 type TranscriptCb = (m: TranscriptMsg) => void;
 type ImageCb = (m: ImageMsg) => void;
 type ErrorCb = (message: string, provider?: string) => void;
 // `source`: "user" (our echo), "curator" (auto-picked), or "reset" (new song).
 type StyleCb = (style: string, source: string) => void;
+type MintCb = (m: MintMsg) => void;
+// "minting" while the release is in flight; message text on failure.
+type MintStatusCb = (status: string) => void;
+type MintErrorCb = (message: string) => void;
 
 const URL_DEFAULT =
   import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws/audio";
@@ -86,6 +103,9 @@ export class Socket {
   onImage: ImageCb = () => {};
   onError: ErrorCb = () => {};
   onStyle: StyleCb = () => {};
+  onMint: MintCb = () => {};
+  onMintStatus: MintStatusCb = () => {};
+  onMintError: MintErrorCb = () => {};
   onOpen: () => void = () => {};
 
   constructor(url: string = URL_DEFAULT) {
@@ -176,6 +196,24 @@ export class Socket {
         // tells us whether it was our own change, the curator, or a reset.
         this.onStyle(String(msg.style ?? ""), String(msg.source ?? "user"));
         break;
+      case "mint_status":
+        this.onMintStatus(String(msg.status ?? "minting"));
+        break;
+      case "mint":
+        this.onMint({
+          releaseRef: msg.releaseRef ? String(msg.releaseRef) : undefined,
+          masterTokenId: msg.masterTokenId ? String(msg.masterTokenId) : undefined,
+          txId: msg.txId ? String(msg.txId) : undefined,
+          explorerUrl: msg.explorerUrl ? String(msg.explorerUrl) : undefined,
+          provenanceHash: msg.provenanceHash ? String(msg.provenanceHash) : undefined,
+          traits: msg.traits as Record<string, string | number> | undefined,
+          imageUri: msg.imageUri ? String(msg.imageUri) : undefined,
+          claimUrl: msg.claimUrl ? String(msg.claimUrl) : undefined,
+        });
+        break;
+      case "mint_error":
+        this.onMintError(String(msg.message ?? "mint failed"));
+        break;
       case "pong":
         break;
       default:
@@ -218,6 +256,13 @@ export class Socket {
   sendReset() {
     if (!this.ready) return;
     this.ws!.send(JSON.stringify({ type: "reset" }));
+  }
+
+  // Mint the finished painting. Optional song/artist/venue override the backend
+  // env defaults. Backend replies with `mint_status` then `mint` (or `mint_error`).
+  sendMint(meta: { song?: string; artist?: string; venue?: string } = {}) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "mint", ...meta }));
   }
 
   sendFastFeatures(rms: number, tempo_estimate?: number) {

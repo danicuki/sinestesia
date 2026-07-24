@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { getService, verifiedChat } from './broker.js';
+import { getService, verifiedChat, warmup } from './broker.js';
 import { port, providerAddress } from './config.js';
 
 /**
@@ -81,8 +81,9 @@ server.listen(p, () => {
   console.log(`[0g] sidecar on http://127.0.0.1:${p}`);
   console.log(`[0g] provider ${providerAddress()}`);
   console.log(`[0g] warming up broker…`);
-  // Warm the broker/metadata so the first Director call isn't slow.
-  getService()
-    .then((s) => console.log(`[0g] ready — model ${s.model} @ ${s.endpoint}`))
+  // Warm the broker/metadata AND the request-signing path so the first Director
+  // call runs warm (~1.7s), not cold (~2.8s).
+  warmup()
+    .then((s) => console.log(`[0g] ready (warm) — model ${s.model} @ ${s.endpoint}`))
     .catch((e) => console.warn(`[0g] warmup failed (will retry on first request): ${e.message}`));
 });

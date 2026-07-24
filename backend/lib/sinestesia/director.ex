@@ -149,10 +149,12 @@ defmodule Sinestesia.Director do
   @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
-  # 0G routes to a large (70B) verifiable model over the network plus an
-  # on-chain-signed request + TEE verification, so it's the slowest hop. Generous
-  # timeout keeps it primary for a full turn before falling through to gemma.
-  @zerog_timeout_ms 12_000
+  # 0G routes inference over the network with an on-chain-signed request. The
+  # sidecar now settles/verifies ON-CHAIN IN THE BACKGROUND (off the response
+  # path), so the Director only waits for request-signing + inference: ~1.7s warm,
+  # ~2.8s cold. 5s leaves comfortable headroom while failing over fast if the
+  # provider stalls. (Was 12s, back when settlement blocked the response.)
+  @zerog_timeout_ms 5_000
 
   @doc """
   Compose mode (default): each Director reply is ONE new element + a position,

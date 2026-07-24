@@ -68,6 +68,13 @@ function sampleUrls(urls: string[], max: number): string[] {
 
 type ComposeMode = 'gif' | 'collage' | 'final';
 
+/** Optional numeric env override (undefined → use the composer's default). */
+function numEnv(name: string): number | undefined {
+  const v = process.env[name];
+  const n = v ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
 /**
  * Decide what image actually gets minted. With the song's frame sequence and
  * mode "gif"/"collage", compose the whole-song artifact; otherwise (or on any
@@ -88,7 +95,14 @@ async function buildMintImage(
       (b): b is Buffer => b !== null,
     );
     if (frames.length < 2) return { image: finalStill, kind: 'final' };
-    const image = mode === 'collage' ? await composeCollage(frames) : await composeAnimatedGif(frames);
+    const image =
+      mode === 'collage'
+        ? await composeCollage(frames, { maxSide: numEnv('MINT_COLLAGE_MAX_SIDE') })
+        : await composeAnimatedGif(frames, {
+            maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
+            maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+            maxTotalMs: numEnv('MINT_GIF_MS'),
+          });
     return { image, kind: `${mode} (${frames.length} frames)` };
   } catch (err) {
     console.warn(`[mint] compose failed, using final still: ${(err as Error).message}`);

@@ -38,10 +38,12 @@ export interface GifOptions {
 
 export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}): Promise<Buffer> {
   if (frames.length === 0) throw new Error('no frames to compose');
-  const maxFrames = opts.maxFrames ?? 60;
-  const maxSide = opts.maxSide ?? 512;
-  const maxTotalMs = opts.maxTotalMs ?? 12_000;
-  const holdLastMs = opts.holdLastMs ?? 1_500;
+  // Defaults tuned for a wallet-friendly weight (~1–1.5MB for a busy song):
+  // 512px/60fr can hit 4MB+ which is sluggish to load. Raise via env if desired.
+  const maxFrames = opts.maxFrames ?? 40;
+  const maxSide = opts.maxSide ?? 384;
+  const maxTotalMs = opts.maxTotalMs ?? 9_000;
+  const holdLastMs = opts.holdLastMs ?? 1_400;
 
   const selected = sampleEvenly(frames, maxFrames);
 
@@ -85,7 +87,7 @@ export interface CollageOptions {
 export async function composeCollage(frames: Buffer[], opts: CollageOptions = {}): Promise<Buffer> {
   if (frames.length === 0) throw new Error('no frames to compose');
   const maxCells = opts.maxCells ?? 49; // 7×7 keeps thumbnails legible
-  const maxSide = opts.maxSide ?? 1200;
+  const maxSide = opts.maxSide ?? 900;
   const gap = opts.gap ?? 6;
 
   const selected = sampleEvenly(frames, maxCells);

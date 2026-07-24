@@ -11,11 +11,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mysten/sui": "^1.30.0"
+    "@mysten/sui": "^1.30.0",
+    "gifenc": "^1.0.3",
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.0",
-    "@types/node": "^20.0.0"
+    "typescript": "^5.5.0"
   }
 }

@@ -139,6 +139,11 @@ defmodule Sinestesia.Pipeline do
        # accumulated `lyrics` transcript at song end to build the hash that
        # proves the NFT was made in that exact live moment. Reset each song.
        performance_steps: [],
+       # Every generated frame URL in order — the song's visual evolution. At
+       # mint time these are composed into the animated GIF / collage that
+       # becomes the NFT image (so it captures the whole song, not just the last
+       # frame). Reset each song.
+       frame_urls: [],
        last_director_at: 0,
        last_audio_chunk_at: 0,
        last_stt_ms: nil,
@@ -241,6 +246,7 @@ defmodule Sinestesia.Pipeline do
          final_lyric_count: 0,
          director_conversation: Sinestesia.Director.init_conversation(),
          performance_steps: [],
+         frame_urls: [],
          last_director_at: 0,
          last_stt_ms: nil,
          last_stt_provider: nil,
@@ -485,6 +491,7 @@ defmodule Sinestesia.Pipeline do
        state
        | generating?: false,
          last_image_url: url,
+         frame_urls: state.frame_urls ++ [url],
          style_stamped?: true,
          pending_pids: drop_dead(state.pending_pids)
      }}
@@ -1095,19 +1102,28 @@ defmodule Sinestesia.Pipeline do
       endedAtMs: now_ms()
     }
 
-    Task.start(fn -> send(parent, {:mint_done, do_mint(image_url, performance)}) end)
+    # How the NFT image is composed from the song's frames: "gif" (default,
+    # animated evolution), "collage" (contact sheet), or "final" (last frame).
+    mode = opt(opts, "mode", System.get_env("MINT_COMPOSE", "gif"))
+    frame_urls = state.frame_urls
+
+    Task.start(fn ->
+      send(parent, {:mint_done, do_mint(image_url, frame_urls, mode, performance)})
+    end)
   end
 
-  defp do_mint(image_url, performance) do
+  defp do_mint(image_url, frame_urls, mode, performance) do
     url = System.get_env("MINT_SIDECAR_URL", "http://127.0.0.1:8790") <> "/release"
 
     with {:ok, bytes} <- fetch_image_bytes(image_url),
+         payload <- %{
+           imageBase64: Base.encode64(bytes),
+           frameUrls: frame_urls,
+           mode: mode,
+           performance: performance
+         },
          {:ok, %{status: 200, body: body}} <-
-           Req.post(url,
-             json: %{imageBase64: Base.encode64(bytes), performance: performance},
-             receive_timeout: 120_000,
-             retry: false
-           ) do
+           Req.post(url, json: payload, receive_timeout: 180_000, retry: false) do
       {:ok, body}
     else
       {:ok, %{status: status, body: body}} -> {:error, {:bad_status, status, body}}

@@ -160,13 +160,18 @@ cd sui/mint && npm run serve      # http://127.0.0.1:8790
 export MINT_SIDECAR_URL=http://127.0.0.1:8790
 export MINT_ARTIST="…"  MINT_VENUE="…"           # song is sent per-mint from the UI
 export CLAIM_PUBLIC_URL=http://<LAN-or-tunnel>:8790   # so audience phones can reach the QR target
+export MINT_COMPOSE=gif    # NFT image = whole song: gif (default) | collage | final
 ```
 
 Flow: when the song ends the operator hits **Finish & Mint** (button, or the
 `m` key in clean/stage mode). The backend assembles the performance record it
-accumulated during the song (transcript + every Director prompt + timestamps),
-fetches the final canvas, and POSTs to the sidecar's `POST /release`, which
-stores on Walrus and mints the master 1/1 on Sui. The returned `claimUrl` is
+accumulated during the song (transcript + every Director prompt + timestamps)
+plus **every generated frame URL**, and POSTs to the sidecar's `POST /release`.
+The sidecar composes the frames into the NFT image — an **animated GIF of the
+whole song's evolution** by default (`MINT_COMPOSE=collage` for a contact
+sheet, `final` for just the last frame) — stores it on Walrus, and mints the
+master 1/1 on Sui. Frames are evenly sampled + downscaled, so a long song
+produces a similar-sized blob to a short one (no failure on high frame counts). The returned `claimUrl` is
 pushed to the frontend, which renders a **QR overlay** (`mint_overlay.ts`);
 scanning it opens the sidecar's `/claim` page and mints a free print. See
 `PROTOCOL.md` (`mint` messages) for the wire format.

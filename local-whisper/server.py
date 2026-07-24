@@ -99,6 +99,8 @@ torch_model = None
 # skip detection entirely — useful if you KNOW the set list and want to avoid
 # any chance of misdetection.
 FORCE_LANGUAGE = os.environ.get("WHISPER_LANGUAGE") or None
+LANGUAGE_LOCK_MIN_PROB = float(os.environ.get("WHISPER_LANGUAGE_LOCK_MIN_PROB", "0.55"))
+LOW_CONFIDENCE_FALLBACK = os.environ.get("WHISPER_LANGUAGE_FALLBACK") or None
 
 # Whisper's language detection is unreliable on <1s of noisy audio (that's what
 # produced the Cyrillic "Думафоля" garbage). We only auto-detect once the
@@ -168,13 +170,13 @@ def get_torch_model():
     return torch_model
 
 
-def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str]]:
+def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str], Optional[float]]:
     """Run Whisper on the given mono float32 audio.
     Returns (text, detected_language). `language=None` triggers auto-detect;
     pass an explicit code to skip detection. Errors are swallowed so a bad
     chunk doesn't kill the session."""
     if len(audio) < int(0.2 * SAMPLE_RATE):
-        return "", None
+        return "", None, None
     try:
         if WHISPER_BACKEND == "mlx":
             result = mlx_whisper.transcribe(
@@ -186,7 +188,7 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
                 no_speech_threshold=0.55,
                 verbose=False,
             )
-            return (result.get("text") or "").strip(), result.get("language")
+            return (result.get("text") or "").strip(), result.get("language"), None
 
         if WHISPER_BACKEND == "torch":
             result = get_torch_model().transcribe(
@@ -198,7 +200,7 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
                 word_timestamps=False,
                 verbose=False,
             )
-            return (result.get("text") or "").strip(), result.get("language")
+            return (result.get("text") or "").strip(), result.get("language"), None
 
         segments, info = get_faster_model().transcribe(
             audio,
@@ -207,12 +209,41 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
             condition_on_previous_text=False,
             no_speech_threshold=0.55,
             word_timestamps=False,
+            language_detection_threshold=LANGUAGE_LOCK_MIN_PROB,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
-        return text, getattr(info, "language", None)
+        detected = getattr(info, "language", None)
+        probability = getattr(info, "language_probability", None)
+
+        if (
+            language is None
+            and LOW_CONFIDENCE_FALLBACK
+            and detected
+            and probability is not None
+            and probability < LANGUAGE_LOCK_MIN_PROB
+        ):
+            log.info(
+                "language %s confidence %.2f below %.2f; retrying as %s",
+                detected,
+                probability,
+                LANGUAGE_LOCK_MIN_PROB,
+                LOW_CONFIDENCE_FALLBACK,
+            )
+            segments, info = get_faster_model().transcribe(
+                audio,
+                language=LOW_CONFIDENCE_FALLBACK,
+                vad_filter=False,
+                condition_on_previous_text=False,
+                no_speech_threshold=0.55,
+                word_timestamps=False,
+            )
+            text = " ".join(segment.text.strip() for segment in segments).strip()
+            return text, LOW_CONFIDENCE_FALLBACK, 1.0
+
+        return text, detected, probability
     except Exception:
         log.exception("transcribe failed on %d-sample audio", len(audio))
-        return "", None
+        return "", None, None
 
 
 def vad_speech_segments(audio: np.ndarray, vad_model) -> list[dict]:
@@ -264,12 +295,23 @@ def resolve_language(session: Session) -> Optional[str]:
     return session.detected_language
 
 
-def maybe_learn_language(session: Session, detected: Optional[str]):
+def maybe_learn_language(session: Session, detected: Optional[str], probability: Optional[float]):
     """Cache the detected language the first time we get one (and not forcing)."""
     if FORCE_LANGUAGE or not detected:
         return
+    if probability is not None and probability < LANGUAGE_LOCK_MIN_PROB:
+        log.info(
+            "language candidate %s ignored at confidence %.2f (< %.2f)",
+            detected,
+            probability,
+            LANGUAGE_LOCK_MIN_PROB,
+        )
+        return
     if session.detected_language != detected:
-        log.info("language detected: %s", detected)
+        if probability is None:
+            log.info("language detected: %s", detected)
+        else:
+            log.info("language detected: %s (confidence %.2f)", detected, probability)
         session.detected_language = detected
 
 
@@ -309,10 +351,10 @@ async def handle(ws):
                         utterance = session.audio[:cut_sample]
                         # Finals are full utterances → auto-detect is reliable here.
                         lang = resolve_language(session)
-                        text, detected = await asyncio.get_event_loop().run_in_executor(
+                        text, detected, probability = await asyncio.get_event_loop().run_in_executor(
                             None, transcribe, utterance, lang
                         )
-                        maybe_learn_language(session, detected)
+                        maybe_learn_language(session, detected, probability)
                         await emit(ws, text, is_final=True)
                         session.audio = session.audio[cut_sample:]
                         session.last_interim_text = ""
@@ -334,10 +376,10 @@ async def handle(ws):
                         session.last_interim_at = now
                     else:
                         audio_snapshot = session.audio.copy()
-                        text, detected = await asyncio.get_event_loop().run_in_executor(
+                        text, detected, probability = await asyncio.get_event_loop().run_in_executor(
                             None, transcribe, audio_snapshot, lang
                         )
-                        maybe_learn_language(session, detected)
+                        maybe_learn_language(session, detected, probability)
                         if text and text != session.last_interim_text:
                             await emit(ws, text, is_final=False)
                             session.last_interim_text = text

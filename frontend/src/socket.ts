@@ -84,6 +84,9 @@ export interface MintMsg {
   imageUri?: string;
   /** URL the audience QR encodes — opens the claim page. */
   claimUrl?: string;
+  /** Title/artist as identified from the lyrics (or the configured override). */
+  song?: string;
+  artist?: string;
 }
 
 type TranscriptCb = (m: TranscriptMsg) => void;
@@ -226,6 +229,8 @@ export class Socket {
           traits: msg.traits as Record<string, string | number> | undefined,
           imageUri: msg.imageUri ? String(msg.imageUri) : undefined,
           claimUrl: msg.claimUrl ? String(msg.claimUrl) : undefined,
+          song: msg.song ? String(msg.song) : undefined,
+          artist: msg.artist ? String(msg.artist) : undefined,
         });
         break;
       case "mint_error":
@@ -280,6 +285,14 @@ export class Socket {
   sendMint(meta: { song?: string; artist?: string; venue?: string } = {}) {
     if (!this.ready) return;
     this.ws!.send(JSON.stringify({ type: "mint", ...meta }));
+  }
+
+  // End the song: mint what was painted and reset for the next one, in that
+  // order, as a single backend action. Replies are the same as `mint` (plus the
+  // `style` echo with source "reset"), so nothing new to handle on this side.
+  sendEndSong(meta: { song?: string; artist?: string; venue?: string } = {}) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "end_song", ...meta }));
   }
 
   sendFastFeatures(rms: number, tempo_estimate?: number) {

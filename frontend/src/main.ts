@@ -13,7 +13,7 @@ import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
 import { VerifyBadge } from "./verify_badge";
-import { MintOverlay } from "./mint_overlay";
+import { MintToast } from "./mint_toast";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
@@ -30,8 +30,9 @@ const debug = DEBUG ? new DebugOverlay() : null;
 // mode) whenever the Director runs on 0G Compute. Opt out with ?no-verify.
 const verifyBadge = params.has("no-verify") ? null : new VerifyBadge();
 
-// The song-end mint moment: QR overlay to claim a print of the finished canvas.
-const mintOverlay = new MintOverlay();
+// The song-end mint moment: corner QR to claim a print of the finished canvas.
+// A corner, not a modal — the next song is already painting behind it.
+const mintToast = new MintToast();
 
 // Hard-coded sample images for ?mock=1 development without the backend.
 const MOCK_IMAGES = [
@@ -286,6 +287,40 @@ async function start() {
   const expressive = new ExpressiveAnalyzer();
   expressive.start();
 
+  // The one way a song ends. Minting and starting the next song used to be two
+  // separate controls, which meant the operator could mint without resetting (or
+  // reset without minting — losing the performance). It's a single action now:
+  // clear the canvas immediately so the singer can start over, and let the mint
+  // finish in the background against the snapshot the backend already took.
+  let styleControl: StyleControl | null = null;
+  function endSong() {
+    scene.clearImage();
+    if (!socket) {
+      console.log("[mock] would end song (mint + reset)");
+      return;
+    }
+    socket.sendEndSong();
+    // The backend resets to its default style; re-send the chosen one so the
+    // next song opens in the same look.
+    const keep = styleControl?.currentStyle();
+    if (keep) socket.sendStyle(keep);
+  }
+
+  // Start over WITHOUT minting — soundcheck, a false start, a song nobody wants
+  // an NFT of. Deliberately keyboard-only ("r"): ending a song should mint, and
+  // discarding a performance shouldn't be one stray click away.
+  function discardSong() {
+    scene.clearImage();
+    if (!socket) {
+      console.log("[mock] would discard song (reset, no mint)");
+      return;
+    }
+    console.log("[main] discarding song — reset without mint");
+    socket.sendReset();
+    const keep = styleControl?.currentStyle();
+    if (keep) socket.sendStyle(keep);
+  }
+
   // ---- Socket (skipped in mock) ----
   const savedStyle = localStorage.getItem(STYLE_KEY) ?? "";
   const socket = MOCK ? null : new Socket();
@@ -313,14 +348,14 @@ async function start() {
       console.warn("[backend error]", provider ?? "", message);
       debug?.setError(message, provider);
     };
-    socket.onMintStatus = () => mintOverlay.showMinting();
+    socket.onMintStatus = () => mintToast.showMinting();
     socket.onMint = (m) => {
       console.log("[main] minted:", m);
-      void mintOverlay.showResult(m);
+      void mintToast.showResult(m);
     };
     socket.onMintError = (message) => {
       console.warn("[main] mint error:", message);
-      mintOverlay.showError(message);
+      mintToast.showError(message);
     };
     socket.onOpen = () => {
       console.log("[main] websocket connected");
@@ -329,40 +364,21 @@ async function start() {
       if (savedStyle) socket.sendStyle(savedStyle);
     };
 
-    // Trigger the mint at song's end. Keyboard "m" works even in clean/stage
-    // mode (where the rehearsal chrome is hidden); a visible button is added
-    // below for rehearsal. Ignore "m" while typing in the style input.
+    // End the song from the keyboard ("m"), which works even in clean/stage mode
+    // where the rehearsal chrome is hidden. Ignore it while typing in the style
+    // input. The visible button lives in the style control.
     window.addEventListener("keydown", (e) => {
-      if (e.key !== "m" && e.key !== "M") return;
+      const k = e.key.toLowerCase();
+      if (k !== "m" && k !== "r") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
-      socket.sendMint();
+      if (k === "m") endSong();
+      else discardSong();
     });
-
-    if (!CLEAN) {
-      const mintBtn = document.createElement("button");
-      mintBtn.textContent = "Finish & Mint";
-      mintBtn.title = "Store on Walrus + mint on Sui (shortcut: m)";
-      mintBtn.style.cssText = [
-        "position:fixed",
-        "right:16px",
-        "bottom:16px",
-        "z-index:9998",
-        "padding:11px 18px",
-        "border-radius:999px",
-        "border:1px solid rgba(64,224,138,.5)",
-        "background:rgba(64,224,138,.15)",
-        "color:#eafff2",
-        "font:600 14px/1 ui-sans-serif,system-ui,sans-serif",
-        "cursor:pointer",
-      ].join(";");
-      mintBtn.addEventListener("click", () => socket.sendMint());
-      document.body.appendChild(mintBtn);
-    }
   }
 
-  // Style control + "nova música" reset — visible during rehearsal, hidden
-  // under ?clean=1. Prefilled with the persisted style.
+  // Style control + "End Song" — visible during rehearsal, hidden under
+  // ?clean=1. Prefilled with the persisted style.
   if (!CLEAN) {
     const style = new StyleControl(
       (value) => {
@@ -372,21 +388,10 @@ async function start() {
         if (socket) socket.sendStyle(value);
         else console.log("[mock] would send style:", value);
       },
-      () => {
-        // New song: clear the canvas immediately, then tell the backend. The
-        // chosen style is kept across songs, so re-send it so the next song
-        // starts in the same look (the backend resets to its default on reset).
-        scene.clearImage();
-        if (socket) {
-          socket.sendReset();
-          const keep = style.currentStyle();
-          if (keep) socket.sendStyle(keep);
-        } else {
-          console.log("[mock] would send reset (nova música)");
-        }
-      },
+      () => endSong(),
       savedStyle,
     );
+    styleControl = style;
     if (socket)
       socket.onStyle = (accepted, source) => {
         style.setAccepted(accepted, source);

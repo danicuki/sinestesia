@@ -168,8 +168,8 @@ export MINT_FRAME_MS=600   # per-frame delay (pacing). Higher = slower playback.
 export MINT_IMAGE_BASE=http://<LAN-or-tunnel>:8790
 ```
 
-Flow: when the song ends the operator hits **Finish & Mint** (button, or the
-`m` key in clean/stage mode). The backend assembles the performance record it
+Flow: when the song ends the operator hits **End Song** (button, or the `m` key
+in clean/stage mode), which mints and resets for the next song in one action. The backend assembles the performance record it
 accumulated during the song (transcript + every Director prompt + timestamps)
 plus **every generated frame URL**, and POSTs to the sidecar's `POST /release`.
 The sidecar composes the frames into the NFT image — an **animated WebP of the
@@ -185,8 +185,8 @@ which some marketplaces require. With `MINT_IMAGE_BASE` set, the on-chain
 `image_url` points at the sidecar's `/img/<blob>.<ext>` proxy, which streams the
 blob with the correct MIME + extension; the canonical `walrus_blob_id` is stored
 on-chain regardless, so the blob stays independently retrievable. The returned `claimUrl` is
-pushed to the frontend, which renders a **QR overlay** (`mint_overlay.ts`);
-scanning it opens the sidecar's `/claim` page and mints a free print. See
+pushed to the frontend, which renders a **QR in the corner** (`mint_toast.ts`)
+while the next song is already painting; scanning it opens the sidecar's `/claim` page and mints a free print. See
 `PROTOCOL.md` (`mint` messages) for the wire format.
 
 > For the demo the show wallet pays the print gas. A production build would

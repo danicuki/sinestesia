@@ -76,6 +76,34 @@ export async function warmup(): Promise<ServiceInfo> {
   return svc;
 }
 
+/**
+ * Settlement results by chatId. Because verification finishes AFTER the response
+ * is already on its way to the show, a receipt goes out as `verified: null`
+ * (pending) and would otherwise stay that way on screen forever. Parking the
+ * result here lets the backend resolve that receipt a moment later.
+ *
+ * Bounded and in-memory on purpose: this is a live-show cache, not storage —
+ * `proofs.jsonl` is the durable record.
+ */
+const settledByChatId = new Map<string, boolean>();
+const SETTLED_MAX = 500;
+
+function recordSettled(chatId: string, verified: boolean): void {
+  if (!chatId) return;
+  settledByChatId.set(chatId, verified);
+  // Drop oldest entries (Map preserves insertion order) to bound memory.
+  while (settledByChatId.size > SETTLED_MAX) {
+    const oldest = settledByChatId.keys().next().value;
+    if (oldest === undefined) break;
+    settledByChatId.delete(oldest);
+  }
+}
+
+/** Settled verification for a chatId, or undefined while still pending. */
+export function settledVerification(chatId: string): boolean | undefined {
+  return settledByChatId.get(chatId);
+}
+
 export interface VerifiedCompletion {
   /** The assistant text. */
   content: string;
@@ -149,6 +177,7 @@ export async function verifiedChat(
     .processResponse(provider, chatId, content)
     .then((ok) => {
       const verifiedOk = Boolean(ok);
+      recordSettled(chatId, verifiedOk);
       void appendProof({
         ts: new Date().toISOString(),
         chatId,
@@ -161,6 +190,7 @@ export async function verifiedChat(
     })
     .catch((err) => {
       console.warn(`[0g] processResponse: ${(err as Error).message}`);
+      recordSettled(chatId, false);
       void appendProof({
         ts: new Date().toISOString(),
         chatId,

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { getService, verifiedChat, warmup } from './broker.js';
+import { getService, settledVerification, verifiedChat, warmup } from './broker.js';
 import { port, providerAddress } from './config.js';
 
 /**
@@ -41,6 +41,15 @@ const server = createServer((req, res) => {
       if (req.method === 'GET' && req.url === '/healthz') {
         const svc = await getService();
         return json(res, 200, { ok: true, ...svc });
+      }
+
+      // Resolve a receipt that was returned as `verified: null` (pending),
+      // because settlement finishes after the response is already on screen.
+      // `pending: true` means the chain hasn't answered yet — poll again.
+      if (req.method === 'GET' && req.url?.startsWith('/v1/verification/')) {
+        const chatId = decodeURIComponent(req.url.slice('/v1/verification/'.length).split('?')[0]!);
+        const verified = settledVerification(chatId);
+        return json(res, 200, { chatId, verified: verified ?? null, pending: verified === undefined });
       }
 
       if (req.method === 'POST' && req.url === '/v1/chat/completions') {

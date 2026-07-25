@@ -82,11 +82,21 @@ async function main() {
     return;
   }
   const body: any = await res.json();
-  const chatId: string = body.id ?? '';
+  // The docs are explicit: take the chat id from the ZG-Res-Key response header
+  // FIRST, and only fall back to the body id. They are different values — the
+  // body id is the OpenAI-style completion id, which the provider's broker does
+  // not know, so verifying with it fails as chat_id_not_found. Our app used the
+  // body id, which is what produced the failure this script was written to chase.
+  const headerId: string =
+    res.headers.get('ZG-Res-Key') ?? res.headers.get('zg-res-key') ?? '';
+  const bodyId: string = body.id ?? '';
+  const chatId: string = headerId || bodyId;
   const content: string = body.choices?.[0]?.message?.content ?? '';
   line(`   signing headers  ${tSigned - t0}ms`);
   line(`   inference        ${Date.now() - tSigned}ms   => HTTP 200 OK`);
-  line(`   chat id          ${chatId}      <- issued by the provider, this response`);
+  line(`   ZG-Res-Key hdr   ${headerId || '(absent)'}   <- the verifiable id`);
+  line(`   body id          ${bodyId}   <- OpenAI completion id, NOT verifiable`);
+  line(`   using            ${chatId}`);
   line(`   usage            ${JSON.stringify(body.usage)}`);
   line(`   content          "${content.slice(0, 80)}"`);
 

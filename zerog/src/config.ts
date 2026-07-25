@@ -46,5 +46,10 @@ export const verifyTimeoutMs = () => Number(optional('ZG_VERIFY_TIMEOUT_MS', '0'
  * Relative paths resolve against the package root. */
 export const proofLogPath = () => optional('ZG_PROOF_LOG', 'proofs.jsonl');
 
-export const depositAmount = () => Number(optional('ZG_DEPOSIT', '0.1'));
+/** How much (in 0G) `npm run setup` puts into the ledger.
+ *
+ * The network requires a minimum of 3 0G to create a ledger, and each provider
+ * needs at least 1 0G of locked balance before it will serve. Our old default of
+ * 0.1 was far below both, which silently starves verification. */
+export const depositAmount = () => Number(optional('ZG_DEPOSIT', '3'));
 export const port = () => Number(optional('ZG_PORT', '8788'));

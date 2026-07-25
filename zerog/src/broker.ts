@@ -157,7 +157,13 @@ export async function verifiedChat(
     choices?: { message?: { content?: string } }[];
   };
   const content = json.choices?.[0]?.message?.content ?? '';
-  const chatId = json.id ?? '';
+  // The verifiable chat id is the one the provider's broker issued, returned in
+  // the ZG-Res-Key header — NOT the OpenAI-style completion id in the body.
+  // Using the body id makes processResponse report chat_id_not_found for every
+  // response, so verification can never succeed. Header first, body as the
+  // documented fallback.
+  const chatId =
+    res.headers.get('ZG-Res-Key') ?? res.headers.get('zg-res-key') ?? json.id ?? '';
 
   // Verify the TEE signature (and settle the micro-payment). This step sends an
   // on-chain settlement tx, which on testnet can take longer than the Director's
@@ -173,8 +179,9 @@ export async function verifiedChat(
   // to the proof log so we have durable, replayable proof after the show.
   const settleStart = Date.now();
   const settle: Promise<boolean> = broker.inference
-    // Signature is (providerAddress, chatID, content) in SDK v0.8.
-    .processResponse(provider, chatId, content)
+    // Documented call is (providerAddress, chatID); the third `content` arg is
+    // optional and not part of the verification path.
+    .processResponse(provider, chatId)
     .then((ok) => {
       const verifiedOk = Boolean(ok);
       recordSettled(chatId, verifiedOk);

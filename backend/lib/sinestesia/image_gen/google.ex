@@ -20,6 +20,9 @@ defmodule Sinestesia.ImageGen.Google do
   def generate(prompt, opts \\ []) do
     cfg = Application.fetch_env!(:sinestesia, :config)
     model = opts[:model] || System.get_env("GOOGLE_IMAGE_MODEL") || @default_model
+    # Imagen has no image-to-image endpoint here: every frame is text-to-image,
+    # whatever RENDER_MODE says.
+    Sinestesia.ImageGen.note_route("t2i", model, nil)
 
     case Keyword.get(cfg, :google_api_key) do
       nil ->

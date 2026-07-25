@@ -42,7 +42,7 @@ defmodule Sinestesia.Director do
   # (crisp, persistent); elements that fall out live on only through img2img
   # inheritance and naturally fade over the following frames. Big enough for
   # context, small enough that recent lyrics carry the most weight.
-  defp scene_window do
+  def scene_window do
     case Integer.parse(System.get_env("SCENE_WINDOW", "5")) do
       {n, _} when n > 1 -> n
       _ -> 5
@@ -161,10 +161,18 @@ defmodule Sinestesia.Director do
   rendered by the sidecar as a localized INPAINT — the element is guaranteed
   to materialize and the rest of the canvas is untouched. `COMPOSE_MODE=global`
   falls back to whole-canvas img2img with a scene-list prompt.
+
+  Requires a provider that can actually inpaint. A `NEW: … | POS: …` delta is
+  meaningless to anything else: with no mask and no input image it becomes the
+  *whole* prompt for an independent render, so the song turns into a series of
+  isolated objects — a sun, a hand, an umbrella — none of them sharing a canvas.
+  Imagen and Pollinations can't inpaint, so they get the scene-list prompt
+  instead, which is the form that carries the accumulated scene and the style.
   """
   def compose? do
     mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global" and
-      Sinestesia.ImageGen.render_mode() != :t2i
+      Sinestesia.ImageGen.render_mode() != :t2i and
+      Sinestesia.ImageGen.supports?(:inpaint)
   end
 
   @placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)
@@ -181,7 +189,12 @@ defmodule Sinestesia.Director do
     case Regex.run(~r/NEW:\s*(.+?)\s*\|\s*POS:\s*([a-zA-Z\-]+)/, text) do
       [_, element, pos] ->
         pos = pos |> String.downcase() |> String.trim()
-        %{kind: :new, element: String.trim(element), placement: if(pos in @placements, do: pos, else: "center")}
+
+        %{
+          kind: :new,
+          element: String.trim(element),
+          placement: if(pos in @placements, do: pos, else: "center")
+        }
 
       nil ->
         # `[^|]` strips trailing junk Gemma sometimes appends ("ATMOS: a
@@ -210,7 +223,8 @@ defmodule Sinestesia.Director do
       %{role: "user", content: "molha o céu, molha o chão"},
       %{
         role: "assistant",
-        content: "low cracked sky pouring sheets of rain onto bare earth, mud splashing upward. #{style}"
+        content:
+          "low cracked sky pouring sheets of rain onto bare earth, mud splashing upward. #{style}"
       }
     ]
   end
@@ -383,10 +397,17 @@ defmodule Sinestesia.Director do
             _ -> "0g-compute"
           end
 
-        :gemma -> Keyword.get(cfg, :ollama_model)
-        :gemini -> System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
-        :haiku -> "claude-haiku-4-5"
-        other -> to_string(other)
+        :gemma ->
+          Keyword.get(cfg, :ollama_model)
+
+        :gemini ->
+          System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
+
+        :haiku ->
+          "claude-haiku-4-5"
+
+        other ->
+          to_string(other)
       end
 
     Process.put(:director_model, %{provider: to_string(provider), model: model})

@@ -68,7 +68,7 @@ defmodule Sinestesia.ImageGen.Cloudflare do
 
   @spec img2img(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def img2img(prompt, image_url) do
-    Sinestesia.ImageGen.note_route("img2img", img2img_model(), steps())
+    Sinestesia.ImageGen.note_route("i2i", img2img_model(), steps())
 
     with {:ok, b64} <- input_b64(image_url) do
       body = %{

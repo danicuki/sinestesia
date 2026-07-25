@@ -23,7 +23,10 @@ defmodule Sinestesia.ImageGen.GeminiImage do
   @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, opts \\ []) do
     cfg = Application.fetch_env!(:sinestesia, :config)
-    model = (opts[:model] || System.get_env("GOOGLE_RAMEN_MODEL") || @default_model) |> normalize_model()
+
+    model =
+      (opts[:model] || System.get_env("GOOGLE_RAMEN_MODEL") || @default_model)
+      |> normalize_model()
 
     case Keyword.get(cfg, :google_api_key) do
       nil ->

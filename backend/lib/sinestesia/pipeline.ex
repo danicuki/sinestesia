@@ -99,6 +99,7 @@ defmodule Sinestesia.Pipeline do
         end
     end
   end
+
   def audio_chunk(pid, bin), do: GenServer.cast(pid, {:audio_chunk, bin})
   def expressive(pid, features), do: GenServer.cast(pid, {:expressive, features})
   def fast_features(pid, features), do: GenServer.cast(pid, {:fast_features, features})
@@ -126,6 +127,10 @@ defmodule Sinestesia.Pipeline do
        socket: socket_pid,
        stts: stts,
        lyrics: [],
+       # How many committed lines the Director has already been given.
+       # See unsent_text/2: without this, lines committed while an image was
+       # rendering were silently skipped.
+       lyrics_sent: 0,
        last_finals: %{},
        last_interims: %{},
        last_text_at: %{},
@@ -281,6 +286,7 @@ defmodule Sinestesia.Pipeline do
     %{
       state
       | lyrics: [],
+        lyrics_sent: 0,
         last_finals: %{},
         last_interims: %{},
         last_text_at: %{},
@@ -392,7 +398,10 @@ defmodule Sinestesia.Pipeline do
     {:noreply, state}
   end
 
-  def handle_info({:director_done, _result, _started_at, _call_ms, _model, sid}, %{session_id: cur} = state)
+  def handle_info(
+        {:director_done, _result, _started_at, _call_ms, _model, sid},
+        %{session_id: cur} = state
+      )
       when sid != cur do
     Logger.info("[director] dropping stale result (session #{sid} ≠ #{cur})")
     {:noreply, state}
@@ -513,16 +522,13 @@ defmodule Sinestesia.Pipeline do
     # image provider and make a fast provider look slow.
     morph_ms = Map.get(timings, :morph_ms, 0)
     image_ms = max(call_ms - morph_ms, 0)
-    provider = Sinestesia.ImageGen.provider() |> to_string()
     route = Map.get(timings, :image_route)
 
     # "cloudflare" alone can't distinguish a 6-step Lightning frame from a
-    # 20-step SD-1.5 img2img frame — show the route so the numbers are readable.
-    provider_label =
-      case route do
-        %{route: r, steps: s} -> "#{provider} #{r} #{s}st"
-        _ -> provider
-      end
+    # 20-step SD-1.5 i2i frame — show the route so the numbers are readable.
+    # Same label the failure path prints, so a slow frame and a failed frame
+    # describe themselves the same way.
+    label = route_of(timings)
 
     # Wall-clock the audience actually waits: every hop plus the queueing.
     total =
@@ -530,7 +536,7 @@ defmodule Sinestesia.Pipeline do
         queue_ms
 
     Logger.info(
-      "[image:#{provider_label}#{if route, do: " #{route.model}", else: ""}] +#{image_ms}ms (morph #{morph_ms}ms, queue #{queue_ms}ms) (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{dir_queue_ms} + image #{image_ms} + morph #{morph_ms} + imgq #{queue_ms})"
+      "[image:#{label}] +#{image_ms}ms (morph #{morph_ms}ms, queue #{queue_ms}ms) (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{dir_queue_ms} + image #{image_ms} + morph #{morph_ms} + imgq #{queue_ms})"
     )
 
     msg = %{
@@ -551,7 +557,7 @@ defmodule Sinestesia.Pipeline do
         # Non-zero here means we're the bottleneck, not the model.
         queue_ms: dir_queue_ms + queue_ms,
         total_ms: total,
-        image_provider: provider_label,
+        image_provider: label,
         image_model: route && route.model
       }
     }
@@ -583,10 +589,61 @@ defmodule Sinestesia.Pipeline do
      }}
   end
 
-  def handle_info({:image_done, {:error, reason}, _timings, _sid}, state) do
-    Logger.warning("[image] error: #{inspect(reason)}")
+  def handle_info({:image_done, {:error, reason}, timings, _sid}, state) do
+    # A bare `%Req.TransportError{reason: :timeout}` is unactionable: it doesn't
+    # say which provider, which route, which model, how long we waited, or what
+    # we sent. Report the whole attempt — the interesting failures are the ones
+    # where t2i works and i2i doesn't, and that's only visible from here.
+    Logger.warning("""
+    [image] FAILED #{route_of(timings)}
+      error:  #{inspect(reason)}
+      after:  #{Map.get(timings, :image_call_ms, "?")}ms
+      input:  #{Map.get(timings, :image_input, "?")}
+      prompt: #{Map.get(timings, :prompt_chars, "?")} chars
+      #{diagnosis(reason, timings)}\
+    """)
+
     {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
   end
+
+  defp route_of(timings) do
+    case Map.get(timings, :image_route) do
+      %{provider: p, route: r, model: m, steps: s} ->
+        "#{p} #{r} #{s}st #{m}"
+
+      _ ->
+        "#{Sinestesia.ImageGen.provider()} #{Sinestesia.ImageGen.render_mode()} (route not reported)"
+    end
+  end
+
+  # Turn the common failures into the next thing to check, so a failing show
+  # doesn't need a developer reading provider source at the sound desk.
+  defp diagnosis(%Req.TransportError{reason: :timeout}, timings) do
+    case Map.get(timings, :image_route) do
+      %{route: "i2i"} ->
+        "hint:   i2i timed out. The provider must fetch/receive the previous frame " <>
+          "(#{Map.get(timings, :image_input, "?")}) before it can start rendering, " <>
+          "so i2i can time out where t2i on the same provider succeeds. " <>
+          "Try RENDER_MODE=t2i, or fewer steps."
+
+      _ ->
+        "hint:   the provider accepted the connection but never answered in budget."
+    end
+  end
+
+  defp diagnosis(%Req.TransportError{reason: :econnrefused}, _timings),
+    do: "hint:   nothing is listening — is the sidecar running?"
+
+  defp diagnosis({:bad_status, status, _body}, _timings) when status in [401, 403],
+    do: "hint:   provider rejected the credentials; check the API key for this provider."
+
+  defp diagnosis({:bad_status, 429, _body}, _timings),
+    do: "hint:   rate limited."
+
+  defp diagnosis(reason, _timings) when reason in [:no_fal_key, :no_key],
+    do: "hint:   no API key configured for this provider (see GET /config)."
+
+  defp diagnosis(_reason, _timings), do: ""
 
   def handle_info({:style_curated, _result, sid}, %{session_id: cur} = state)
       when sid != cur do
@@ -802,8 +859,7 @@ defmodule Sinestesia.Pipeline do
       # carries the full style — there's no feedback loop for repetition to
       # bias (the style fixed-point collapse was an img2img phenomenon).
       Sinestesia.ImageGen.render_mode() == :t2i ->
-        {"A single scene showing: #{prompt}. #{state.style}",
-         %{state | frames_since_style: 0}}
+        {"A single scene showing: #{prompt}. #{state.style}", %{state | frames_since_style: 0}}
 
       not state.style_stamped? ->
         {"#{prompt}. #{state.style}", %{state | frames_since_style: 0}}
@@ -873,7 +929,10 @@ defmodule Sinestesia.Pipeline do
       {:noreply, if(from_curator?, do: %{state | style_locked?: true}, else: state)}
     else
       tag = if from_curator?, do: "[curator]", else: "[style]"
-      Logger.info("#{tag} #{inspect(state.style)} → #{inspect(new_style)} (resetting conversation)")
+
+      Logger.info(
+        "#{tag} #{inspect(state.style)} → #{inspect(new_style)} (resetting conversation)"
+      )
 
       push(state.socket, %{
         type: "style",
@@ -941,7 +1000,7 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
-  defp which_providers do
+  def which_providers do
     case System.get_env("STT_PROVIDER", "elevenlabs") |> String.downcase() do
       "both" -> [:elevenlabs, :deepgram]
       "all" -> [:elevenlabs, :deepgram, :local_whisper]
@@ -974,7 +1033,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[elevenlabs] disabled: #{inspect(reason)}")
-        send(socket_pid, {:push_json, %{type: "error", message: "elevenlabs disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "elevenlabs disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -987,7 +1051,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[deepgram] disabled: #{inspect(reason)}")
-        send(socket_pid, {:push_json, %{type: "error", message: "deepgram disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "deepgram disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -999,8 +1068,15 @@ defmodule Sinestesia.Pipeline do
         {:ok, pid}
 
       {:error, reason} ->
-        Logger.warning("[local_whisper] disabled: #{inspect(reason)} (is the sidecar running on :8002?)")
-        send(socket_pid, {:push_json, %{type: "error", message: "local_whisper disabled: #{inspect(reason)}"}})
+        Logger.warning(
+          "[local_whisper] disabled: #{inspect(reason)} (is the sidecar running on :8002?)"
+        )
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "local_whisper disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -1013,7 +1089,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[replay] disabled: #{inspect(reason)} (set REPLAY_FILE)")
-        send(socket_pid, {:push_json, %{type: "error", message: "replay disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "replay disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -1039,6 +1120,9 @@ defmodule Sinestesia.Pipeline do
   # Default window for subsequent calls. Defined here (NOT later) because Elixir
   # module attributes are not hoisted — used in maybe_trigger below.
   @window_words 10
+  # Wider window when there are committed lines waiting: an in-progress partial
+  # will keep growing and get another chance, a dropped commit will not.
+  @catchup_window_words 24
   # Don't fire the Director on sub-word debris like "ul" (the tail of an
   # elongated "azuuuu...ul" split across STT segments) — it wastes a whole
   # image cycle on an atmospheric non-prompt. Real 2-word lines ("Vai voando")
@@ -1071,7 +1155,7 @@ defmodule Sinestesia.Pipeline do
           if bootstrap? do
             bootstrap_text(state, @bootstrap_window_words)
           else
-            pick_current_line(state, @window_words)
+            unsent_text(state, @window_words)
           end
 
         cond do
@@ -1089,7 +1173,12 @@ defmodule Sinestesia.Pipeline do
             %{state | since_last_director: false}
 
           true ->
-            if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words: #{inspect(text)}")
+            if bootstrap?,
+              do:
+                Logger.info(
+                  "[director] bootstrap fire with #{word_count(text)} words: #{inspect(text)}"
+                )
+
             pid = spawn_director(state, text)
 
             %{
@@ -1098,6 +1187,11 @@ defmodule Sinestesia.Pipeline do
                 since_last_director: false,
                 generating?: true,
                 last_director_text: text,
+                # Every line committed so far has now been handed over. The
+                # in-progress partial deliberately does NOT advance the cursor:
+                # it is still growing, and when it commits, the full line must
+                # reach the Director — that is the whole point.
+                lyrics_sent: length(state.lyrics),
                 pending_pids: MapSet.put(state.pending_pids, pid)
             }
         end
@@ -1174,7 +1268,10 @@ defmodule Sinestesia.Pipeline do
         call_ms = now_ms() - call_started
         # Which provider/model actually answered (the chain may have fallen
         # through) — recorded for the provenance certificate.
-        send(parent, {:director_done, result, started_at, call_ms, Sinestesia.Director.last_model(), sid})
+        send(
+          parent,
+          {:director_done, result, started_at, call_ms, Sinestesia.Director.last_model(), sid}
+        )
       end)
 
     pid
@@ -1316,7 +1413,11 @@ defmodule Sinestesia.Pipeline do
         }
 
       {:error, reason} ->
-        Logger.info("[songid] no identification (#{inspect(reason)}); minting as Untitled")
+        # `:unknown` is the system working — the model saw the lyrics and
+        # declined to guess. Anything else means no model ever got to look, and
+        # that's a config/network problem worth shouting about mid-show.
+        level = if reason == :unknown, do: :info, else: :warning
+        Logger.log(level, "[songid] no identification (#{inspect(reason)}); minting as Untitled")
 
         %{
           performance
@@ -1450,24 +1551,59 @@ defmodule Sinestesia.Pipeline do
     Enum.count(conversation, &(&1.role == "user"))
   end
 
-  defp pick_current_line(state, window \\ @window_words) do
-    # Pick the text from whichever provider updated MOST RECENTLY, then take
-    # the trailing N words. This is robust to both segmenting providers
-    # (Deepgram → short fragment, we keep all) and accumulating providers
-    # (ElevenLabs → long running transcript, we keep only the end).
-    state.last_text_at
-    |> Enum.map(fn {provider, ts} ->
-      raw = Map.get(state.last_interims, provider, "")
-      {ts, last_n_words(raw, window)}
-    end)
-    |> Enum.reject(fn {_, text} -> text == "" end)
-    |> case do
-      [] ->
-        ""
+  @doc false
+  # Everything sung since the Director last ran: the lyric lines committed while
+  # it was busy, plus the line currently in progress.
+  #
+  # This used to be the trailing words of the current interim and nothing else,
+  # which quietly threw away most of the song. ElevenLabs in VAD mode grows a
+  # partial and then commits it, resetting the partial to a few words of the
+  # NEXT segment. The Director fires the moment the previous frame lands, so it
+  # caught whatever fragment happened to be in flight at that instant — "Num
+  # instante im" — and the rest of that line ("imagino uma linda gaivota voar no
+  # céu") was committed while the image was rendering and then dropped on the
+  # floor, because by the next trigger the interim had moved on. Three words in,
+  # a whole phrase gone, and the Director painting from a truncation.
+  #
+  # Committed lines are consumed exactly once (`lyrics_sent` is the cursor), so
+  # nothing is sent twice and, more importantly, nothing is skipped: a line that
+  # lands mid-render is still waiting at the next call.
+  def unsent_text(state, window \\ @window_words) do
+    unsent_finals = state.lyrics |> Enum.drop(state.lyrics_sent) |> Enum.join(" ")
+    interim = latest_interim(state)
 
-      candidates ->
-        {_ts, text} = Enum.max_by(candidates, fn {ts, _} -> ts end)
-        text
+    # After a commit, `last_interims` still holds the text that just became a
+    # final, and keeps holding it until the next segment starts. Appending it
+    # would duplicate the line — and once the cursor had consumed that line, it
+    # would keep re-offering it on every trigger forever. So the partial counts
+    # only when it is genuinely still in progress: not already a committed line,
+    # sent or unsent.
+    in_progress? =
+      interim != "" and interim not in state.lyrics and
+        not String.contains?(unsent_finals, interim)
+
+    parts = if in_progress?, do: [unsent_finals, interim], else: [unsent_finals]
+
+    text = parts |> Enum.reject(&(&1 == "")) |> Enum.join(" ")
+
+    # Catching up on committed lines is the case where truncation costs the most
+    # — that's the material that is otherwise lost for good — so give it a wider
+    # window than a bare in-progress partial.
+    window = if unsent_finals == "", do: window, else: max(window, @catchup_window_words)
+
+    last_n_words(text, window)
+  end
+
+  # The in-progress partial from whichever provider spoke most recently. Robust
+  # to both segmenting providers (Deepgram → short fragments) and accumulating
+  # ones (ElevenLabs → a growing line).
+  defp latest_interim(state) do
+    state.last_text_at
+    |> Enum.map(fn {provider, ts} -> {ts, Map.get(state.last_interims, provider, "")} end)
+    |> Enum.reject(fn {_, text} -> String.trim(text) == "" end)
+    |> case do
+      [] -> ""
+      candidates -> candidates |> Enum.max_by(fn {ts, _} -> ts end) |> elem(1) |> String.trim()
     end
   end
 
@@ -1485,7 +1621,6 @@ defmodule Sinestesia.Pipeline do
   end
 
   defp last_n_words(_, _), do: ""
-
 
   defp spawn_image(prompt, timings, prev_url, sid, camera, extra \\ []) do
     parent = self()
@@ -1518,14 +1653,39 @@ defmodule Sinestesia.Pipeline do
           timings
           |> Map.put(:image_call_ms, now_ms() - call_started)
           |> Map.put(:morph_ms, morph_ms)
-          # Which model actually rendered this frame (routes differ wildly in cost).
+          # Which model actually rendered this frame (routes differ wildly in
+          # cost). Recorded by the provider before it calls out, so it is
+          # present on failures too — that's the whole point.
           |> Map.put(:image_route, Sinestesia.ImageGen.last_route())
+          # What we handed the provider. An i2i call that fails while a t2i call
+          # on the same provider succeeds usually fails *because of* this input.
+          |> Map.put(:image_input, describe_input(opts[:image_url]))
+          |> Map.put(:prompt_chars, String.length(prompt))
 
         send(parent, {:image_done, result, timings, sid})
       end)
 
     pid
   end
+
+  # i2i hands the provider the previous frame. Whether that was an https URL the
+  # provider has to fetch, or a multi-megabyte data: URL inlined in the request
+  # body, changes what a failure means — and a data: URL is a common cause of a
+  # call that "just times out" with no server-side error to report.
+  defp describe_input(nil), do: "none (t2i)"
+  defp describe_input(""), do: "none (t2i)"
+
+  defp describe_input("data:" <> _ = url),
+    do: "data: URL, #{div(byte_size(url), 1024)}KB inlined"
+
+  defp describe_input(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: h} when is_binary(h) -> "url #{h}"
+      _ -> "url (unparseable)"
+    end
+  end
+
+  defp describe_input(other), do: inspect(other)
 
   # Ask the 0G sidecar for the settled verification of a receipt that went out as
   # pending, and push the resolved state to the front. Runs in its own task and

@@ -1,0 +1,17 @@
+# Keep the build context small and secrets out of the image.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+backend/_build
+backend/deps
+frontend/dist
+sui/mint/node_modules
+zerog/node_modules
+.git
+.hf-cache
+local-sdxl
+local-whisper
+tests
+site
+**/*.log

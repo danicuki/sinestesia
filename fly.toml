@@ -8,6 +8,10 @@ primary_region = "mad"   # Madrid — closest Fly region to Lisbon
   # Pin the Dockerfile explicitly. Without this, `fly launch` may decide the app
   # is buildpack-shaped and write `builder = "heroku/buildpacks:20"` here, which
   # then fails on the remote builder ("failed to fetch builder image").
+  #
+  # Lives at the repo ROOT (not backend/) because the image contains both the
+  # Elixir release and the 0G sidecar, so the build context needs both trees.
+  # Run `fly deploy` from the repo root.
   dockerfile = "Dockerfile"
 
 [env]
@@ -18,6 +22,9 @@ primary_region = "mad"   # Madrid — closest Fly region to Lisbon
   # secrets or a 0G hiccup means no visuals at all.
   DIRECTOR_PROVIDER = "zerog"
   STT_PROVIDER = "elevenlabs"
+  # The 0G sidecar runs in the same machine; the backend reaches it on loopback,
+  # exactly as it does locally. It is never exposed publicly (it holds a key).
+  ZEROG_SIDECAR_URL = "http://127.0.0.1:8788"
 
 [http_service]
   internal_port = 4000

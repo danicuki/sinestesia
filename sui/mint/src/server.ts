@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import sharp from 'sharp';
 import { createRelease } from './paint-and-mint.js';
@@ -31,7 +32,9 @@ const PORT = Number(process.env.MINT_PORT ?? '8790');
 const CLAIM_PUBLIC_URL = process.env.CLAIM_PUBLIC_URL ?? `http://localhost:${PORT}`;
 
 function json(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  // charset=utf-8 is explicit on purpose: lyrics are Portuguese, and a viewer
+  // with no declared charset falls back to Latin-1 and renders "é" as "Ã©".
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
 }
 
@@ -75,6 +78,12 @@ function numEnv(name: string): number | undefined {
   const v = process.env[name];
   const n = v ? Number(v) : NaN;
   return Number.isFinite(n) ? n : undefined;
+}
+
+/** How frames are fitted onto the animation canvas: 'contain' (default, never
+ * crops — letterboxes mixed aspect ratios) or 'cover' (fills, crops overflow). */
+function fitEnv(): 'contain' | 'cover' | undefined {
+  return process.env.MINT_FIT === 'cover' ? 'cover' : undefined;
 }
 
 interface MintImage {
@@ -137,6 +146,7 @@ async function buildMintImage(
       const image = await composeAnimatedGif(frames, {
         maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
         maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+        fit: fitEnv(),
         frameMs: numEnv('MINT_FRAME_MS'),
         maxTotalMs: numEnv('MINT_GIF_MS'),
       });
@@ -146,6 +156,7 @@ async function buildMintImage(
     const image = await composeAnimatedWebp(frames, {
       maxFrames: numEnv('MINT_GIF_MAX_FRAMES'),
       maxSide: numEnv('MINT_GIF_MAX_SIDE'),
+      fit: fitEnv(),
       frameMs: numEnv('MINT_FRAME_MS'),
       maxTotalMs: numEnv('MINT_GIF_MS'),
       quality: numEnv('MINT_WEBP_QUALITY'),
@@ -198,6 +209,15 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
     txId: rel?.txId,
     explorerUrl: rel?.explorerUrl,
     provenanceHash: result.provenanceHash,
+    // The hash preimage: fetch this to read every prompt and model, and to
+    // recompute the hash yourself. `GET /provenance/:blobId` verifies it for you.
+    //
+    // Prefer `provenanceVerifyUrl` for reading: Walrus serves blobs with no
+    // content-type, so opening the raw URI in a browser decodes the UTF-8
+    // lyrics as Latin-1 ("é" -> "Ã©"). The bytes are correct either way.
+    provenanceUri: result.provenance.uri,
+    provenanceBlobId: result.provenance.id,
+    provenanceVerifyUrl: `${CLAIM_PUBLIC_URL}/provenance/${result.provenance.id}`,
     traits: result.traits,
     imageUri: onChainImage,
     walrusUri: result.stored.uri,
@@ -213,28 +233,248 @@ async function handleClaim(req: IncomingMessage, res: ServerResponse) {
   json(res, 200, receipt);
 }
 
+/** Everything needed to display and verify a release. */
+interface Certificate {
+  release: string;
+  onChain: Record<string, unknown> | null;
+  traits: Record<string, unknown>;
+  /** The hash preimage: prompts, models, transcript. Null if not stored. */
+  record: Record<string, unknown> | null;
+  /** SHA-256 recomputed from the fetched preimage. */
+  computedHash: string | null;
+  /** True when the recomputed hash equals the hash minted on-chain. */
+  verified: boolean;
+  error?: string;
+}
+
+/**
+ * Assemble a release's certificate: on-chain fields, plus the provenance
+ * preimage fetched from storage and re-hashed. The verification is done HERE,
+ * server-side, rather than trusting anything the page is handed — an unverified
+ * certificate is just a nice-looking claim.
+ */
+async function buildCertificate(release: string): Promise<Certificate> {
+  const base: Certificate = {
+    release,
+    onChain: null,
+    traits: {},
+    record: null,
+    computedHash: null,
+    verified: false,
+  };
+
+  try {
+    const fields = await new SuiMinter().getRelease(release);
+    if (!fields) return { ...base, error: 'release not found on chain' };
+
+    let traits: Record<string, unknown> = {};
+    try {
+      traits = typeof fields.traits === 'string' ? JSON.parse(fields.traits) : {};
+    } catch {
+      /* traits stay empty — a malformed blob shouldn't hide the rest */
+    }
+
+    const blobId = typeof traits.provenance_blob === 'string' ? traits.provenance_blob : null;
+    if (!blobId) {
+      // Minted before the preimage was stored: on-chain data still displays.
+      return { ...base, onChain: fields, traits, error: 'no provenance preimage stored' };
+    }
+
+    const r = await fetch(`${walrusAggregator}/v1/blobs/${blobId}`);
+    if (!r.ok) return { ...base, onChain: fields, traits, error: `walrus ${r.status}` };
+
+    const raw = Buffer.from(await r.arrayBuffer());
+    const computedHash = createHash('sha256').update(raw).digest('hex');
+    const onChainHash = String(fields.provenance_hash ?? '');
+
+    return {
+      release,
+      onChain: fields,
+      traits,
+      // Decoded as UTF-8 explicitly; the lyrics are Portuguese.
+      record: JSON.parse(raw.toString('utf8')),
+      computedHash,
+      verified: computedHash === onChainHash,
+    };
+  } catch (err) {
+    return { ...base, error: (err as Error).message };
+  }
+}
+
 /** Minimal self-contained claim page — the QR target. No external assets. */
-function claimPage(release: string): string {
+function claimPage(release: string, cert: Certificate): string {
+  const f = (cert.onChain ?? {}) as Record<string, any>;
+  const rec = (cert.record ?? {}) as Record<string, any>;
+  const models = (rec.models ?? {}) as Record<string, any>;
+  const steps: any[] = Array.isArray(rec.steps) ? rec.steps : [];
+
+  const esc = (s: unknown) =>
+    String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
+    );
+  const short = (s: unknown, n = 10) => {
+    const v = String(s ?? '');
+    return v.length > n * 2 ? `${v.slice(0, n)}…${v.slice(-6)}` : v;
+  };
+  const modelName = (m: any) =>
+    !m ? '—' : [m.provider, m.model].filter(Boolean).join(' · ') || '—';
+
+  const imageUrl = f.image_url ? String(f.image_url) : '';
+  const song = f.song ? String(f.song) : 'Untitled';
+  const artist = f.artist ? String(f.artist) : '';
+  const venue = f.venue ? String(f.venue) : '';
+  const when = f.created_at_ms ? new Date(Number(f.created_at_ms)).toLocaleString() : '';
+
+  const directorModels: any[] = Array.isArray(models.director) ? models.director : [];
+  const chainRows = [
+    ['Speech-to-text', modelName(models.stt)],
+    ['Director (LLM)', directorModels.map(modelName).join(', ') || '—'],
+    [
+      'Image',
+      models.image
+        ? `${modelName(models.image)}${models.image.route ? ` · ${models.image.route}` : ''}${
+            models.image.steps ? ` · ${models.image.steps} steps` : ''
+          }`
+        : '—',
+    ],
+    ['Render mode', models.renderMode ?? '—'],
+  ]
+    .map(
+      ([k, v]) =>
+        `<div class="row"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`,
+    )
+    .join('');
+
+  const stepRows = steps
+    .map((s, i) => {
+      const t = s?.t ? new Date(s.t).toLocaleTimeString() : '';
+      return `<li><div class="stepmeta"><span class="num">${i + 1}</span><span class="time">${esc(
+        t,
+      )}</span><span class="model">${esc(modelName(s?.model))}</span></div><div class="prompt">${esc(
+        s?.prompt,
+      )}</div></li>`;
+    })
+    .join('');
+
+  const verifyBadge = cert.verified
+    ? `<div class="verify ok"><b>✓ Verified</b><span>The stored record hashes to the value minted on-chain.</span></div>`
+    : `<div class="verify warn"><b>⚠ Unverified</b><span>${esc(
+        cert.error ?? 'Recomputed hash does not match the on-chain hash.',
+      )}</span></div>`;
+
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sinestesia — claim your print</title>
+<title>Sinestesia — ${esc(song)}</title>
 <style>
   :root { color-scheme: dark; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-    background:#0b1410; color:#eafff2; font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
-  .card { max-width:420px; padding:28px; text-align:center; }
-  h1 { font-size:20px; margin:0 0 6px; }
-  .muted { opacity:.7; font-size:14px; }
-  button { margin-top:18px; padding:13px 22px; border-radius:999px; border:1px solid #40e08a;
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b1410; color:#eafff2;
+    font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:28px 20px 64px; }
+  header { text-align:center; margin-bottom:22px; }
+  .brand { font-size:12px; letter-spacing:.22em; text-transform:uppercase; opacity:.55; }
+  h1 { font-size:30px; margin:8px 0 2px; line-height:1.15; }
+  .by { opacity:.75; }
+  .when { font-size:13px; opacity:.5; margin-top:6px; }
+  .art { width:100%; border-radius:14px; border:1px solid #ffffff14; display:block;
+    background:#0f1a15; margin:20px 0; }
+  .verify { display:flex; flex-direction:column; gap:2px; padding:12px 16px; border-radius:12px;
+    margin-bottom:20px; font-size:14px; }
+  .verify b { font-size:14px; }
+  .verify span { opacity:.75; font-size:13px; }
+  .verify.ok { background:#40e08a14; border:1px solid #40e08a55; }
+  .verify.warn { background:#e0b04014; border:1px solid #e0b04055; }
+  section { border:1px solid #ffffff12; border-radius:14px; padding:18px; margin-bottom:16px;
+    background:#ffffff05; }
+  h2 { font-size:12px; letter-spacing:.16em; text-transform:uppercase; opacity:.55;
+    margin:0 0 12px; font-weight:600; }
+  .row { display:flex; justify-content:space-between; gap:16px; padding:7px 0;
+    border-bottom:1px solid #ffffff0a; font-size:14px; }
+  .row:last-child { border-bottom:0; }
+  .k { opacity:.6; flex:0 0 auto; }
+  .v { text-align:right; word-break:break-word; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; opacity:.85;
+    word-break:break-all; }
+  ol { list-style:none; margin:0; padding:0; counter-reset:s; }
+  ol li { padding:11px 0; border-bottom:1px solid #ffffff0a; }
+  ol li:last-child { border-bottom:0; }
+  .stepmeta { display:flex; gap:10px; align-items:center; font-size:11px; opacity:.5;
+    margin-bottom:3px; }
+  .num { background:#40e08a22; color:#8ef0bb; border-radius:5px; padding:1px 6px; font-weight:600; }
+  .prompt { font-size:14px; }
+  .lyrics { font-size:14px; opacity:.8; white-space:pre-wrap; max-height:210px; overflow:auto; }
+  a { color:#40e08a; }
+  .actions { text-align:center; margin-top:26px; }
+  button { padding:14px 26px; border-radius:999px; border:1px solid #40e08a;
     background:#40e08a22; color:#eafff2; font-size:16px; font-weight:600; cursor:pointer; }
   button:disabled { opacity:.5; cursor:default; }
-  a { color:#40e08a; }
-  #out { margin-top:16px; font-size:14px; word-break:break-all; }
-</style></head><body><div class="card">
-  <h1>Sinestesia</h1>
-  <div class="muted">Claim your free print of tonight's live painting.</div>
-  <button id="go">Claim my print</button>
-  <div id="out"></div>
+  #out { margin-top:14px; font-size:14px; word-break:break-all; }
+  .links { margin-top:14px; font-size:13px; opacity:.75; text-align:center; }
+</style></head><body><div class="wrap">
+  <header>
+    <div class="brand">Sinestesia · Certificate of Authenticity</div>
+    <h1>${esc(song)}</h1>
+    ${artist ? `<div class="by">${esc(artist)}</div>` : ''}
+    <div class="when">${esc([venue, when].filter(Boolean).join(' · '))}</div>
+  </header>
+
+  ${imageUrl ? `<img class="art" src="${esc(imageUrl)}" alt="${esc(song)}">` : ''}
+
+  ${verifyBadge}
+
+  <section>
+    <h2>How it was made</h2>
+    ${chainRows}
+  </section>
+
+  ${
+    steps.length
+      ? `<section><h2>Director prompts (${steps.length})</h2><ol>${stepRows}</ol></section>`
+      : ''
+  }
+
+  ${
+    rec.transcript
+      ? `<section><h2>Transcript</h2><div class="lyrics">${esc(rec.transcript)}</div></section>`
+      : ''
+  }
+
+  <section>
+    <h2>On-chain</h2>
+    <div class="row"><span class="k">Release</span><span class="v"><code>${esc(
+      short(release, 12),
+    )}</code></span></div>
+    <div class="row"><span class="k">Provenance hash</span><span class="v"><code>${esc(
+      short(f.provenance_hash, 12),
+    )}</code></span></div>
+    <div class="row"><span class="k">Prints minted</span><span class="v">${esc(
+      f.prints_minted ?? '0',
+    )}</span></div>
+    <div class="row"><span class="k">Image blob</span><span class="v"><code>${esc(
+      short(f.walrus_blob_id, 10),
+    )}</code></span></div>
+    ${
+      cert.traits.provenance_blob
+        ? `<div class="row"><span class="k">Provenance blob</span><span class="v"><code>${esc(
+            short(cert.traits.provenance_blob, 10),
+          )}</code></span></div>`
+        : ''
+    }
+  </section>
+
+  <div class="actions">
+    <button id="go">Claim my print</button>
+    <div id="out"></div>
+    <div class="links">
+      <a href="https://suiscan.xyz/testnet/object/${esc(release)}" target="_blank">View on Suiscan</a>
+      · <a href="/certificate?release=${encodeURIComponent(release)}" target="_blank">Raw certificate</a>
+      ${
+        cert.traits.provenance_blob
+          ? `· <a href="/provenance/${esc(cert.traits.provenance_blob)}" target="_blank">Verify provenance</a>`
+          : ''
+      }
+    </div>
+  </div>
 <script>
   const rel = ${JSON.stringify(release)};
   const go = document.getElementById('go'), out = document.getElementById('out');
@@ -270,8 +510,43 @@ const server = createServer((req, res) => {
       if (req.method === 'GET' && url.pathname === '/claim') {
         const release = url.searchParams.get('release');
         if (!release) return json(res, 400, { error: 'release query param required' });
+        const cert = await buildCertificate(release);
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(claimPage(release));
+        return res.end(claimPage(release, cert));
+      }
+      // The same certificate as JSON, for anyone who'd rather verify than read.
+      if (req.method === 'GET' && url.pathname === '/certificate') {
+        const release = url.searchParams.get('release');
+        if (!release) return json(res, 400, { error: 'release query param required' });
+        return json(res, 200, await buildCertificate(release));
+      }
+      // The certificate of authenticity: fetch the provenance preimage from
+      // storage, recompute its SHA-256, and hand back both. `?raw=1` returns the
+      // exact canonical bytes the hash was taken over, so anyone can verify
+      // independently rather than trusting this endpoint's own arithmetic.
+      if (req.method === 'GET' && url.pathname.startsWith('/provenance/')) {
+        const blobId = decodeURIComponent(url.pathname.slice('/provenance/'.length));
+        if (!blobId) return json(res, 400, { error: 'blob id required' });
+        const r = await fetch(`${walrusAggregator}/v1/blobs/${blobId}`);
+        if (!r.ok) return json(res, 502, { error: `walrus ${r.status}` });
+        const raw = Buffer.from(await r.arrayBuffer());
+
+        if (url.searchParams.get('raw') === '1') {
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+          });
+          return res.end(raw);
+        }
+
+        const hash = createHash('sha256').update(raw).digest('hex');
+        return json(res, 200, {
+          provenanceHash: hash,
+          blobId,
+          // Compare `provenanceHash` against the value stored on-chain: equal
+          // means this record is exactly what was minted, untampered.
+          record: JSON.parse(raw.toString('utf8')),
+        });
       }
       // Content-type-serving proxy for the NFT image: /img/<blobId>.<ext>.
       // Streams the Walrus blob with a proper image MIME + extension so the

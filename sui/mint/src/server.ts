@@ -1,13 +1,11 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import sharp from 'sharp';
-import { createRelease } from './paint-and-mint.js';
-import { WalrusStorage } from './storage/walrus.js';
 import { SuiMinter } from './chains/sui.js';
 import { walrusAggregator } from './config.js';
 import type { Performance } from './provenance.js';
-import { composeAnimatedGif, composeAnimatedWebp, composeCollage } from './compose.js';
 
 /**
  * HTTP sidecar around the mint pipeline, so the live show can mint the finished
@@ -27,9 +25,12 @@ import { composeAnimatedGif, composeAnimatedWebp, composeCollage } from './compo
  */
 
 const PORT = Number(process.env.MINT_PORT ?? '8790');
-// Public base the QR encodes. Set to a LAN/tunnel URL so phones can reach it;
-// defaults to localhost for a single-machine rehearsal.
-const CLAIM_PUBLIC_URL = process.env.CLAIM_PUBLIC_URL ?? `http://localhost:${PORT}`;
+// Public base the QR encodes. Set it to the deployed claim app (or a tunnel) so
+// audience phones can reach it. On Vercel the deployment URL is used
+// automatically; falls back to localhost for a single-machine rehearsal.
+const CLAIM_PUBLIC_URL =
+  process.env.CLAIM_PUBLIC_URL ??
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `http://localhost:${PORT}`);
 
 function json(res: ServerResponse, status: number, body: unknown) {
   // charset=utf-8 is explicit on purpose: lyrics are Portuguese, and a viewer
@@ -113,6 +114,20 @@ function mimeForExt(ext: string): string {
 }
 
 /**
+ * Image tooling (sharp + the composers) is loaded only when a release is
+ * actually being minted. It pulls native binaries, and the public claim
+ * deployment never composes anything — so the audience-facing routes must not
+ * depend on it loading at all.
+ */
+async function imageTools() {
+  const [{ default: sharp }, compose] = await Promise.all([
+    import('sharp'),
+    import('./compose.js'),
+  ]);
+  return { sharp, ...compose };
+}
+
+/**
  * Decide what image actually gets minted. With the song's frame sequence and
  * mode "gif"/"collage", compose the whole-song artifact; otherwise (or on any
  * failure) fall back to the final still in `imageBase64`.
@@ -122,6 +137,7 @@ async function buildMintImage(
   frameUrls: string[] | undefined,
   mode: ComposeMode,
 ): Promise<MintImage> {
+  const { sharp, composeAnimatedGif, composeAnimatedWebp, composeCollage } = await imageTools();
   const finalStill = Buffer.from(imageBase64, 'base64');
   const asFinal = async (): Promise<MintImage> => {
     const meta = await sharp(finalStill).metadata().catch(() => ({ format: 'png' }));
@@ -191,6 +207,10 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
   // wallet); otherwise it's the raw Walrus URL. Either way walrus_blob_id is
   // stored on-chain, so the blob stays independently retrievable.
   const imageBase = process.env.MINT_IMAGE_BASE?.replace(/\/$/, '');
+  const [{ createRelease }, { WalrusStorage }] = await Promise.all([
+    import('./paint-and-mint.js'),
+    import('./storage/walrus.js'),
+  ]);
   const result = await createRelease({
     image,
     performance: body.performance,
@@ -493,9 +513,16 @@ function claimPage(release: string, cert: Certificate): string {
 </script></div></body></html>`;
 }
 
-const server = createServer((req, res) => {
-  void (async () => {
-    try {
+/**
+ * The whole router as one async function, so the identical code serves both the
+ * local sidecar (`npm run serve`) and the serverless deployment (`api/index.ts`).
+ * The claim page the audience scans is then literally the page we test locally —
+ * it can't drift from a forked copy.
+ */
+export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
+  {
+    {
+      try {
       const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
       if (req.method === 'GET' && url.pathname === '/healthz') {
@@ -569,14 +596,25 @@ const server = createServer((req, res) => {
         return res.end(buf);
       }
       json(res, 404, { error: 'not found' });
-    } catch (err) {
-      console.error('[mint] request failed:', err);
-      json(res, 502, { error: (err as Error).message });
+      } catch (err) {
+        console.error('[mint] request failed:', err);
+        json(res, 502, { error: (err as Error).message });
+      }
     }
-  })();
-});
+  }
+}
 
-server.listen(PORT, () => {
-  console.log(`[mint] sidecar on http://127.0.0.1:${PORT}`);
-  console.log(`[mint] claim QR base: ${CLAIM_PUBLIC_URL}`);
-});
+/** Start the local sidecar. Not called when imported by the serverless entry. */
+export function startServer(port = PORT) {
+  const server = createServer((req, res) => void handleRequest(req, res));
+  server.listen(port, () => {
+    console.log(`[mint] sidecar on http://127.0.0.1:${port}`);
+    console.log(`[mint] claim QR base: ${CLAIM_PUBLIC_URL}`);
+  });
+  return server;
+}
+
+// Only listen when run directly (`tsx src/server.ts`), not when imported.
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  startServer();
+}

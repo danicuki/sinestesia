@@ -13,5 +13,17 @@ import { handleRequest } from '../src/server.js';
  * tooling, and nothing public should be able to trigger a release.
  */
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  await handleRequest(req, res);
+  try {
+    await handleRequest(req, res);
+  } catch (err) {
+    // Anything escaping the router would otherwise surface as Vercel's opaque
+    // FUNCTION_INVOCATION_FAILED page, which says nothing about what broke.
+    // Answer with the message instead: this sidecar gets debugged from the
+    // backend's error string far more often than from the dashboard.
+    console.error('[mint] unhandled:', err);
+    if (!res.headersSent) {
+      res.writeHead(500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: (err as Error).message }));
+    }
+  }
 }

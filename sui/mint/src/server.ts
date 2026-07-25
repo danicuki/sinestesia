@@ -682,3 +682,15 @@ export function startServer(port = PORT) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   startServer();
 }
+
+/**
+ * Also valid as a serverless entrypoint.
+ *
+ * `api/index.ts` is the intended one, but Vercel's builder has treated this
+ * module as an entrypoint too — and a function module with no default export
+ * fails to boot ("The default export must be a function or server"), taking
+ * every route down with it, not just this one. `handleRequest` already has the
+ * (req, res) shape the runtime wants, so exporting it costs nothing and removes
+ * a way for the whole deployment to be dead on arrival.
+ */
+export default handleRequest;

@@ -1,13 +1,50 @@
 import { getFullnodeUrl } from '@mysten/sui/client';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 // Populate process.env from sui/mint/.env if it exists, so `npm run mint`/`serve`
 // work right after `cp .env.example .env` (no manual `source` needed).
-try {
-  process.loadEnvFile(fileURLToPath(new URL('../.env', import.meta.url)));
-} catch {
-  /* no .env file — fall back to the ambient environment */
-}
+//
+// `process.loadEnvFile` only exists on Node >=20.6, and npm may run under an
+// older nvm-default Node — there, that call throws and (previously) got swallowed
+// as "no .env", leaving every secret unset. So we prefer it when available but
+// fall back to a tiny hand parser. Only a genuinely missing file is silent;
+// existing-env vars always win so shell overrides keep priority.
+(function loadEnv() {
+  const envPath = fileURLToPath(new URL('../.env', import.meta.url));
+  if (typeof process.loadEnvFile === 'function') {
+    try {
+      process.loadEnvFile(envPath);
+      return;
+    } catch {
+      /* no .env file — fall back to the ambient environment */
+      return;
+    }
+  }
+  // Node <20.6: parse the file ourselves.
+  let raw: string;
+  try {
+    raw = readFileSync(envPath, 'utf8');
+  } catch {
+    return; // No .env — use the ambient environment.
+  }
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!key || key in process.env) continue; // Real env wins.
+    let value = trimmed.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+})();
 
 export type Network = 'testnet' | 'devnet' | 'mainnet' | 'localnet';
 

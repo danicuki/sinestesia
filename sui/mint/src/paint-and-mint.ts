@@ -1,4 +1,4 @@
-import { provenanceHash, type Performance } from './provenance.js';
+import { canonicalProvenance, provenanceHash, type Performance } from './provenance.js';
 import { deriveTraits } from './traits.js';
 import type { Storage, StoredImage } from './storage/types.js';
 import type { Minter, ReleaseReceipt } from './chains/types.js';
@@ -21,6 +21,8 @@ export interface CreateReleaseInput {
 export interface CreateReleaseResult {
   stored: StoredImage;
   provenanceHash: string;
+  /** Where the hash PREIMAGE lives, so the certificate can actually be opened. */
+  provenance: StoredImage;
   traits: Record<string, string | number>;
   releases: ReleaseReceipt[];
 }
@@ -34,9 +36,24 @@ export interface CreateReleaseResult {
 export async function createRelease(input: CreateReleaseInput): Promise<CreateReleaseResult> {
   const { image, performance, storage, minters } = input;
 
-  const stored = await storage.store(image);
+  // Store the painting AND the provenance preimage. Minting only the hash left
+  // the certificate sealed: nobody could see the prompts or the models behind
+  // the artwork, or recompute the hash to check it. Both go to the same backend,
+  // so the proof is as durable and as public as the image itself.
+  const canonical = canonicalProvenance(performance);
+  const [stored, provenance] = await Promise.all([
+    storage.store(image),
+    storage.store(Buffer.from(canonical, 'utf8')),
+  ]);
   const hash = provenanceHash(performance);
-  const traits = deriveTraits(performance);
+
+  // Carried in `traits` (already an arbitrary on-chain JSON field) so the
+  // preimage is reachable from the NFT without changing the Move contract.
+  const traits = {
+    ...deriveTraits(performance),
+    provenance_blob: provenance.id,
+    provenance_uri: provenance.uri,
+  };
 
   const req = {
     song: performance.song,
@@ -51,5 +68,5 @@ export async function createRelease(input: CreateReleaseInput): Promise<CreateRe
   };
 
   const releases = await Promise.all(minters.map((m) => m.createRelease(req)));
-  return { stored, provenanceHash: hash, traits, releases };
+  return { stored, provenance, provenanceHash: hash, traits, releases };
 }

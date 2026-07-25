@@ -28,8 +28,17 @@ function sampleEvenly<T>(buffers: T[], max: number): T[] {
 export interface GifOptions {
   /** Cap on frames actually encoded (evenly sampled if more). */
   maxFrames?: number;
-  /** Longest side in px; frames are cover-fit to a common size. */
+  /** Longest side in px; frames are fitted to a common size. */
   maxSide?: number;
+  /**
+   * How frames are fitted onto the shared canvas. Animations need every frame
+   * at identical dimensions, but the song's frames can arrive at mixed aspect
+   * ratios (Cloudflare SDXL emits 1024x576, the base model 1024x1024, other
+   * providers differ again). `'contain'` letterboxes so nothing is ever cut —
+   * the default, because cropping silently ate the edges of the artwork.
+   * `'cover'` fills the frame instead, cropping whatever overflows.
+   */
+  fit?: 'contain' | 'cover';
   /**
    * Per-frame delay in ms — how long each beat of the painting is held. This is
    * the main pacing knob; the default is deliberately unhurried so a viewer can
@@ -53,6 +62,32 @@ function frameDelay(count: number, opts: GifOptions): number {
   return Math.max(60, Math.round(capped));
 }
 
+/** Letterbox colour behind `contain`-fitted frames. */
+const PAD_BG = { r: 12, g: 16, b: 12, alpha: 1 };
+
+/**
+ * Pick the shared canvas for an animation. Sizing off frame 0 alone meant one
+ * odd first frame dictated the aspect ratio for the whole song; using the median
+ * aspect ratio keeps the canvas close to what most frames actually are, so
+ * letterboxing stays minimal.
+ */
+async function canvasFor(frames: Buffer[], maxSide: number): Promise<{ w: number; h: number }> {
+  const ars: number[] = [];
+  for (const f of frames) {
+    const m = await sharp(f).metadata();
+    if (m.width && m.height) ars.push(m.width / m.height);
+  }
+  if (ars.length === 0) ars.push(1);
+  ars.sort((a, b) => a - b);
+  const ar = ars[Math.floor(ars.length / 2)]!;
+
+  let w = ar >= 1 ? maxSide : Math.round(maxSide * ar);
+  let h = ar >= 1 ? Math.round(maxSide / ar) : maxSide;
+  w -= w % 2;
+  h -= h % 2;
+  return { w, h };
+}
+
 export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}): Promise<Buffer> {
   if (frames.length === 0) throw new Error('no frames to compose');
   // The backend sends one keyframe per Director beat (~40–60 for a 4-min song),
@@ -65,21 +100,18 @@ export async function composeAnimatedGif(frames: Buffer[], opts: GifOptions = {}
   const holdLastMs = opts.holdLastMs ?? 2_000;
 
   const selected = sampleEvenly(frames, maxFrames);
+  const fit = opts.fit ?? 'contain';
 
-  // Canvas size from the first frame's aspect ratio, clamped to maxSide, even dims.
-  const meta = await sharp(selected[0]!).metadata();
-  const ar = (meta.width ?? 1) / (meta.height ?? 1);
-  let w = ar >= 1 ? maxSide : Math.round(maxSide * ar);
-  let h = ar >= 1 ? Math.round(maxSide / ar) : maxSide;
-  w -= w % 2;
-  h -= h % 2;
+  // Canvas sized to the frames' median aspect ratio, clamped to maxSide, even dims.
+  const { w, h } = await canvasFor(selected, maxSide);
 
   const delay = frameDelay(selected.length, opts);
 
   const enc = GIFEncoder();
   for (let i = 0; i < selected.length; i++) {
     const rgba = await sharp(selected[i]!)
-      .resize(w, h, { fit: 'cover' })
+      .resize(w, h, { fit, background: PAD_BG })
+      .flatten({ background: PAD_BG })
       .ensureAlpha()
       .raw()
       .toBuffer();
@@ -106,16 +138,14 @@ export async function composeAnimatedWebp(frames: Buffer[], opts: GifOptions & {
   const quality = opts.quality ?? 70;
 
   const selected = sampleEvenly(frames, maxFrames);
-  const meta = await sharp(selected[0]!).metadata();
-  const ar = (meta.width ?? 1) / (meta.height ?? 1);
-  let w = ar >= 1 ? maxSide : Math.round(maxSide * ar);
-  let h = ar >= 1 ? Math.round(maxSide / ar) : maxSide;
-  w -= w % 2;
-  h -= h % 2;
+  const fit = opts.fit ?? 'contain';
+  const { w, h } = await canvasFor(selected, maxSide);
 
   // All frames must share dimensions before joining into an animation.
   const resized = await Promise.all(
-    selected.map((f) => sharp(f).resize(w, h, { fit: 'cover' }).toBuffer()),
+    selected.map((f) =>
+      sharp(f).resize(w, h, { fit, background: PAD_BG }).flatten({ background: PAD_BG }).toBuffer(),
+    ),
   );
   const per = frameDelay(resized.length, opts);
   const delays = resized.map((_, i) => (i === resized.length - 1 ? per + holdLastMs : per));

@@ -388,16 +388,42 @@ function claimPage(release: string, cert: Certificate): string {
     )
     .join('');
 
+  // One turn of the exchange: what was sung, what the Director answered, which
+  // model wrote it, and the receipt proving where that inference ran.
+  const proofChip = (proof: any) => {
+    if (!proof || !proof.chatId) return '';
+    const id = String(proof.chatId);
+    const short = id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+    const title = `chat ${esc(id)}${proof.provider ? ` · provider ${esc(proof.provider)}` : ''}`;
+    if (proof.verified === true) {
+      return `<span class="proof ok" title="${title}">✓ TEE-verified · ${esc(short)}</span>`;
+    }
+    if (proof.verified === false) {
+      return `<span class="proof bad" title="${title}">signature failed · ${esc(short)}</span>`;
+    }
+    return `<span class="proof pend" title="${title}">unresolved · ${esc(short)}</span>`;
+  };
+
   const stepRows = steps
     .map((s, i) => {
       const t = s?.t ? new Date(s.t).toLocaleTimeString() : '';
+      const sung = s?.lyric
+        ? `<div class="sung"><span class="who">sung</span>${esc(s.lyric)}</div>`
+        : '';
       return `<li><div class="stepmeta"><span class="num">${i + 1}</span><span class="time">${esc(
         t,
-      )}</span><span class="model">${esc(modelName(s?.model))}</span></div><div class="prompt">${esc(
-        s?.prompt,
-      )}</div></li>`;
+      )}</span><span class="model">${esc(modelName(s?.model))}</span>${proofChip(
+        s?.proof,
+      )}</div>${sung}<div class="prompt">${
+        sung ? '<span class="who">painted</span>' : ''
+      }${esc(s?.prompt)}</div></li>`;
     })
     .join('');
+
+  const proven = steps.filter((s) => s?.proof?.verified === true).length;
+  const proofSummary = proven
+    ? ` · <span class="proof ok">${proven}/${steps.length} TEE-verified</span>`
+    : '';
 
   const verifyBadge = cert.verified
     ? `<div class="verify ok"><b>✓ Verified</b><span>The stored record hashes to the value minted on-chain.</span></div>`
@@ -445,6 +471,14 @@ function claimPage(release: string, cert: Certificate): string {
     margin-bottom:3px; }
   .num { background:#40e08a22; color:#8ef0bb; border-radius:5px; padding:1px 6px; font-weight:600; }
   .prompt { font-size:14px; }
+  .sung { font-size:14px; opacity:.62; font-style:italic; margin-bottom:2px; }
+  .who { font-size:10px; letter-spacing:.12em; text-transform:uppercase; opacity:.5;
+    margin-right:7px; font-style:normal; }
+  .proof { font-size:10px; letter-spacing:.04em; border-radius:999px; padding:1px 7px;
+    border:1px solid currentColor; white-space:nowrap; }
+  .proof.ok { color:#8ef0bb; }
+  .proof.bad { color:#f0a8a8; }
+  .proof.pend { color:#e0c48a; }
   .lyrics { font-size:14px; opacity:.8; white-space:pre-wrap; max-height:210px; overflow:auto; }
   a { color:#40e08a; }
   .actions { text-align:center; margin-top:26px; }
@@ -472,7 +506,7 @@ function claimPage(release: string, cert: Certificate): string {
 
   ${
     steps.length
-      ? `<section><h2>Director prompts (${steps.length})</h2><ol>${stepRows}</ol></section>`
+      ? `<section><h2>The exchange (${steps.length} turns)${proofSummary}</h2><ol>${stepRows}</ol></section>`
       : ''
   }
 

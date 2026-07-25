@@ -32,6 +32,39 @@ const SLUGS = {
   'Sinestesia-Wordmark': 'identity',
 };
 
+/**
+ * Prop values that differ from the prototype's defaults, applied at render time
+ * so they survive a fresh export. Editing the generated HTML instead would be
+ * undone the next time this script runs.
+ */
+const PROP_OVERRIDES = {
+  // The "artists who have played it" slot is a deliberate placeholder for social
+  // proof that doesn't exist yet. Hidden until a real show can fill it, rather
+  // than published empty (or, worse, filled with invented names).
+  'Sinestesia-Artists': { showProofSlot: false },
+};
+
+/**
+ * Asset substitutions applied to the rendered HTML. The design bundle ships
+ * source-resolution originals (the hero panel is 3423px / 13MB); the site serves
+ * optimized derivatives committed under site/assets. Kept here so a re-render
+ * can't quietly reintroduce the heavy original.
+ */
+const ASSET_REWRITES = {
+  'app-lover-panel.png': 'app-lover-panel.webp',
+};
+
+/**
+ * Assets whose committed (optimized) version always wins over the bundle's
+ * original. The bundle ships a 6.2MB source encode of the hero video; the copy
+ * in site/assets is a faststart re-encode a third the size. Without this, every
+ * re-render silently restores the heavy original.
+ *
+ * To take a genuinely new version from the designer, delete the file from
+ * site/assets and re-run — then re-optimize it.
+ */
+const KEEP_OPTIMIZED = new Set(['aranha-live-30s.mp4']);
+
 const esc = (v) =>
   String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 
@@ -154,9 +187,10 @@ async function renderPage(file) {
   if (sm) {
     if (/class\s+Component\b/.test(sm[2])) {
       const propsSpec = JSON.parse(sm[1].replace(/&quot;/g, '"'));
-      const props = Object.fromEntries(
-        Object.entries(propsSpec).map(([k, v]) => [k, v.default]),
-      );
+      const props = {
+        ...Object.fromEntries(Object.entries(propsSpec).map(([k, v]) => [k, v.default])),
+        ...(PROP_OVERRIDES[name] ?? {}),
+      };
       vals = await evaluateComponent(sm[2], props);
       mount = mountBody(sm[2]);
     }
@@ -176,6 +210,10 @@ ${mount}
 });
 </script>`;
     html = html.replace(/<\/body>/i, `${script}\n</body>`);
+  }
+
+  for (const [from, to] of Object.entries(ASSET_REWRITES)) {
+    html = html.replaceAll(`assets/${from}`, `assets/${to}`);
   }
 
   // Rewrite cross-page links to clean URLs (vercel.json sets cleanUrls).
@@ -212,8 +250,13 @@ if (existsSync(assetsDir)) {
   mkdirSync(join(OUT, 'assets'), { recursive: true });
   for (const a of used) {
     const src = join(assetsDir, a);
-    if (existsSync(src)) copyFileSync(src, join(OUT, 'assets', a));
-    else console.log(`  ⚠ referenced but missing: assets/${a}`);
+    const dest = join(OUT, 'assets', a);
+    if (KEEP_OPTIMIZED.has(a) && existsSync(dest)) {
+      console.log(`  keep  assets/${a} (optimized copy)`);
+    } else if (existsSync(src)) copyFileSync(src, dest);
+    // An optimized derivative already in place is expected (see ASSET_REWRITES);
+    // only a genuinely absent asset is a problem.
+    else if (!existsSync(dest)) console.log(`  ⚠ referenced but missing: assets/${a}`);
   }
   console.log(`  assets: ${[...used].join(', ')}`);
 }

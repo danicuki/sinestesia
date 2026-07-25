@@ -205,14 +205,27 @@ export class DebugOverlay {
     this.renderHistory();
   }
 
-  // STT 195 | DIR 870 | IMG 480 | TOT 1545ms (fal)
+  // STT 195 | DIR 870 | IMG 480 | Q 120 | TOT 1545ms (fal)
+  // DIR/IMG are provider round-trips; Q is time queued inside the pipeline, shown
+  // separately (and only when non-trivial) so our own backpressure isn't misread
+  // as a slow model.
   private formatTiming(t: Timings): string {
+    const queue =
+      t.queue_ms && t.queue_ms > 0
+        ? span(" | ", COL.dim) + span(`Q ${t.queue_ms}`, COL.dim)
+        : "";
+    const morph =
+      t.morph_ms && t.morph_ms > 0
+        ? span(" | ", COL.dim) + span(`MRP ${t.morph_ms}`, COL.img)
+        : "";
     return (
       span(`STT ${t.stt_ms}`, COL.stt) +
       span(" | ", COL.dim) +
       span(`DIR ${t.director_ms}`, COL.dir) +
       span(" | ", COL.dim) +
       span(`IMG ${t.image_ms}`, COL.img) +
+      morph +
+      queue +
       span(" | ", COL.dim) +
       span(`TOT ${t.total_ms}ms`, COL.tot, true) +
       " " +

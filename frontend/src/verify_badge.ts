@@ -78,18 +78,30 @@ export class VerifyBadge {
     const model = short(v.model);
     const provider = shortAddr(v.provider);
 
+    // Three genuinely different states — collapsing false into "pending" left the
+    // badge claiming a verification was still coming when it had already failed.
     if (v.verified === true) {
       const green = "#40e08a";
       this.dot.style.color = green;
       this.el.style.borderColor = "rgba(64,224,138,0.45)";
       this.label.textContent = `Verifiable AI · ${model}`;
       this.sub.textContent = `0G Compute · TEE-verified · ${provider}`;
-    } else {
+    } else if (v.verified === null || v.verified === undefined) {
+      // Settlement is an on-chain round-trip we don't block the show on; this
+      // state resolves when the `verification` message arrives.
       const amber = "#e0b040";
       this.dot.style.color = amber;
       this.el.style.borderColor = "rgba(224,176,64,0.4)";
       this.label.textContent = `0G Compute · ${model}`;
-      this.sub.textContent = `answer received · verification pending · ${provider}`;
+      this.sub.textContent = `answer received · verifying on-chain · ${provider}`;
+    } else {
+      // Settled, but the provider couldn't produce a signature for this response.
+      // Say so plainly rather than implying a pending check.
+      const slate = "#8fa3b0";
+      this.dot.style.color = slate;
+      this.el.style.borderColor = "rgba(143,163,176,0.35)";
+      this.label.textContent = `0G Compute · ${model}`;
+      this.sub.textContent = `answer received · signature unavailable · ${provider}`;
     }
     this.el.title = v.chatId ? `receipt ${v.chatId}` : "";
   }

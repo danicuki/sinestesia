@@ -299,6 +299,11 @@ async function start() {
         if (timings) debug.addTimings(timings);
       }
     };
+    // On-chain settlement landed for a receipt shown as "verifying" — resolve it.
+    socket.onVerification = (verification) => {
+      console.log("[main] verification resolved:", verification);
+      verifyBadge?.update(verification);
+    };
     socket.onTranscript = (m) => {
       const tag = `[${m.provider ?? "?"}${m.isFinal ? " FINAL" : ""}]`;
       console.log(tag, m.latencyMs != null ? `+${m.latencyMs}ms` : "", m.text);

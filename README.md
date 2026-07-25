@@ -2,6 +2,17 @@
 
 **Live AI VJ that listens to a singer and draws the stage in real time.**
 
+> **ETHGlobal Lisbon 2026 — Track 02, Extend Open Source.**
+> This repo predates the event (first commit 2026-06-04). Everything built
+> during the hackathon is in one branch, so the diff is auditable in one click:
+> **[`main...feat/hackathon`](https://github.com/danicuki/sinestesia/compare/main...feat/hackathon)**
+>
+> The feature: the finished painting is minted on **Sui** (artwork on **Walrus**)
+> with provenance proving it was made live, and the AI director runs on
+> **0G Compute** as TEE-sealed verifiable inference.
+> Live claim app: <https://sinestesia-mint.vercel.app>
+> Plan and process: [`SUBMISSION.md`](SUBMISSION.md) · [`HACKATHON.md`](HACKATHON.md) · [`DEMO_RUNBOOK.md`](DEMO_RUNBOOK.md)
+
 The visuals don't cut between unrelated images. They accumulate. As the song unfolds, one hand-drawn scene grows on screen — a sun, a castle, a glove, an umbrella — each new element added without erasing what came before. Like the music video for Toquinho's *Aquarela*, but generated live from whatever is being sung.
 
 ## 🎬 Watch the live demo

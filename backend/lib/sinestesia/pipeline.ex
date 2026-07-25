@@ -108,6 +108,11 @@ defmodule Sinestesia.Pipeline do
   def reset_song(pid), do: GenServer.cast(pid, :reset_song)
   def mint(pid, opts \\ %{}), do: GenServer.cast(pid, {:mint, opts})
 
+  # A song ending is one event, not two: snapshot the performance for the mint
+  # and immediately clear the canvas so the next song can start singing over it.
+  # Ordering matters (mint must see the finished song), so it's one cast.
+  def end_song(pid, opts \\ %{}), do: GenServer.cast(pid, {:end_song, opts})
+
   ## Callbacks
 
   @impl true
@@ -216,7 +221,43 @@ defmodule Sinestesia.Pipeline do
   # Reset all song-scoped state but KEEP open STT connections + socket.
   # Use when a new song starts mid-session — avoids reconnect roundtrip.
   # In-flight tasks from the previous song are invalidated via session_id.
-  def handle_cast(:reset_song, state) do
+  def handle_cast(:reset_song, state), do: {:noreply, reset_song_state(state)}
+
+  # Song over: mint what was just painted AND start the next song in one step.
+  # The mint task takes its own snapshot of the song, so resetting immediately
+  # after is safe — and necessary, because the singer is already starting again.
+  def handle_cast({:end_song, opts}, state) do
+    case state.last_image_url do
+      nil ->
+        # Nothing was painted, so there's nothing to mint — but the reset still
+        # has to happen, otherwise "End Song" would silently do nothing.
+        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
+
+      image_url ->
+        spawn_mint(state, image_url, opts)
+        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
+    end
+
+    {:noreply, reset_song_state(state)}
+  end
+
+  # Mint the finished painting: store on Walrus + mint the master on Sui via the
+  # mint sidecar, then push the claim URL for the QR overlay. Async so the show
+  # never blocks on chain latency. `opts` may carry song/artist/venue overrides.
+  def handle_cast({:mint, opts}, state) do
+    case state.last_image_url do
+      nil ->
+        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
+        {:noreply, state}
+
+      image_url ->
+        spawn_mint(state, image_url, opts)
+        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
+        {:noreply, state}
+    end
+  end
+
+  defp reset_song_state(state) do
     new_session = state.session_id + 1
     killed = kill_pending(state.pending_pids)
 
@@ -237,54 +278,37 @@ defmodule Sinestesia.Pipeline do
       ts: now_ms()
     })
 
-    {:noreply,
-     %{
-       state
-       | lyrics: [],
-         last_finals: %{},
-         last_interims: %{},
-         last_text_at: %{},
-         last_director_text: "",
-         style: default_style,
-         style_locked?: false,
-         final_lyric_count: 0,
-         director_conversation: Sinestesia.Director.init_conversation(),
-         performance_steps: [],
-         frame_urls: [],
-         last_director_at: 0,
-         last_stt_ms: nil,
-         last_stt_provider: nil,
-         # Critical: clear generating? so the next director call isn't blocked
-         # waiting for an in-flight (now-stale) task that we're about to drop.
-         generating?: false,
-         since_last_director: false,
-         last_image_url: nil,
-         last_image_route: nil,
-         bootstrap_done?: false,
-         style_stamped?: false,
-         frames_since_style: 0,
-         recent_placements: [],
-         melody: %{},
-         camera: neutral_camera(),
-         session_id: new_session,
-         pending_pids: MapSet.new()
-     }}
-  end
-
-  # Mint the finished painting: store on Walrus + mint the master on Sui via the
-  # mint sidecar, then push the claim URL for the QR overlay. Async so the show
-  # never blocks on chain latency. `opts` may carry song/artist/venue overrides.
-  def handle_cast({:mint, opts}, state) do
-    case state.last_image_url do
-      nil ->
-        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
-        {:noreply, state}
-
-      image_url ->
-        spawn_mint(state, image_url, opts)
-        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
-        {:noreply, state}
-    end
+    %{
+      state
+      | lyrics: [],
+        last_finals: %{},
+        last_interims: %{},
+        last_text_at: %{},
+        last_director_text: "",
+        style: default_style,
+        style_locked?: false,
+        final_lyric_count: 0,
+        director_conversation: Sinestesia.Director.init_conversation(),
+        performance_steps: [],
+        frame_urls: [],
+        last_director_at: 0,
+        last_stt_ms: nil,
+        last_stt_provider: nil,
+        # Critical: clear generating? so the next director call isn't blocked
+        # waiting for an in-flight (now-stale) task that we're about to drop.
+        generating?: false,
+        since_last_director: false,
+        last_image_url: nil,
+        last_image_route: nil,
+        bootstrap_done?: false,
+        style_stamped?: false,
+        frames_since_style: 0,
+        recent_placements: [],
+        melody: %{},
+        camera: neutral_camera(),
+        session_id: new_session,
+        pending_pids: MapSet.new()
+    }
   end
 
   defp neutral_camera, do: %{zoom: 0.0, pan_x: 0.0, pan_y: 0.0}
@@ -458,6 +482,8 @@ defmodule Sinestesia.Pipeline do
       traits: Map.get(body, "traits"),
       imageUri: Map.get(body, "imageUri"),
       claimUrl: Map.get(body, "claimUrl"),
+      song: Map.get(body, "song"),
+      artist: Map.get(body, "artist"),
       ts: now_ms()
     })
 
@@ -1198,14 +1224,36 @@ defmodule Sinestesia.Pipeline do
         # the NFT should be the final verdict, not a snapshot mid-flight.
         |> Map.put(:directorProofs, resolve_proofs(steps))
 
-      send(parent, {:mint_done, do_mint(image_url, frame_urls, mode, performance)})
+      # Carry the resolved title back with the receipt: the song is only named
+      # inside this task, but the toast on stage wants to show what it minted.
+      result =
+        case do_mint(image_url, frame_urls, mode, performance) do
+          {:ok, body} ->
+            {:ok, Map.merge(body, %{"song" => performance.song, "artist" => performance.artist})}
+
+          other ->
+            other
+        end
+
+      send(parent, {:mint_done, result})
     end)
   end
 
   # One proof per Director step, aligned with the prompts: the 0G chat id and
   # whether its TEE signature verified. nil for steps that didn't run on 0G (the
   # chain falls back mid-song), which is itself worth recording honestly.
+  # How long the mint will wait, in total, for still-settling 0G attestations
+  # before recording them as unresolved. The song is already over and the next
+  # one has started, so a few seconds costs the show nothing.
+  @proof_settle_wait_ms 4_000
+  @proof_poll_ms 500
+
   defp resolve_proofs(steps) do
+    # The last call of the song is the one most likely still settling, so give
+    # the chain a moment rather than minting it as "unresolved". One deadline for
+    # the whole pass, not per step — otherwise a long song multiplies the wait.
+    deadline = now_ms() + @proof_settle_wait_ms
+
     Enum.map(steps, fn step ->
       case step[:verification] || step["verification"] do
         receipt when is_map(receipt) ->
@@ -1217,7 +1265,8 @@ defmodule Sinestesia.Pipeline do
             provider: Map.get(receipt, "provider") || Map.get(receipt, :provider),
             model: Map.get(receipt, "model") || Map.get(receipt, :model),
             network: Map.get(receipt, "network") || Map.get(receipt, :network),
-            verified: if(is_nil(verified), do: settled_verification(chat_id), else: verified)
+            verified:
+              if(is_nil(verified), do: settled_verification(chat_id, deadline), else: verified)
           }
 
         _ ->
@@ -1226,20 +1275,27 @@ defmodule Sinestesia.Pipeline do
     end)
   end
 
-  # Ask the sidecar for a chat's settled verdict. Returns nil when it still
-  # hasn't landed — recorded as "unresolved" rather than guessed either way.
-  defp settled_verification(chat_id) when is_binary(chat_id) and chat_id != "" do
+  # Ask the sidecar for a chat's settled verdict, retrying until `deadline`.
+  # Returns nil when it still hasn't landed — recorded as "unresolved" rather
+  # than guessed either way.
+  defp settled_verification(chat_id, deadline) when is_binary(chat_id) and chat_id != "" do
     url =
       System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <>
         "/v1/verification/" <> URI.encode(chat_id)
 
     case Req.get(url, receive_timeout: 3_000, retry: false) do
-      {:ok, %{status: 200, body: %{"pending" => false, "verified" => v}}} -> v
-      _ -> nil
+      {:ok, %{status: 200, body: %{"pending" => false, "verified" => v}}} ->
+        v
+
+      _ ->
+        if now_ms() < deadline do
+          Process.sleep(@proof_poll_ms)
+          settled_verification(chat_id, deadline)
+        end
     end
   end
 
-  defp settled_verification(_), do: nil
+  defp settled_verification(_, _), do: nil
 
   # Fill in song/artist from the lyrics before minting, so the NFT isn't stamped
   # "Untitled" forever. An explicit MINT_SONG/MINT_ARTIST (or a `song`/`artist`

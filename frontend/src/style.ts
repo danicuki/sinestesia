@@ -1,16 +1,17 @@
-// Visual style control — small input + "nova música" button, top-right. Lets the
-// singer steer the art direction and start a fresh song live during rehearsal.
+// Visual style control — small input + "End Song" button, top-right. Lets the
+// singer steer the art direction and close out a song live during rehearsal.
 // Hidden under ?clean=1 for a clean stage demo.
 //
 // Per PROTOCOL.md: on Enter/blur we send { type: "style", style } and the
 // backend echoes the accepted (sanitized + capped) value, which we then reflect
 // back into the input. No client-side cap or rate-limiting — the backend owns
 // sanitization/capping (up to 15 words) and no-ops a repeated style. The
-// "nova música" button sends { type: "reset" }; the chosen style is kept across
-// songs (the backend's reset echo, source "reset", is ignored here).
+// "End Song" button sends { type: "end_song" }, which mints the finished
+// painting and resets in one step; the chosen style is kept across songs (the
+// backend's reset echo, source "reset", is ignored here).
 
 type SendCb = (style: string) => void;
-type ResetCb = () => void;
+type EndSongCb = () => void;
 
 // Quick-pick palette offered in the dropdown. Free text still works; these are
 // just shortcuts to the looks we know read well on stage. Sorted alphabetically
@@ -34,7 +35,7 @@ export class StyleControl {
 
   constructor(
     private send: SendCb,
-    private requestReset: ResetCb,
+    private requestEndSong: EndSongCb,
     initial = "",
   ) {
     const wrap = document.createElement("div");
@@ -110,10 +111,11 @@ export class StyleControl {
     field.appendChild(this.input);
     field.appendChild(this.menu);
 
-    const resetBtn = document.createElement("button");
-    resetBtn.type = "button";
-    resetBtn.textContent = "nova música";
-    Object.assign(resetBtn.style, {
+    const endBtn = document.createElement("button");
+    endBtn.type = "button";
+    endBtn.textContent = "End Song";
+    endBtn.title = "Mint the painting and start the next song (shortcut: m)";
+    Object.assign(endBtn.style, {
       background: "transparent",
       border: "1px solid #374151",
       borderRadius: "2px",
@@ -122,11 +124,11 @@ export class StyleControl {
       padding: "3px 8px",
       cursor: "pointer",
     } as CSSStyleDeclaration);
-    resetBtn.addEventListener("click", () => this.requestReset());
+    endBtn.addEventListener("click", () => this.requestEndSong());
 
     wrap.appendChild(label);
     wrap.appendChild(field);
-    wrap.appendChild(resetBtn);
+    wrap.appendChild(endBtn);
     document.body.appendChild(wrap);
 
     // Open the list whenever the field is focused or clicked, even if it already
@@ -209,7 +211,7 @@ export class StyleControl {
     this.send(value);
   }
 
-  /** The style currently in the field (used to keep it across a "nova música"). */
+  /** The style currently in the field (used to keep it across an "End Song"). */
   currentStyle(): string {
     return this.input.value.trim();
   }

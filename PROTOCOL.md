@@ -176,6 +176,11 @@ After the reset the backend pushes a `style` message back with
 `IMAGE_MODE` (story → `"loose ink sketch on aged paper, ..."`). The
 frontend can use this to clear its style input.
 
+Note this **discards** the performance: nothing is minted. Ending a real song
+uses `end_song` (below); `reset` is the soundcheck / false-start path, bound to
+the `r` key rather than a button so a performance can't be thrown away by a
+misclick.
+
 ### `mint` (song ended — mint the finished painting)
 
 Stores the final canvas on **Walrus** and mints it as a **Sui** NFT (master 1/1
@@ -190,6 +195,25 @@ backend accumulated during the song. Async: the backend replies with
 `song`/`artist`/`venue` are optional; omitted fields fall back to the backend
 env defaults (`MINT_SONG` / `MINT_ARTIST` / `MINT_VENUE`). Requires the mint
 sidecar (`sui/mint`, `npm run serve`) reachable at `MINT_SIDECAR_URL`.
+
+### `end_song` (the one the show actually uses)
+
+A song ending is one event: mint what was just painted, then reset for the next
+song. Same payload and same replies as `mint` (`mint_status`, then `mint` or
+`mint_error`), plus the `style` echo with `"source": "reset"`.
+
+```json
+{ "type": "end_song", "song": "Águas de Março", "artist": "…", "venue": "…" }
+```
+
+The order matters and is guaranteed backend-side: the mint task snapshots the
+finished performance before the reset clears it. `mint` and `reset` remain as
+separate primitives (mint without ending; discard without minting), but a client
+that composes them itself is one dropped message away from losing a performance —
+so the UI sends `end_song`.
+
+If nothing was painted, the backend replies `mint_error` **and still resets** —
+ending a song must never silently do nothing.
 
 ### `ping`
 Liveness check. Backend responds with `pong`.
@@ -278,7 +302,7 @@ the frontend can show a "minting…" overlay while Walrus + Sui settle:
 { "type": "mint_status", "status": "minting", "ts": 1721800000000 }
 ```
 
-On success, `mint` carries everything the QR overlay needs:
+On success, `mint` carries everything the QR toast needs:
 
 ```json
 {
@@ -291,12 +315,16 @@ On success, `mint` carries everything the QR overlay needs:
   "traits": { "rarity": "legendary", "dominantColor": "yellow", "…": "…" },
   "imageUri": "https://aggregator.walrus-testnet.walrus.space/v1/blobs/…",
   "claimUrl": "http://…/claim?release=0x…",   // what the QR encodes
+  "song": "Águas de Março",        // as identified from the lyrics, or the configured override
+  "artist": "…",
   "ts": 1721800002500
 }
 ```
 
-The frontend renders `claimUrl` as a QR (`frontend/src/mint_overlay.ts`) so the
-room can scan to claim a free print. On failure instead:
+The frontend renders `claimUrl` as a QR in the corner
+(`frontend/src/mint_toast.ts`) so the room can scan to claim a free print — a
+corner and not a modal, because by the time it lands the next song is already
+painting. On failure instead:
 
 ```json
 { "type": "mint_error", "message": "could not fetch the painting (502)", "ts": 1721800002500 }

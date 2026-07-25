@@ -94,8 +94,10 @@ Ports: **8788** = 0G sidecar · **8790** = mint sidecar · backend/front as usua
 3. [ ] **Verify the Director is on 0G**: sing/replay a line →
    - [ ] the **green "Verifiable AI" badge** appears (bottom-left) with the model name
    - [ ] backend log shows a `[director]` turn (no fallback warning)
-4. [ ] **Verify the mint**: at song's end press **Finish & Mint** (or the **`m`** key) →
-   - [ ] "Minting…" overlay, then the **QR overlay** with rarity + provenance hash
+4. [ ] **Verify the mint**: at song's end press **End Song** (or the **`m`** key) →
+   - [ ] the canvas clears immediately — the next song can start right away
+   - [ ] "Minting…" appears in the **bottom-right corner**, then the **QR** with
+         the song title (the show is never covered by a modal)
    - [ ] scan the QR from a phone on the same network → claim page → "You own print #N"
    - [ ] the "view on-chain" link opens the object on Suiscan
 
@@ -110,5 +112,6 @@ Ports: **8788** = 0G sidecar · **8790** = mint sidecar · backend/front as usua
   Keep the local model warm as insurance.
 - **Gas for prints**: the show wallet pays. Make sure the Sui key in `sui/mint/.env`
   has enough gas for as many claims as you expect from the room.
-- **Rehearse the reset**: "nova música" / reset clears the provenance log, so mint
-  *before* you reset for the next song.
+- **One button ends a song.** "End Song" (or **`m`**) mints *and* resets, in that
+  order, backend-side. To start over **without** minting — soundcheck, false
+  start — press **`r`**. That one discards the performance, so it's keyboard-only.

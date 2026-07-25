@@ -1,0 +1,30 @@
+# Fly.io config for the Sinestesia backend (Elixir/Bandit + WebSocket).
+#
+# Rename `app` if the name is taken; `fly launch --no-deploy` will do it for you.
+app = "sinestesia-backend"
+primary_region = "mad"   # Madrid — closest Fly region to Lisbon
+
+[build]
+
+[env]
+  PORT = "4000"
+  # The local-only providers don't exist in the cloud. Keep the Director on 0G
+  # with a CLOUD fallback: the chain is 0G -> gemma -> gemini -> haiku, and the
+  # gemma hop always fails here (no Ollama), so a cloud key must be set as
+  # secrets or a 0G hiccup means no visuals at all.
+  DIRECTOR_PROVIDER = "zerog"
+  STT_PROVIDER = "elevenlabs"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = false
+  # The show cannot afford a cold start mid-song, and a stopped machine drops
+  # the WebSocket. Keep one warm for the duration of the event.
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "1gb"

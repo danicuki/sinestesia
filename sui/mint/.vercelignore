@@ -1,0 +1,15 @@
+# Never upload secrets into the deployment bundle. config.ts auto-loads .env
+# from the package root, so an uploaded .env would ship the signing key inside
+# the function. Set these as Vercel environment variables instead
+# (`vercel env add SUI_SECRET_KEY production`).
+.env
+.env.*
+!.env.example
+
+node_modules
+build
+*.log
+
+# Local-only: the show laptop composes and mints releases; the deployment only
+# serves the audience-facing claim/certificate routes.
+sample-performance.json

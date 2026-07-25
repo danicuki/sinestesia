@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinestesia for venues & festivals — a stage moment with a spec sheet</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230C0B0F'/%3E%3Cg style='mix-blend-mode:screen'%3E%3Ccircle cx='13' cy='16' r='7.5' fill='%23EDE7DE'/%3E%3Ccircle cx='20' cy='16' r='7.5' fill='%23E08A3C'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #0C0B0F; color: #EDE7DE; overflow-x: hidden; }
+  * { box-sizing: border-box; }
+  a { color: #F2C48B; text-decoration: none; text-underline-offset: 4px; }
+  a:hover { color: #E08A3C; text-decoration: underline; }
+  :focus-visible { outline: 2px solid #E08A3C; outline-offset: 3px; border-radius: 2px; }
+  h1, h2, h3 { margin: 0; font-weight: 400; text-wrap: pretty; }
+  p { margin: 0; text-wrap: pretty; }
+  @keyframes sn-cross { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-14%); } }
+  @keyframes sn-drift { 0% { transform: translate3d(0,0,0) scale(1); } 50% { transform: translate3d(-2%, 1.5%, 0) scale(1.05); } 100% { transform: translate3d(0,0,0) scale(1); } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    [data-reveal] { opacity: 1 !important; transform: none !important; }
+  }
+</style>
+</helmet>
+
+<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; background: #0C0B0F;">
+
+  <header style="position: sticky; top: 0; z-index: 40; backdrop-filter: blur(14px); background: rgba(12,11,15,0.78); border-bottom: 1px solid rgba(237,231,222,0.10);">
+    <nav style="max-width: 1180px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px;">
+      <a href="#top" style="display: flex; align-items: center; gap: 10px; color: #EDE7DE;">
+        <span aria-hidden="true" style="position: relative; display: block; width: 29px; height: 18px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 18px; height: 18px; border-radius: 999px; background: #EDE7DE; mix-blend-mode: plus-lighter;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 18px; height: 18px; border-radius: 999px; background: #E08A3C; mix-blend-mode: plus-lighter; animation: sn-cross 7s ease-in-out infinite;"></span></span>
+        <span style="font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: 20px; letter-spacing: -0.005em;">S<span style="color: #E08A3C;">i</span>nestes<span style="color: #E08A3C;">i</span>a</span>
+      </a>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; font-size: 14px;">
+        <a href="#rider" style="color: #A39C93;">Rider</a>
+        <a href="/" style="color: #A39C93;">For artists</a>
+        <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a>
+        <a href="#hold" style="border: 1px solid rgba(237,231,222,0.28); padding: 9px 16px; border-radius: 999px; color: #EDE7DE;">Hold a date</a>
+      </div>
+    </nav>
+  </header>
+
+  <section id="top" style="position: relative; overflow: hidden; padding: 0 20px;">
+    <div aria-hidden="true" style="position: absolute; inset: -18% -10% auto -10%; height: 820px; background: radial-gradient(44% 40% at 74% 26%, rgba(224,138,60,0.18), transparent 70%), radial-gradient(40% 36% at 24% 22%, rgba(60,120,130,0.16), transparent 72%); filter: blur(26px); animation: sn-drift 28s ease-in-out infinite;"></div>
+    <div style="position: relative; max-width: 1180px; margin: 0 auto; padding: 92px 0 56px; display: grid; gap: 44px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: center;">
+      <div>
+        <p data-reveal style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: #A39C93; margin-bottom: 26px;">For venues, festivals & brand stages</p>
+        <h1 data-reveal style="font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: clamp(38px, 6.6vw, 76px); line-height: 1.0; letter-spacing: -0.02em; max-width: 17ch;">A stage moment nobody has seen — <span style="font-style: italic; color: #F2C48B;">with a spec sheet.</span></h1>
+        <p data-reveal style="margin-top: 26px; max-width: 46ch; font-size: clamp(17px, 2vw, 20px); line-height: 1.55; color: #C8C1B8;">Sinestesia paints one picture from a live vocal, growing across the whole song, on your screen behind the act. Twenty-minute soundcheck. One operator. Nothing for your crew to learn.</p>
+        <div data-reveal style="margin-top: 34px; display: flex; flex-wrap: wrap; gap: 12px;">
+          <a href="#hold" style="background: #E08A3C; color: #14100B; padding: 15px 26px; border-radius: 999px; font-size: 15px; font-weight: 600;">Hold a date</a>
+          <a href="#rider" style="border: 1px solid rgba(237,231,222,0.24); color: #EDE7DE; padding: 15px 24px; border-radius: 999px; font-size: 15px;">Read the rider</a>
+        </div>
+      </div>
+      <figure data-reveal style="margin: 0; border: 1px solid rgba(237,231,222,0.16); border-radius: 14px; background: #14131A; padding: 10px; box-shadow: 0 40px 90px -40px rgba(0,0,0,0.9);">
+        <div style="position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: repeating-linear-gradient(135deg, #1D1B24 0 14px, #191821 14px 28px); display: grid; place-items: center;">
+          <img src="assets/app-lover-panel.webp" alt="A single azulejo-style painting grown from one song, shown on the projection feed with the operator readout along the bottom." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 45%; display: block;">
+          <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, transparent 58%, rgba(12,11,15,0.55));"></div>
+        </div>
+        <figcaption style="display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; padding: 12px 6px 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.09em; color: #8F877E;">
+          <span>OPERATOR VIEW · REAL OUTPUT</span><span>1920×1080 · SINGLE CANVAS</span>
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section style="padding: 0 20px 96px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));">
+      <div data-reveal style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <h3 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: 24px;">Bookable as an act or a layer</h3>
+        <p style="margin-top: 10px; color: #A39C93; font-size: 15px; line-height: 1.7;">Runs behind your headliner, or as its own billed set with a resident singer.</p>
+      </div>
+      <div data-reveal style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <h3 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: 24px;">Built for phones in the dark</h3>
+        <p style="margin-top: 10px; color: #A39C93; font-size: 15px; line-height: 1.7;">High contrast, slow movement, legible from the back. It films well, which is the actual test.</p>
+      </div>
+      <div data-reveal style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <h3 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: 24px;">The room takes something home</h3>
+        <p style="margin-top: 10px; color: #A39C93; font-size: 15px; line-height: 1.7;">A code on the projection at the end of the song. One scan, one free print of that exact performance.</p>
+      </div>
+      <div data-reveal style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <h3 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: 24px;">Fails soft</h3>
+        <p style="margin-top: 10px; color: #A39C93; font-size: 15px; line-height: 1.7;">If the network drops, the painting keeps going on local render. If the machine dies, the last frame holds.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="rider" style="padding: 0 20px 96px;">
+    <div style="max-width: 1180px; margin: 0 auto;">
+      <h2 data-reveal style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(28px, 4.4vw, 48px); line-height: 1.05; letter-spacing: -0.015em;">The technical rider, short version</h2>
+      <p data-reveal style="margin-top: 16px; color: #A39C93; font-size: 16px; line-height: 1.6; max-width: 52ch;">Everything below is what we ask of the house. Full PDF rider and insurance on request.</p>
+      <div data-reveal style="margin-top: 32px; overflow-x: auto; border: 1px solid rgba(237,231,222,0.14); border-radius: 14px; background: #14131A;">
+        <table style="width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px;">
+          <thead>
+            <tr>
+              <th scope="col" style="text-align: left; padding: 16px 20px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #8F877E; font-weight: 400; border-bottom: 1px solid rgba(237,231,222,0.14);">Item</th>
+              <th scope="col" style="text-align: left; padding: 16px 20px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #8F877E; font-weight: 400; border-bottom: 1px solid rgba(237,231,222,0.14);">House provides</th>
+              <th scope="col" style="text-align: left; padding: 16px 20px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #8F877E; font-weight: 400; border-bottom: 1px solid rgba(237,231,222,0.14);">We bring</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Audio</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Stereo feed off FOH — XLR or DI, line level</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Interface, cables, spare</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Display</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Projector or LED wall, 1920×1080 minimum, HDMI or SDI at the operator position</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Scaler, HDMI run, EDID fix</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Power</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Two standard sockets at the operator position</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Distro, UPS</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Network</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Wired uplink preferred, not required</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Router with LTE failover</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Crew</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">One LD or A/V contact for load-in and check</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">One operator for the full show</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Space</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">1m × 1m table, FOH or side stage, sightline to the screen</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Everything on the table</td>
+              </tr>
+            
+              <tr>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #EDE7DE;">Time</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">45 min load-in, 20 min check before doors</td>
+                <td style="padding: 15px 20px; border-bottom: 1px solid rgba(237,231,222,0.08); color: #A39C93; line-height: 1.55;">Out in 20 min</td>
+              </tr>
+            
+          </tbody>
+        </table>
+      </div>
+      <p data-reveal style="margin-top: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #8F877E;">SCROLL THE TABLE SIDEWAYS ON A PHONE</p>
+    </div>
+  </section>
+
+  <section style="padding: 0 20px 96px;">
+    <div style="max-width: 1180px; margin: 0 auto; border: 1px solid rgba(237,231,222,0.12); border-radius: 14px; overflow: hidden; background: linear-gradient(180deg, rgba(29,27,36,0.9), rgba(20,19,26,0.55));">
+      <div style="padding: clamp(28px, 5vw, 56px);">
+        <h2 data-reveal style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 4vw, 42px); line-height: 1.08; letter-spacing: -0.015em; max-width: 24ch;">Show day, hour by hour</h2>
+        <ol data-reveal style="list-style: none; margin: 34px 0 0; padding: 0; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <li style="border-left: 1px solid rgba(224,138,60,0.5); padding: 4px 0 4px 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; color: #E08A3C;">LOAD IN · 45 MIN</p>
+            <p style="margin-top: 10px; color: #C8C1B8; font-size: 15px; line-height: 1.65;">One case, one operator position at FOH or side stage.</p>
+          </li>
+          <li style="border-left: 1px solid rgba(224,138,60,0.5); padding: 4px 0 4px 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; color: #E08A3C;">CHECK · 20 MIN</p>
+            <p style="margin-top: 10px; color: #C8C1B8; font-size: 15px; line-height: 1.65;">Feed levels, projector alignment, one verse to calibrate the palette.</p>
+          </li>
+          <li style="border-left: 1px solid rgba(224,138,60,0.5); padding: 4px 0 4px 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; color: #E08A3C;">SET · YOUR CALL</p>
+            <p style="margin-top: 10px; color: #C8C1B8; font-size: 15px; line-height: 1.65;">Painting runs per song. LD keeps full control of the room.</p>
+          </li>
+          <li style="border-left: 1px solid rgba(224,138,60,0.5); padding: 4px 0 4px 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; color: #E08A3C;">OUT · 20 MIN</p>
+            <p style="margin-top: 10px; color: #C8C1B8; font-size: 15px; line-height: 1.65;">You get the finished paintings and the scan count the next morning.</p>
+          </li>
+        </ol>
+      </div>
+      <div aria-hidden="true" style="height: 8px; background: repeating-linear-gradient(90deg, rgba(224,138,60,0.5) 0 24px, rgba(237,231,222,0.10) 24px 48px);"></div>
+    </div>
+  </section>
+
+  
+    <section style="padding: 0 20px 96px;">
+      <div style="max-width: 1180px; margin: 0 auto; border: 1px dashed rgba(237,231,222,0.26); border-radius: 14px; padding: clamp(24px, 4vw, 44px);">
+        <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #E08A3C;">Placeholder — fill after the first booked run</p>
+        <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(24px, 3.4vw, 34px); margin-top: 14px;">Rooms it has run in</h2>
+        <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 54ch;">Three slots: venue name, capacity, one measured number (scans per head, or posts tagged). No numbers here until they are real and ours to publish.</p>
+        <div style="margin-top: 24px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <div style="border: 1px solid rgba(237,231,222,0.10); border-radius: 8px; padding: 20px;"><p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #8F877E; letter-spacing: 0.1em;">VENUE · CAP · METRIC</p></div>
+          <div style="border: 1px solid rgba(237,231,222,0.10); border-radius: 8px; padding: 20px;"><p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #8F877E; letter-spacing: 0.1em;">VENUE · CAP · METRIC</p></div>
+          <div style="border: 1px solid rgba(237,231,222,0.10); border-radius: 8px; padding: 20px;"><p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; color: #8F877E; letter-spacing: 0.1em;">VENUE · CAP · METRIC</p></div>
+        </div>
+      </div>
+    </section>
+  
+
+  <section style="padding: 0 20px 96px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: grid; gap: 34px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start;">
+      <h2 data-reveal style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(28px, 4vw, 44px); line-height: 1.08; letter-spacing: -0.015em;">What production asks first</h2>
+      <div data-reveal style="display: grid; gap: 2px;">
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">Does it take control away from our LD?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">No. It owns one output — the screen behind the act. House lights, haze and everything else stay on your desk. We can blackout on your cue at any point.</p>
+          </details>
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">What happens if the internet drops mid-song?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">The painting keeps rendering locally. Only the keepsake step needs a connection, and that can complete after the set.</p>
+          </details>
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">Do you need the setlist in advance?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">Helpful, not required. We ask for reference tracks so the palette is agreed before the show.</p>
+          </details>
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">Is there anything the audience has to install?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">No app. A camera and a browser. The print is free to them.</p>
+          </details>
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">Can we brand it for an activation?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">Yes — palette, aspect ratio and the end card can follow a brand guide. The composition still comes from the performance.</p>
+          </details>
+        
+          <details style="border-top: 1px solid rgba(237,231,222,0.16); padding: 16px 0;">
+            <summary style="cursor: pointer; font-size: 17px; line-height: 1.45; color: #EDE7DE; list-style: none;">What are you not good at?</summary>
+            <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7; max-width: 56ch;">Fast cue-heavy sets with a song every two minutes, and stages with no dedicated screen. Both make the painting hard to read.</p>
+          </details>
+        
+      </div>
+    </div>
+  </section>
+
+  <section id="hold" style="padding: 0 20px 110px;">
+    <div data-reveal style="max-width: 1180px; margin: 0 auto; position: relative; overflow: hidden; border-radius: 14px; background: #14131A; border: 1px solid rgba(237,231,222,0.14); padding: clamp(32px, 6vw, 72px);">
+      <div aria-hidden="true" style="position: absolute; inset: 0; background: radial-gradient(40% 60% at 18% 40%, rgba(224,138,60,0.20), transparent 70%); animation: sn-drift 24s ease-in-out infinite;"></div>
+      <div style="position: relative;">
+        <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(28px, 4.8vw, 54px); line-height: 1.04; letter-spacing: -0.02em; max-width: 22ch;">Tell us the room and the date.</h2>
+        <p style="margin-top: 18px; color: #C8C1B8; font-size: 17px; line-height: 1.6; max-width: 42ch;">We send the full rider, a fee range for your capacity, and a painting made from a recording of the act you have booked.</p>
+        <div style="margin-top: 30px; display: flex; flex-wrap: wrap; gap: 12px;">
+          <a href="mailto:booking@sinestesia.live" style="background: #E08A3C; color: #14100B; padding: 15px 26px; border-radius: 999px; font-size: 15px; font-weight: 600;">Email booking</a>
+          <a href="/under-the-hood" style="border: 1px solid rgba(237,231,222,0.24); color: #EDE7DE; padding: 15px 24px; border-radius: 999px; font-size: 15px;">Technical appendix</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top: 1px solid rgba(237,231,222,0.10); padding: 32px 20px 56px;">
+    <div style="max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 20px 40px; align-items: baseline; justify-content: space-between;">
+      <p style="display: flex; align-items: center; gap: 12px; font-family: Georgia, 'Iowan Old Style', serif; font-size: 17px; color: #EDE7DE;"><span aria-hidden="true" style="position: relative; display: block; width: 24px; height: 15px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 15px; height: 15px; border-radius: 999px; background: #EDE7DE; mix-blend-mode: plus-lighter;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 15px; height: 15px; border-radius: 999px; background: #E08A3C; mix-blend-mode: plus-lighter;"></span></span>S<span style="color: #E08A3C;">i</span>nestes<span style="color: #E08A3C;">i</span>a</p>
+      <div style="display: flex; flex-wrap: wrap; gap: 22px; font-size: 14px;">
+        <a href="/" style="color: #A39C93;">For artists</a>
+        <a href="#rider" style="color: #A39C93;">Rider</a>
+        <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a>
+        <a href="mailto:booking@sinestesia.live" style="color: #A39C93;">booking@sinestesia.live</a>
+      </div>
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #8F877E;">IT ETERNALIZES A LIVE MOMENT</p>
+    </div>
+  </footer>
+</div>
+</x-dc>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const nodes = Array.from(document.querySelectorAll("[data-reveal]"));
+    if (reduce) { nodes.forEach(n => n.style.opacity = "1"); return; }
+    nodes.forEach(n => {
+      n.style.opacity = "0";
+      n.style.transform = "translateY(14px)";
+      n.style.filter = "blur(6px)";
+      n.style.transition = "opacity 1100ms cubic-bezier(.2,.7,.2,1), transform 1100ms cubic-bezier(.2,.7,.2,1), filter 1100ms cubic-bezier(.2,.7,.2,1)";
+    });
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e, i) => {
+        if (!e.isIntersecting) return;
+        const el = e.target;
+        setTimeout(() => { el.style.opacity = "1"; el.style.transform = "none"; el.style.filter = "none"; }, i * 90);
+        io.unobserve(el);
+      });
+    }, { rootMargin: "-8% 0px -12% 0px" });
+    nodes.forEach(n => io.observe(n));
+  
+});
+</script>
+</body>
+</html>

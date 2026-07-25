@@ -415,10 +415,18 @@ defmodule Sinestesia.Pipeline do
     # Director's literal output — the "director prompt" the NFT hash attests to.
     # The model that produced it rides along: a certificate of authenticity has
     # to say WHICH model wrote each prompt, and the chain can fall back mid-song.
+    # `lyric` is the half of the exchange that was missing: a certificate should
+    # show the conversation (what the singer sang -> what the Director answered),
+    # not just the Director's side. `verification` is the 0G receipt for THIS
+    # call, so each prompt can be tied to its own TEE signature rather than to a
+    # single song-level claim. It may still be settling here; the mint resolves
+    # any pending ones before hashing.
     step = %{
       ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      lyric: state.last_director_text,
       prompt: raw,
-      model: director_model
+      model: director_model,
+      verification: Sinestesia.Verifiability.last()
     }
 
     {:noreply,
@@ -1165,6 +1173,10 @@ defmodule Sinestesia.Pipeline do
       # Per-prompt model attribution (the Director chain can fall back mid-song,
       # so a single song-level name would be a lie).
       directorModels: Enum.map(steps, &(&1[:model] || &1["model"])),
+      # The singer's half of each exchange. Without it the certificate shows the
+      # Director talking to itself; with it you can read the actual conversation
+      # that produced the painting.
+      directorLyrics: Enum.map(steps, &(&1[:lyric] || &1["lyric"])),
       # Every model in the chain that produced this painting — the part of the
       # certificate that says HOW it was made, not just what the prompts were.
       models: models_used(state),
@@ -1178,10 +1190,56 @@ defmodule Sinestesia.Pipeline do
     frame_urls = state.frame_urls
 
     Task.start(fn ->
-      performance = name_the_song(performance)
+      performance =
+        performance
+        |> name_the_song()
+        # Verification settles after the response, so a step's receipt can still
+        # be pending when the song ends. Resolve them now: what gets hashed into
+        # the NFT should be the final verdict, not a snapshot mid-flight.
+        |> Map.put(:directorProofs, resolve_proofs(steps))
+
       send(parent, {:mint_done, do_mint(image_url, frame_urls, mode, performance)})
     end)
   end
+
+  # One proof per Director step, aligned with the prompts: the 0G chat id and
+  # whether its TEE signature verified. nil for steps that didn't run on 0G (the
+  # chain falls back mid-song), which is itself worth recording honestly.
+  defp resolve_proofs(steps) do
+    Enum.map(steps, fn step ->
+      case step[:verification] || step["verification"] do
+        receipt when is_map(receipt) ->
+          chat_id = Map.get(receipt, "chatId") || Map.get(receipt, :chatId)
+          verified = Map.get(receipt, "verified", Map.get(receipt, :verified))
+
+          %{
+            chatId: chat_id,
+            provider: Map.get(receipt, "provider") || Map.get(receipt, :provider),
+            model: Map.get(receipt, "model") || Map.get(receipt, :model),
+            network: Map.get(receipt, "network") || Map.get(receipt, :network),
+            verified: if(is_nil(verified), do: settled_verification(chat_id), else: verified)
+          }
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  # Ask the sidecar for a chat's settled verdict. Returns nil when it still
+  # hasn't landed — recorded as "unresolved" rather than guessed either way.
+  defp settled_verification(chat_id) when is_binary(chat_id) and chat_id != "" do
+    url =
+      System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <>
+        "/v1/verification/" <> URI.encode(chat_id)
+
+    case Req.get(url, receive_timeout: 3_000, retry: false) do
+      {:ok, %{status: 200, body: %{"pending" => false, "verified" => v}}} -> v
+      _ -> nil
+    end
+  end
+
+  defp settled_verification(_), do: nil
 
   # Fill in song/artist from the lyrics before minting, so the NFT isn't stamped
   # "Untitled" forever. An explicit MINT_SONG/MINT_ARTIST (or a `song`/`artist`

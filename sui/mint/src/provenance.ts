@@ -25,6 +25,17 @@ export interface ModelsUsed {
   renderMode?: string | null;
 }
 
+/** Proof that one Director turn ran on verifiable compute. */
+export interface ChatProof {
+  /** The provider-issued chat id the TEE signature is retrievable by. */
+  chatId?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  network?: string | null;
+  /** true = TEE signature verified; false = checked and failed; null = unresolved. */
+  verified?: boolean | null;
+}
+
 export interface Performance {
   song: string;
   artist: string;
@@ -37,6 +48,17 @@ export interface Performance {
   timestamps: string[];
   /** Model that produced each prompt, aligned with `directorPrompts`. */
   directorModels?: (ModelRef | null)[];
+  /**
+   * The sung line each prompt was answering, aligned with `directorPrompts`.
+   * Without it the record shows only the Director's half of the exchange.
+   */
+  directorLyrics?: (string | null)[];
+  /**
+   * Verifiable-inference receipt per prompt, aligned with `directorPrompts`.
+   * `null` where that turn didn't run on 0G — the Director chain can fall back
+   * mid-song, and the record should say so rather than imply uniform proof.
+   */
+  directorProofs?: (ChatProof | null)[];
   /** The full model chain — the "how it was made" half of the certificate. */
   models?: ModelsUsed;
   /** Unix ms when the song ended. */
@@ -67,8 +89,12 @@ export function canonicalProvenance(p: Performance): string {
     transcript: p.transcript,
     steps: p.directorPrompts.map((prompt, i) => ({
       t: p.timestamps[i],
+      // The exchange, not just the answer: what was sung, what the Director
+      // replied, which model wrote it, and the receipt proving where it ran.
+      lyric: p.directorLyrics?.[i] ?? null,
       prompt,
       model: p.directorModels?.[i] ?? null,
+      proof: p.directorProofs?.[i] ?? null,
     })),
     models: p.models ?? null,
     endedAtMs: p.endedAtMs,

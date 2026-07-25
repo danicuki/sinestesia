@@ -1,168 +1,215 @@
 # 🎛️ Sinestesia Configuration Reference
 
-This document serves as the single source of truth for all environment variables, provider switches, hyperparameters, and local sidecar settings. By customizing these flags in your `.env` file or process environment, you can tailor Sinestesia's real-time performance, latencies, model parameters, and generation characteristics to your local hardware capabilities.
+Every environment variable the backend reads, what it defaults to, and what it
+accepts. Set them in `.env` (loaded at boot; anything already in your shell
+wins) or in the process environment.
+
+**Section 1 is generated from the code** — from the registry in
+`backend/lib/sinestesia/config.ex`, which is also what the boot banner and
+`GET /config` print. It cannot drift: `mix test` fails if this file is stale, or
+if any `System.get_env` in `backend/lib/` names a variable the registry doesn't
+list. To change it, edit the registry and run:
+
+```bash
+cd backend && mix sinestesia.config --write
+```
+
+Sections 2 and 3 cover the Python sidecars (`local-sdxl/`, `local-whisper/`),
+whose settings live in their own code and are documented by hand.
+
+## Seeing what is actually loaded
+
+The backend prints its whole configuration at boot, marking every value that
+came from the environment rather than a default. To ask a running backend the
+same question:
+
+```bash
+curl localhost:4000/config?format=text   # the boot banner
+curl localhost:4000/config               # the same, as JSON
+cd backend && mix sinestesia.config      # without booting anything
+```
+
+API keys are never printed — only whether they are set, their length, and their
+first/last four characters, which is enough to tell two keys apart and to prove
+the right `.env` was loaded.
+
+## 🗺️ How the switches relate
+
+Four choices decide what a show costs and how it looks:
+
+| Switch | Question it answers |
+| --- | --- |
+| `DIRECTOR_PROVIDER` | Which LLM turns a sung line into a scene prompt (`gemma`, `gemini`, `haiku`, `zerog`). `OLLAMA_MODEL` only matters when this is `gemma`. |
+| `IMAGE_PROVIDER` | Who renders the frames (`fal`, `cloudflare`, `google`, `pollinations`, `local_sdxl`). |
+| `RENDER_MODE` | How a frame relates to the previous one: `i2i` evolves it (continuity, drift, slower) or `t2i` renders it fresh from the scene prompt (no drift, faster). |
+| `COMPOSE_MODE` | In `story` mode, what the Director is asked to produce: `inpaint` → one new element and a position, painted into that region only; `global` → a prompt describing the whole scene so far. |
+
+The codebase says `t2i` and `i2i` and nothing else — not `img2img`, not
+`text2img`. The older spellings are still accepted in `.env` so existing setups
+keep working, but nothing emits them, in logs or in provenance records.
+
+### Not every combination exists
+
+`RENDER_MODE` and `COMPOSE_MODE` are requests against what the provider can
+actually do:
+
+| Provider | `t2i` | `i2i` | `inpaint` |
+| --- | :---: | :---: | :---: |
+| `fal` | ✓ | ✓ | ✓ |
+| `local_sdxl` | ✓ | ✓ | ✓ |
+| `cloudflare` | ✓ | ✓ | — |
+| `google` (Imagen) | ✓ | — | — |
+| `pollinations` | ✓ | — | — |
+
+Asking for something a provider can't do is **resolved, and reported at boot**
+under a `NOT AS REQUESTED` heading — it is never silently ignored:
+
+```
+  image     google · t2i (RENDER_MODE=i2i not supported here)
+  scene     story mode, window 5, whole-scene prompts
+├─ NOT AS REQUESTED
+  ! RENDER_MODE=i2i, but google has no image-to-image endpoint — running t2i.
+  ! COMPOSE_MODE=inpaint, but google cannot inpaint — using whole-scene prompts.
+```
+
+This matters more than it looks. `COMPOSE_MODE=inpaint` makes the Director
+answer with a *delta* — `NEW: a bright yellow sun | POS: top` — which only means
+anything to a provider that can paint into a masked region of an existing
+canvas. Sent to Imagen it becomes the entire prompt for an independent render,
+so the song comes out as a series of isolated objects on unrelated canvases,
+with the style re-interpreted every frame and nothing accumulating. That was
+happening silently. Now the Director is asked for a whole-scene prompt instead,
+which carries both the accumulated scene and the style.
+
+Set `STRICT_CONFIG=1` to refuse to boot on any downgrade — worth doing for a
+rehearsal, where finding out now beats finding out on stage.
 
 ---
 
-## 🗺️ Quick Reference Table
+## 🔑 1. Backend settings
 
-| Category | Environment Variable | Default Value | Supported Values / Range | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **Ports** | `PORT` | `4000` | Any valid port | Local HTTP/WebSocket server port. |
-| **STT** | `STT_PROVIDER` | `elevenlabs` | `elevenlabs` \| `deepgram` \| `both` \| `local_whisper` \| `replay` | Selects speech-to-text engine. |
-| **Director** | `DIRECTOR_PROVIDER` | `gemma` | `gemma` (local) \| `gemini` \| `haiku` | Selects LLM to generate prompt compositions. |
-| **Image** | `IMAGE_PROVIDER` | `fal` | `fal` \| `local_sdxl` \| `google` \| `pollinations` \| `cloudflare` | Selects image generator. |
-| **Image** | `IMAGE_MODE` | `story` | `story` (accumulative) \| `classic` (independent) | Determines whether scene grows or re-draws. |
+<!-- BEGIN GENERATED SETTINGS -->
 
----
+<!-- GENERATED by `mix sinestesia.config --write`. Edit backend/lib/sinestesia/config.ex, not this section. -->
 
-## 🔑 1. Core API Keys & Ports
+### Server
 
-These form the foundation of Sinestesia's external API integrations and local routing.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `PORT` | `4000` | `any port` | HTTP + WebSocket port for the backend. |
+| `STRICT_CONFIG` | _unset_ | `1 \| true` | Refuse to boot if any switch was silently downgraded (e.g. i2i on a provider that can't do it). Worth setting for a rehearsal. |
 
-### `PORT`
-* **Default**: `4000`
-* **Description**: The port on which the Elixir backend starts its Plug/Bandit server, serving the API and WebSocket listeners.
+### API keys
 
-### `ELEVENLABS_API_KEY`
-* **Default**: _None_
-* **Description**: API key required for ElevenLabs Scribe v2 Realtime streaming speech-to-text.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `ELEVENLABS_API_KEY` | _none_ | — | ElevenLabs Scribe realtime STT. Required for STT_PROVIDER=elevenlabs. |
+| `DEEPGRAM_API_KEY` | _none_ | — | Deepgram streaming STT. Required for STT_PROVIDER=deepgram. |
+| `FAL_API_KEY` | _none_ | — | fal.ai. Required for IMAGE_PROVIDER=fal. |
+| `GOOGLE_API_KEY` | _none_ | — | Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, and song identification. |
+| `ANTHROPIC_API_KEY` | _none_ | — | Anthropic. Used by DIRECTOR_PROVIDER=haiku and as the song-identification fallback. |
+| `CLOUDFLARE_ACCOUNT_ID` | _none_ | — | Cloudflare account. Required for IMAGE_PROVIDER=cloudflare. |
+| `CLOUDFLARE_API_TOKEN` | _none_ | — | Cloudflare Workers AI token. Required for IMAGE_PROVIDER=cloudflare. |
 
-### `FAL_API_KEY`
-* **Default**: _None_
-* **Description**: API key required if using `IMAGE_PROVIDER=fal` (highly recommended for ultra-fast, cloud-based Flux Schnell/Dev).
+### Speech-to-text
 
-### `GOOGLE_API_KEY`
-* **Default**: _None_
-* **Description**: API key required if using `IMAGE_PROVIDER=google` (Imagen 4) or `DIRECTOR_PROVIDER=gemini` (Gemini 2.5 Flash). Get a key from [Google AI Studio](https://aistudio.google.com/).
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `STT_PROVIDER` | `elevenlabs` | `elevenlabs \| deepgram \| both \| local_whisper \| replay` | Which speech-to-text engine transcribes the singing. |
+| `ELEVEN_MODEL` | `scribe_v2_realtime` | — | ElevenLabs streaming model. |
+| `ELEVEN_LANG` | `pt` | `ISO-639-1` | Language hint for ElevenLabs. Wrong language wrecks Portuguese lyrics. |
+| `ELEVEN_COMMIT` | `vad` | `vad \| manual` | How a transcript segment is closed: voice-activity detection, or explicit commits. |
+| `ELEVEN_VAD_SILENCE` | `0.6` | `seconds` | Silence before VAD commits a line. Lower = more responsive, more fragments. |
+| `LOCAL_WHISPER_HOST` | `127.0.0.1` | — | Host of the local Whisper sidecar (STT_PROVIDER=local_whisper). |
+| `LOCAL_WHISPER_PORT` | `8002` | — | Port of the local Whisper sidecar. |
+| `LOCAL_WHISPER_PATH` | `/transcribe` | — | Transcription path on the local Whisper sidecar. |
 
-### `ANTHROPIC_API_KEY`
-* **Default**: _None_
-* **Description**: API key required if using `DIRECTOR_PROVIDER=haiku` (Claude 4.5 Haiku) as your Director LLM or fallback.
+### Director (LLM)
 
-### `OLLAMA_URL`
-* **Default**: `http://localhost:11434`
-* **Description**: Endpoint of your local Ollama server running Gemma.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `DIRECTOR_PROVIDER` | `gemma` | `gemma \| gemini \| haiku \| zerog (alias: 0g)` | Which LLM turns each sung line into a scene prompt. Falls through the chain on failure. |
+| `OLLAMA_URL` | `http://localhost:11434` | — | Ollama endpoint for DIRECTOR_PROVIDER=gemma. |
+| `OLLAMA_MODEL` | `gemma4:12b-mlx` | — | Model name inside Ollama. Only meaningful when the provider is gemma. |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | — | Model for DIRECTOR_PROVIDER=gemini. |
+| `ZEROG_SIDECAR_URL` | `http://127.0.0.1:8788` | — | Local 0G Compute sidecar (zerog/) for verifiable inference; also polled for settled verifications. |
+| `DIRECTOR_MIN_INTERVAL_MS` | _unset_ | `milliseconds` | Floor between Director calls. Unset = no throttle (fire on every committed line). |
 
-### `OLLAMA_MODEL`
-* **Default**: `gemma4:12b-mlx`
-* **Description**: The specific model name loaded in Ollama when `DIRECTOR_PROVIDER=gemma`.
+### Image generation
 
----
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `IMAGE_PROVIDER` | `fal` | `fal \| cloudflare (cf) \| google \| pollinations \| local_sdxl (local)` | Which service renders the frames. |
+| `RENDER_MODE` | `i2i` | `i2i (aliases: img2img, image2image) \| t2i (aliases: text2img, txt2img)` | i2i evolves the previous frame (continuity, slower). t2i re-renders each frame from the scene prompt (no drift, faster). |
+| `FAL_TIMEOUT_MS` | `15000` | — | Per-frame budget on fal. Past it the frame is abandoned and re-rendered as t2i rather than dropped. |
+| `IMAGE_MODE` | `story` | `story \| classic` | story accumulates scene elements across the song; classic redraws each line independently. |
+| `COMPOSE_MODE` | `inpaint` | `inpaint \| global` | In story mode, whether new elements are inpainted into a region or the whole frame is re-composed. |
+| `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
+| `GOOGLE_IMAGE_MODEL` | `imagen-4.0-fast-generate-001` | — | Imagen model for IMAGE_PROVIDER=google. |
+| `GOOGLE_RAMEN_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini native-image model ("instant ramen" path, benchmarks). |
 
-## 🎙️ 2. Speech-to-Text (STT) Provider Controls
+### Cloudflare Workers AI
 
-Sinestesia handles real-time audio downsampling to 16 kHz and streams binary PCM frames into your selected STT provider.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `CLOUDFLARE_T2I_MODEL` | `@cf/bytedance/stable-diffusion-xl-lightning` | — | Model for text-to-image frames on Workers AI. |
+| `CLOUDFLARE_T2I_STEPS` | `6` | — | Steps for the t2i model. Lightning is built for ~6; raising it buys nothing. |
+| `CLOUDFLARE_IMG2IMG_MODEL` | `@cf/runwayml/stable-diffusion-v1-5-img2img` | — | Model for image-to-image frames on Workers AI. |
+| `CLOUDFLARE_STEPS` | `20` | — | Steps for the i2i model. This is the single biggest lever on i2i frame time. |
+| `CLOUDFLARE_STRENGTH` | `0.7` | `0.0-1.0` | How far an i2i frame may travel from the previous one. |
+| `CLOUDFLARE_GUIDANCE` | `7.5` | — | Classifier-free guidance: how strictly the image obeys the prompt. |
 
-### `STT_PROVIDER`
-* **Default**: `elevenlabs`
-* **Supported Options**:
-  * `elevenlabs`: Cloud-based ElevenLabs Scribe v2 Realtime streaming WebSocket.
-  * `deepgram`: Cloud-based Deepgram Nova-3 streaming WebSocket.
-  * `both`: Streams audio to **both** ElevenLabs and Deepgram simultaneously. Both sets of transcripts are pushed to the frontend with distinct tags, allowing side-by-side A/B latency and accuracy comparison.
-  * `local_whisper`: Zero-cost, local streaming MLX-accelerated Whisper sidecar.
-  * `replay`: Headless simulation mode. Loads a recorded transcription stream from a JSON file.
+### Local SDXL sidecar
 
-### 🎛️ ElevenLabs STT Configurations
-These flags are used when `STT_PROVIDER` is set to `elevenlabs` or `both`:
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `LOCAL_SDXL_URL` | `http://127.0.0.1:8003` | — | Local SDXL Turbo sidecar (local-sdxl/). Used for IMAGE_PROVIDER=local_sdxl and for LOCAL_MORPH. |
+| `LOCAL_SDXL_STRENGTH` | `0.78` | `0.0-1.0` | img2img strength on the local sidecar. |
+| `LOCAL_SDXL_STEPS` | `3` | — | Steps on the local sidecar. Turbo is designed for very few. |
 
-* **`ELEVEN_MODEL`** (Default: `scribe_v2_realtime`): The model used by ElevenLabs.
-* **`ELEVEN_LANG`** (Default: `pt`): Language code (e.g., `pt` for Portuguese, `en` for English).
-* **`ELEVEN_COMMIT`** (Default: `vad`): Commit mode.
-  * `vad`: Voice Activity Detection auto-commits speech segments on trailing silence.
-  * `manual`: Commits must be sent manually.
-* **`ELEVEN_VAD_SILENCE`** (Default: `0.6`): Seconds of trailing silence before the ElevenLabs endpoint commits a partial segment as a final lyric block.
+### Scene & style
 
-### 🎛️ Local Whisper STT configurations
-These flags are used when `STT_PROVIDER` is set to `local_whisper` to communicate with the Whisper sidecar:
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `SCENE_WINDOW` | `5` | — | How many scene elements the Director carries forward in story mode. |
+| `STYLE_ANCHOR` | _unset_ | — | Force a visual style for the whole show. Unset = the curator picks one per song. |
+| `STYLE_REFRESH_EVERY` | `4` | — | Re-stamp the style phrase into the prompt every N frames, so it doesn't drift away. |
+| `COMPOSE_ATMOS_STRENGTH` | `0.4` | `0.0-1.0` | Weight of the atmosphere/mood pass when composing a frame. |
 
-* **`LOCAL_WHISPER_HOST`** (Default: `127.0.0.1`): IP address of the Python Whisper sidecar server.
-* **`LOCAL_WHISPER_PORT`** (Default: `8002`): WebSocket port of the Whisper sidecar.
-* **`LOCAL_WHISPER_PATH`** (Default: `/transcribe`): Endpoint path for transcription.
+### Mint & provenance
 
----
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `MINT_SIDECAR_URL` | `http://127.0.0.1:8790` | — | Sui mint sidecar (sui/mint/). Receives the finished performance and mints the NFT. |
+| `MINT_COMPOSE` | `webp` | `webp \| gif \| collage \| final` | How the song's frames become one NFT image. |
+| `MINT_SONG` | _unset_ | — | Force the song title. Unset = identified from the lyrics (see SONGID_*). |
+| `MINT_ARTIST` | `Sinestesia` | — | Performing artist credited on the NFT, and the fallback when identification finds no artist. |
+| `MINT_VENUE` | `Live` | — | Venue recorded in the provenance record. |
 
-## 🎬 3. Director LLM Configuration
+### Song identification
 
-The "Director" is the orchestrating LLM. It receives the accumulated song lyrics, remembers what is already drawn on the canvas, and outputs a revised, detailed image prompt describing the entire accumulated scene.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `SONGID_GEMINI_MODEL` | `gemini-3.6-flash` | — | First model asked to name the performed song. Needs real world knowledge, so not a lite tier. |
+| `SONGID_ANTHROPIC_MODEL` | `claude-haiku-4-5` | — | Fallback model for song identification. Needs ANTHROPIC_API_KEY. |
+| `SONGID_TIMEOUT_MS` | `30000` | — | Per-attempt budget. Off the hot path, so generous — a clipped answer mints as "Untitled" forever. |
+| `SONGID_ALLOW_LOCAL` | _unset_ | `1 \| true` | Let the local model name songs. Off by default: it invents confident, wrong titles that get minted permanently. |
 
-### `DIRECTOR_PROVIDER`
-* **Default**: `gemma`
-* **Supported Options**:
-  * `gemma`: Sovereign, on-device local Gemma 4 12B via Ollama. It has zero cost and extremely low latency (~800ms) with MLX-acceleration.
-  * `gemini`: Google Gemini 2.5 Flash API (~300-500ms latency, high prompt compliance).
-  * `haiku`: Claude 4.5 Haiku API (~300ms latency).
-* > [!NOTE]
-  > If the primary `DIRECTOR_PROVIDER` times out (>1500ms), the system's supervisor dispatcher automatically fails over to the other cloud providers in order (`gemini` -> `haiku`).
+### Replay & benchmarks
 
-### `GEMINI_MODEL`
-* **Default**: `gemini-3.1-flash-lite`
-* **Description**: The model model identifier sent to Google AI Studio when using `DIRECTOR_PROVIDER=gemini`.
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `REPLAY_FILE` | _unset_ | — | Recorded session to replay instead of live audio (STT_PROVIDER=replay). |
+| `REPLAY_SPEED` | `1.0` | — | Playback rate for a replayed session. |
+| `REPLAY_PORT` | `4999` | — | Port used by `mix sinestesia.replay`. |
+| `BENCH_PORT` | `4998` | — | Port used by `mix sinestesia.bench`. |
+| `BENCH_OUT` | `bench-<timestamp>` | — | Output directory for benchmark runs. |
 
-### `SCENE_WINDOW`
-* **Default**: `5`
-* **Description**: The number of preceding lyric lines kept in the multi-turn Ollama/Gemini conversation history. This prevents prompt poisoning on extremely long songs, while maintaining enough local context to build on the established scene.
-
-### `STYLE_REFRESH_EVERY`
-* **Default**: `4`
-* **Description**: Frequency of style recovery passes. After this many consecutive frames of accumulative image-to-image, the backend triggers a style pass to re-harmonize image seams and pull drifting colors back to the artist's original technique without erasing elements.
-
-### `STYLE_ANCHOR`
-* **Default**: `(off)`
-* **Supported Options**:
-  * `(off)` or `none`: No recurring style string is appended. Keeps the image generation extremely free and dynamic.
-  * `first`: Extracts the first comma-clause of the initial style chosen by the artist and appends it to every generated prompt to anchor the style.
-  * *[Custom String]* (e.g., `flat painted illustration`): Directly appends this descriptor to the end of every single prompt generated by the Director.
-
-### `DIRECTOR_MIN_INTERVAL_MS`
-* **Default**: `0` (when live) or `3000` (when in `replay` mode)
-* **Description**: An artificial pacing gate (minimum time) between consecutive Director prompts. If set to a positive value (e.g., `2500`), it prevents a fast speech stream from generating new images too quickly, allowing the screen to hold each visual frame for a comfortable duration. In replay mode, this gate is automatically scaled by `REPLAY_SPEED`.
-
----
-
-## 🎨 4. Image Generation Providers & Canvas Modes
-
-Controls how and where the drawings are rendered, and whether we accumulate elements on a single canvas.
-
-### `IMAGE_PROVIDER`
-* **Default**: `fal`
-* **Supported Options**:
-  * `fal`: Cloud-based fal.ai. Uses Flux Schnell for the first bootstrap frame, and Flux Dev for subsequent accumulative img2img frames (~1s latency).
-  * `local_sdxl`: Zero-cost, completely offline SDXL Turbo sidecar running locally on your Apple Silicon GPU (~700ms latency). Compatible with fal.ai API structure.
-  * `google`: Google Imagen 4 Fast via API.
-  * `pollinations`: Pollinations.ai (Flux, free, no keys, but higher latencies and no state cache).
-  * `cloudflare`: Cloudflare Workers AI SDXL img2img pipeline (very low cost alternative).
-
-### `IMAGE_MODE`
-* **Default**: `story`
-* **Supported Options**:
-  * `story`: **Accumulative image-to-image.** The core experience. Every frame uses the previous image as an input, building on top of it.
-  * `classic`: **Independent text-to-image.** Generates a completely separate, fresh image for every committed lyric line. No visual accumulation.
-
-### `RENDER_MODE`
-* **Default**: `img2img`
-* **Supported Options**:
-  * `img2img`: Uses image-to-image transitions.
-  * `txt2img`: Forces pure text-to-image generations even in story mode.
-
-### `COMPOSE_MODE`
-* **Default**: `inpaint`
-* **Supported Options**:
-  * `inpaint`: **Grid-based ellipse inpainting.** When the Director adds a lyric element, the backend calculates one of the 9 grid positions, soft-masks that coordinate, and in-paints only that ellipse. This guarantees text/element legibility because the model focuses purely on that element inside the mask, leaving the rest of the canvas completely untouched.
-  * `global`: Traditional whole-canvas img2img. The entire image undergoes a low-strength denoising pass. Elements are less localized but the scene is more unified.
-
-### `LOCAL_MORPH`
-* **Default**: `true`
-* **Description**: Boolean toggle (`true` \| `1` \| `yes` \| `false`). If enabled, when using `IMAGE_PROVIDER=local_sdxl`, the backend requests and receives intermediate **latent slerp morph frames** along with the final image. This enables smooth generative stop-motion morphs (rather than plain opacity crossfades) on the browser screen.
-
-### `COMPOSE_ATMOS_STRENGTH`
-* **Default**: `0.4`
-* **Range**: `0.0` - `1.0`
-* **Description**: The denoising strength applied during "atmospheric" whole-canvas style passes. These passes run periodically (`STYLE_REFRESH_EVERY`) or when there are no specific elements to inpaint. It is intentionally kept low (`0.4`) so that the re-styling pass harmonizes the canvas without re-synthesizing and erasing previously inpainted elements.
+<!-- END GENERATED SETTINGS -->
 
 ---
 
-## ⚡ 5. Local SDXL Turbo Sidecar Parameters
+## ⚡ 2. Local SDXL Turbo Sidecar Parameters
 
 These parameters run inside the Python `local-sdxl` sidecar server (`local-sdxl/server.py`) to manage local VRAM allocation, PyTorch MPS hardware acceleration, and the inpaint/slerp pipelines.
 
@@ -202,19 +249,7 @@ These parameters run inside the Python `local-sdxl` sidecar server (`local-sdxl/
 
 ---
 
-## 🌥️ 6. Cloudflare Workers AI Knobs
-These variables are referenced only when `IMAGE_PROVIDER=cloudflare` is set:
-
-* **`CLOUDFLARE_ACCOUNT_ID`**: Your Cloudflare dashboard account ID.
-* **`CLOUDFLARE_API_TOKEN`**: Workers AI API authorization token.
-* **`CLOUDFLARE_IMG2IMG_MODEL`** (Default: `@cf/runwayml/stable-diffusion-v1-5-img2img`): Target model hosted on Cloudflare Workers AI.
-* **`CLOUDFLARE_STRENGTH`** (Default: `0.7`): Strength value passed to Cloudflare's img2img pipeline.
-* **`CLOUDFLARE_STEPS`** (Default: `20`): Denoising steps.
-* **`CLOUDFLARE_GUIDANCE`** (Default: `7.5`): Classifier-Free Guidance (CFG) scale.
-
----
-
-## 🎛️ 7. Local Whisper Sidecar Parameters
+## 🎛️ 3. Local Whisper Sidecar Parameters
 
 These parameters control the Python streaming Whisper WebSocket sidecar server (`local-whisper/server.py`).
 
@@ -230,17 +265,7 @@ These parameters control the Python streaming Whisper WebSocket sidecar server (
 
 ---
 
-## 📼 8. Replay & Video Compilation Parameters
-
-These variables control the Elixir Mix Task `mix sinestesia.replay` used to headlessly replay sessions and compile synchronized videos.
-
-* **`REPLAY_FILE`**: Path to the session JSON file being simulated.
-* **`REPLAY_SPEED`** (Default: `1.0`): Speed multiplier (e.g., `20.0` to speed up generation).
-* **`REPLAY_PORT`** (Default: `4999`): Port on which the replay server hosts the mock audio sockets and serves compiled media.
-
----
-
-## 🛠️ 9. Performance tuning & VRAM Guidelines
+## 🛠️ 4. Performance tuning & VRAM Guidelines
 
 If you are running the **fully local stack** (Director via Ollama + local-whisper sidecar + local-sdxl sidecar) on a single Apple Silicon machine, memory allocation is critical:
 

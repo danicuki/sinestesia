@@ -16,7 +16,15 @@ defmodule Sinestesia.SongId do
   """
   require Logger
 
-  @timeout_ms 10_000
+  # This runs inside the mint task, where nothing is waiting on it but the NFT
+  # metadata — and a title we didn't wait 20s for is minted wrong forever. The
+  # recognising models think before answering, and a 4-minute transcript is a
+  # big prompt, so 10s was clipping legitimately slow-but-correct answers.
+  defp timeout_ms, do: String.to_integer(System.get_env("SONGID_TIMEOUT_MS", "30000"))
+
+  # One retry, because the observed failure was a bare transport timeout rather
+  # than a refusal: the provider never answered, not "the provider said no".
+  @attempts 2
 
   @system """
   You identify songs from noisy speech-to-text transcripts of a LIVE vocal performance.
@@ -56,8 +64,9 @@ defmodule Sinestesia.SongId do
       Which song is this?
       """
 
-      Enum.reduce_while(providers(), {:error, :no_provider}, fn provider, _acc ->
-        case call(provider, user) do
+      providers()
+      |> Enum.reduce_while({:error, {:no_provider, []}}, fn provider, {:error, {_, failures}} ->
+        case attempt(provider, user) do
           {:ok, raw} ->
             case parse(raw) do
               {:ok, song} ->
@@ -70,8 +79,8 @@ defmodule Sinestesia.SongId do
             end
 
           {:error, reason} ->
-            Logger.debug("[songid:#{provider}] #{inspect(reason)}; trying next")
-            {:cont, {:error, reason}}
+            Logger.warning("[songid:#{provider}] #{inspect(reason)}; trying next")
+            {:cont, {:error, {:all_failed, failures ++ [{provider, reason}]}}}
         end
       end)
     end
@@ -103,6 +112,20 @@ defmodule Sinestesia.SongId do
     end
   end
 
+  # Retry only what's worth retrying: a timeout or a dropped connection means we
+  # never got an answer, while a 400/403 or a missing key will fail identically
+  # the second time and just burns another `timeout_ms` before the next provider.
+  defp attempt(provider, user, tries \\ @attempts) do
+    case call(provider, user) do
+      {:error, %Req.TransportError{reason: reason}} when tries > 1 ->
+        Logger.debug("[songid:#{provider}] #{inspect(reason)}; retrying")
+        attempt(provider, user, tries - 1)
+
+      result ->
+        result
+    end
+  end
+
   defp call(:gemini, user) do
     cfg = Application.fetch_env!(:sinestesia, :config)
 
@@ -126,7 +149,7 @@ defmodule Sinestesia.SongId do
           generationConfig: %{temperature: 0.0, maxOutputTokens: 1200}
         }
 
-        case Req.post(url, json: body, receive_timeout: @timeout_ms, retry: false) do
+        case Req.post(url, json: body, receive_timeout: timeout_ms(), retry: false) do
           {:ok, %{status: 200, body: body}} ->
             # Take the first part that actually carries text: responses can lead
             # with non-text (thought) parts, and an exhausted budget yields a
@@ -162,7 +185,7 @@ defmodule Sinestesia.SongId do
         case Req.post("https://api.anthropic.com/v1/messages",
                json: body,
                headers: headers,
-               receive_timeout: @timeout_ms,
+               receive_timeout: timeout_ms(),
                retry: false
              ) do
           {:ok, %{status: 200, body: %{"content" => [%{"text" => t} | _]}}} when is_binary(t) ->
@@ -192,7 +215,7 @@ defmodule Sinestesia.SongId do
       ]
     }
 
-    case Req.post(url, json: body, receive_timeout: @timeout_ms, retry: false) do
+    case Req.post(url, json: body, receive_timeout: timeout_ms(), retry: false) do
       {:ok, %{status: 200, body: %{"message" => %{"content" => t}}}} when is_binary(t) ->
         {:ok, t}
 

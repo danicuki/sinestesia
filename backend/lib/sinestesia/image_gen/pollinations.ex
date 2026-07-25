@@ -12,6 +12,8 @@ defmodule Sinestesia.ImageGen.Pollinations do
 
   @spec generate(String.t()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt) do
+    # Text-to-image only — Pollinations takes no input image.
+    Sinestesia.ImageGen.note_route("t2i", "pollinations/flux", nil)
     seed = :rand.uniform(2_147_483_647)
 
     qs =

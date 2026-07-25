@@ -26,6 +26,10 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
   @spec generate(String.t(), String.t() | nil, keyword()) ::
           {:ok, String.t(), [String.t()]} | {:error, term()}
   def generate(prompt, image_url, opts \\ []) when is_binary(prompt) do
+    # The sidecar does both, chosen by whether we hand it an input image.
+    route = if is_binary(image_url) and image_url != "", do: "i2i", else: "t2i"
+    Sinestesia.ImageGen.note_route(route, "local-sdxl-turbo", Keyword.get(opts, :steps, steps()))
+
     body = %{
       prompt: prompt,
       image_url: image_url,
@@ -82,7 +86,10 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
         {:error, {:bad_status, status, body}}
 
       {:error, reason} ->
-        Logger.warning("[local_sdxl] request failed: #{inspect(reason)} (is the sidecar running on #{base_url()}?)")
+        Logger.warning(
+          "[local_sdxl] request failed: #{inspect(reason)} (is the sidecar running on #{base_url()}?)"
+        )
+
         {:error, reason}
     end
   end
@@ -112,7 +119,10 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
         {:error, {:bad_status, status, body}}
 
       {:error, reason} ->
-        Logger.warning("[local_sdxl] morph request failed: #{inspect(reason)} (is the sidecar running on #{base_url()}?)")
+        Logger.warning(
+          "[local_sdxl] morph request failed: #{inspect(reason)} (is the sidecar running on #{base_url()}?)"
+        )
+
         {:error, reason}
     end
   end

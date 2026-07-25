@@ -487,7 +487,10 @@ defmodule Mix.Tasks.Sinestesia.Replay do
   defp run_params do
     base = %{
       "image_provider" => System.get_env("IMAGE_PROVIDER", "fal"),
-      "render_mode" => System.get_env("RENDER_MODE", "img2img"),
+      # Normalised, not raw: RENDER_MODE accepts several legacy spellings, and
+      # an export that says "img2img" on one run and "i2i" on the next is not
+      # comparable with itself.
+      "render_mode" => to_string(Sinestesia.ImageGen.render_mode()),
       "image_mode" => System.get_env("IMAGE_MODE", "story"),
       "compose_mode" => System.get_env("COMPOSE_MODE", "inpaint"),
       "director_provider" => System.get_env("DIRECTOR_PROVIDER", "gemma"),

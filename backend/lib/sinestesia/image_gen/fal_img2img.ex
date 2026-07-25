@@ -13,11 +13,13 @@ defmodule Sinestesia.ImageGen.FalImg2Img do
   require Logger
 
   @url "https://fal.run/fal-ai/flux/dev/image-to-image"
+  @model "fal-ai/flux/dev/image-to-image"
   @strength 0.8
   @steps 10
 
   @spec generate(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, image_url) when is_binary(prompt) and is_binary(image_url) do
+    Sinestesia.ImageGen.note_route("i2i", @model, @steps)
     cfg = Application.fetch_env!(:sinestesia, :config)
 
     case Keyword.get(cfg, :fal_api_key) do
@@ -39,7 +41,7 @@ defmodule Sinestesia.ImageGen.FalImg2Img do
         case Req.post(@url,
                json: body,
                headers: headers,
-               receive_timeout: 15_000,
+               receive_timeout: timeout_ms(),
                retry: false
              ) do
           {:ok, %{status: 200, body: %{"images" => [%{"url" => url} | _]}}} ->
@@ -53,4 +55,10 @@ defmodule Sinestesia.ImageGen.FalImg2Img do
         end
     end
   end
+
+  # A frame that arrives 15s late has already missed its lyric — the audience
+  # saw the line, waited, then got a picture of it. This budget is a deliberate
+  # give-up point, not a safety net: past it, ImageGen falls back to t2i so the
+  # song keeps moving. Tunable per show/venue.
+  defp timeout_ms, do: String.to_integer(System.get_env("FAL_TIMEOUT_MS", "15000"))
 end

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinestesia — under the hood</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230C0B0F'/%3E%3Cg style='mix-blend-mode:screen'%3E%3Ccircle cx='13' cy='16' r='7.5' fill='%23EDE7DE'/%3E%3Ccircle cx='20' cy='16' r='7.5' fill='%23E08A3C'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #F5F1EA; color: #1A1720; overflow-x: hidden; }
+  * { box-sizing: border-box; }
+  a { color: #A45B12; text-decoration: none; text-underline-offset: 4px; }
+  a:hover { color: #7A4109; text-decoration: underline; }
+  :focus-visible { outline: 2px solid #A45B12; outline-offset: 3px; border-radius: 2px; }
+  h1, h2, h3 { margin: 0; font-weight: 400; text-wrap: pretty; }
+  p { margin: 0; text-wrap: pretty; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    [data-reveal] { opacity: 1 !important; transform: none !important; }
+  }
+</style>
+</helmet>
+
+<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; background: #F5F1EA;">
+
+  <header style="border-bottom: 1px solid rgba(26,23,32,0.14);">
+    <nav style="max-width: 940px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px;">
+      <a href="/" style="display: flex; align-items: center; gap: 10px; color: #1A1720;">
+        <span aria-hidden="true" style="position: relative; display: block; width: 29px; height: 18px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 18px; height: 18px; border-radius: 999px; background: #1A1720; mix-blend-mode: multiply;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 18px; height: 18px; border-radius: 999px; background: #C97C22; mix-blend-mode: multiply;"></span></span>
+        <span style="font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: 20px; letter-spacing: -0.005em;">S<span style="color: #A45B12;">i</span>nestes<span style="color: #A45B12;">i</span>a</span>
+      </a>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px;">
+        <a href="/" style="color: #5C554E;">For artists</a>
+        <a href="/producers" style="color: #5C554E;">For venues</a>
+      </div>
+    </nav>
+  </header>
+
+  <article style="max-width: 940px; margin: 0 auto; padding: 0 20px;">
+    <div style="padding: 72px 0 44px; border-bottom: 1px solid rgba(26,23,32,0.14);">
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: #6E665F;">Appendix</p>
+      <h1 style="margin-top: 22px; font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: clamp(36px, 6vw, 64px); line-height: 1.02; letter-spacing: -0.02em; max-width: 20ch;">Under the hood</h1>
+      <p style="margin-top: 22px; max-width: 60ch; font-size: 18px; line-height: 1.6; color: #3C3730;">How a voice becomes a painting, and how the painting proves which performance made it. Written for engineers and judges; skippable by everyone else.</p>
+    </div>
+
+    <nav aria-label="Contents" style="padding: 28px 0; border-bottom: 1px solid rgba(26,23,32,0.14);">
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6E665F;">Contents</p>
+      <ol style="margin: 16px 0 0; padding: 0 0 0 20px; display: grid; gap: 8px; font-size: 16px; color: #3C3730;">
+        <li><a href="#pipeline">The live pipeline</a></li>
+        <li><a href="#director">The director loop</a></li>
+        <li><a href="#canvas">Why one canvas is hard</a></li>
+        <li><a href="#provenance">Provenance of the moment</a></li>
+        <li><a href="#verifiable">Verifiable inference</a></li>
+        <li><a href="#limits">Known limits</a></li>
+      </ol>
+    </nav>
+
+    <section id="pipeline" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">1 · The live pipeline</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Audio comes off the desk as a stereo line feed. Two paths run in parallel from the same buffer: one transcribes and reads meaning, the other tracks tempo and energy. Both feed a director that decides what the painting does next. The renderer never restarts — it only receives instructions.</p>
+      <div style="margin-top: 28px; overflow-x: auto; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; background: #FBF8F3;">
+        <pre style="margin: 0; padding: 24px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.85; color: #3C3730; min-width: 620px;">desk feed ──► ring buffer (2 s) ──┬──► transcription  ──┐
+                                  │    (line, t0, t1)   │
+                                  └──► music features ──┤
+                                       (bpm, key, energy)
+                                                        ▼
+                                              director  (LLM)
+                                                        │  instruction
+                                                        ▼
+                            canvas renderer  ◄── state of the painting
+                                    │
+                            projector out (1080p) ──► QR overlay (last 30 s)
+                                    │
+                            end of song ──► seal ──► provenance record</pre>
+      </div>
+      <p style="margin-top: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #6E665F;">SCROLL SIDEWAYS FOR THE FULL DIAGRAM</p>
+    </section>
+
+    <section id="director" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">2 · The director loop</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">The director is the only component that makes aesthetic decisions. It sees the last sung line, the running summary of the song so far, and a compact description of what is already on the canvas. It returns one instruction — a region, a subject, a palette move, an intensity. It is not allowed to clear the canvas.</p>
+      <div style="margin-top: 26px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+        
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Sees</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Last line, song-so-far summary, canvas description, bar position.</p>
+          </div>
+        
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Returns</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">One instruction: region, subject, palette shift, intensity, blend.</p>
+          </div>
+        
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Cannot</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Clear the canvas, move the horizon, or contradict a committed light source.</p>
+          </div>
+        
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Logged</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Instruction, causing line, model id, timestamp, hash.</p>
+          </div>
+        
+      </div>
+      <p style="margin-top: 24px; max-width: 66ch; font-size: 15px; line-height: 1.7; color: #5C554E;">Every instruction is logged with the line that caused it and the timestamp it fired. That log is not telemetry — it is the artwork's score, and it ships with the piece.</p>
+    </section>
+
+    <section id="canvas" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">3 · Why one canvas is hard</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Generating an image per line is easy and looks like a slideshow. Growing a single coherent image for four minutes means every new stroke must respect composition, lighting and colour already committed. We keep a persistent latent of the canvas plus a region map of what has been claimed, and constrain each edit to unclaimed or intentionally overpainted area. Overpainting is allowed — the older layer stays visible underneath, which is what makes it read as paint.</p>
+      <div style="margin-top: 26px; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; padding: 22px; background: #FBF8F3;">
+        <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6E665F;">Latency budget, per instruction</p>
+        <div style="margin-top: 16px; display: grid; gap: 10px;">
+          
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Transcription of a sung line</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 400 ms</span>
+            </div>
+          
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Director decision</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 700 ms</span>
+            </div>
+          
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">First visible stroke</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 500 ms</span>
+            </div>
+          
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Stroke settled into the canvas</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 2 s</span>
+            </div>
+          
+        </div>
+        <p style="margin-top: 14px; font-size: 14px; line-height: 1.65; color: #5C554E;">Target is a visible change within one bar of the line being sung. Numbers here are the design budget, not a measured benchmark.</p>
+      </div>
+    </section>
+
+    <section id="provenance" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">4 · Provenance of the moment</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">A painting without its performance is decoration. So when the song ends we seal the image together with the record that produced it, and mint that pair. The token points at the image and at an immutable record of the inputs — not at a promise that we behaved.</p>
+      <div style="margin-top: 26px; overflow-x: auto; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; background: #FBF8F3;">
+        <pre style="margin: 0; padding: 24px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.8; color: #3C3730; min-width: 560px;">{
+  "performance": { "song": "…", "artist": "…", "venue": "…", "started_at": "…" },
+  "transcript":  [ { "t": 12.480, "line": "…" }, … ],
+  "director_log":[ { "t": 13.021, "instruction": { … }, "model": "…", "hash": "…" }, … ],
+  "canvas":      { "final_image": "ipfs://…", "keyframes": [ "ipfs://…", … ] },
+  "attestation": { "scheme": "…", "signature": "0x…" }
+}</pre>
+      </div>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 15px; line-height: 1.7; color: #5C554E;">Anyone holding a print can check three things: the transcript matches the audio of that night, each instruction follows from a line that was actually sung, and the final image is the result of replaying that log. The audience never sees any of this — they see a picture and a code.</p>
+    </section>
+
+    <section id="verifiable" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">5 · Verifiable inference</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">The interesting claim is not "an AI made art". It is that a specific model, given a specific line at a specific second, produced a specific instruction — and that this can be checked afterwards by someone who was not in the room. We attest the model identity and the input/output pair for each director call, so the chain from voice to brushstroke is auditable end to end.</p>
+      <p style="margin-top: 16px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Where the attestation lives, and how strong it is, is the part still moving. Current build signs the log at the edge and anchors a digest on chain; stronger schemes are on the roadmap and we would rather state that plainly than overclaim it.</p>
+    </section>
+
+    <section id="limits" style="padding: 56px 0 88px;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">6 · Known limits</h2>
+      <ul style="margin: 20px 0 0; padding: 0 0 0 20px; display: grid; gap: 12px; max-width: 66ch; font-size: 16px; line-height: 1.7; color: #3C3730;">
+        <li>Heavy vocal effects and screamed delivery degrade transcription; the system falls back to music-only mode.</li>
+        <li>Songs under ninety seconds do not give the painting enough room to accumulate.</li>
+        <li>Multilingual switching mid-song works, but the palette can lurch.</li>
+        <li>It interprets. It will sometimes paint the wrong noun with conviction. We treat that as part of the medium.</li>
+      </ul>
+      <div style="margin-top: 44px; padding-top: 28px; border-top: 1px solid rgba(26,23,32,0.14); display: flex; flex-wrap: wrap; gap: 14px;">
+        <a href="/" style="border: 1px solid rgba(26,23,32,0.24); color: #1A1720; padding: 14px 22px; border-radius: 999px; font-size: 15px;">Back to the front cover</a>
+        <a href="mailto:hello@sinestesia.live" style="background: #1A1720; color: #F5F1EA; padding: 14px 24px; border-radius: 999px; font-size: 15px; font-weight: 600;">Ask us something specific</a>
+      </div>
+    </section>
+  </article>
+
+  <footer style="border-top: 1px solid rgba(26,23,32,0.14); padding: 28px 20px 52px;">
+    <div style="max-width: 940px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 16px 40px; justify-content: space-between; align-items: baseline;">
+      <p style="display: flex; align-items: center; gap: 12px; font-family: Georgia, 'Iowan Old Style', serif; font-size: 17px; color: #1A1720;"><span aria-hidden="true" style="position: relative; display: block; width: 24px; height: 15px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 15px; height: 15px; border-radius: 999px; background: #1A1720; mix-blend-mode: multiply;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 15px; height: 15px; border-radius: 999px; background: #C97C22; mix-blend-mode: multiply;"></span></span>S<span style="color: #A45B12;">i</span>nestes<span style="color: #A45B12;">i</span>a</p>
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #6E665F;">APPENDIX · NOT THE PITCH</p>
+    </div>
+  </footer>
+</div>
+</x-dc>
+
+</body>
+</html>

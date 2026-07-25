@@ -524,8 +524,12 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     {
       try {
       const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+      // Treat HEAD as GET: wallets, marketplaces and link-preview crawlers
+      // HEAD-check an image URL before fetching it, and 404ing there can stop
+      // the NFT from rendering. Node omits the body for HEAD automatically.
+      const isGet = req.method === 'GET' || req.method === 'HEAD';
 
-      if (req.method === 'GET' && url.pathname === '/healthz') {
+      if (isGet && url.pathname === '/healthz') {
         return json(res, 200, { ok: true });
       }
       if (req.method === 'POST' && url.pathname === '/release') {
@@ -534,7 +538,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       if (req.method === 'POST' && url.pathname === '/claim') {
         return await handleClaim(req, res);
       }
-      if (req.method === 'GET' && url.pathname === '/claim') {
+      if (isGet && url.pathname === '/claim') {
         const release = url.searchParams.get('release');
         if (!release) return json(res, 400, { error: 'release query param required' });
         const cert = await buildCertificate(release);
@@ -542,7 +546,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         return res.end(claimPage(release, cert));
       }
       // The same certificate as JSON, for anyone who'd rather verify than read.
-      if (req.method === 'GET' && url.pathname === '/certificate') {
+      if (isGet && url.pathname === '/certificate') {
         const release = url.searchParams.get('release');
         if (!release) return json(res, 400, { error: 'release query param required' });
         return json(res, 200, await buildCertificate(release));
@@ -551,7 +555,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       // storage, recompute its SHA-256, and hand back both. `?raw=1` returns the
       // exact canonical bytes the hash was taken over, so anyone can verify
       // independently rather than trusting this endpoint's own arithmetic.
-      if (req.method === 'GET' && url.pathname.startsWith('/provenance/')) {
+      if (isGet && url.pathname.startsWith('/provenance/')) {
         const blobId = decodeURIComponent(url.pathname.slice('/provenance/'.length));
         if (!blobId) return json(res, 400, { error: 'blob id required' });
         const r = await fetch(`${walrusAggregator}/v1/blobs/${blobId}`);
@@ -579,7 +583,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       // Streams the Walrus blob with a proper image MIME + extension so the
       // image renders in wallets/marketplaces that require a content-type
       // (Walrus itself serves blobs untyped with nosniff).
-      if (req.method === 'GET' && url.pathname.startsWith('/img/')) {
+      if (isGet && url.pathname.startsWith('/img/')) {
         const name = decodeURIComponent(url.pathname.slice('/img/'.length));
         const dot = name.lastIndexOf('.');
         const blobId = dot >= 0 ? name.slice(0, dot) : name;

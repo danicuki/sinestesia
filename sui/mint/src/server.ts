@@ -25,12 +25,34 @@ import type { Performance } from './provenance.js';
  */
 
 const PORT = Number(process.env.MINT_PORT ?? '8790');
-// Public base the QR encodes. Set it to the deployed claim app (or a tunnel) so
-// audience phones can reach it. On Vercel the deployment URL is used
-// automatically; falls back to localhost for a single-machine rehearsal.
-const CLAIM_PUBLIC_URL =
-  process.env.CLAIM_PUBLIC_URL ??
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `http://localhost:${PORT}`);
+// Optional public base override for the claim QR. Without one, each request
+// derives its public origin from Vercel's forwarded headers, so preview,
+// production, and custom-domain deployments all emit reachable URLs.
+const CONFIGURED_CLAIM_PUBLIC_URL = process.env.CLAIM_PUBLIC_URL?.replace(/\/+$/, '');
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  const first = (Array.isArray(value) ? value[0] : value)?.split(',', 1)[0]?.trim();
+  return first || undefined;
+}
+
+function publicOrigin(req: IncomingMessage): string {
+  if (CONFIGURED_CLAIM_PUBLIC_URL) return CONFIGURED_CLAIM_PUBLIC_URL;
+
+  const host = firstHeader(req.headers['x-forwarded-host']) ?? firstHeader(req.headers.host);
+  const protocol =
+    firstHeader(req.headers['x-forwarded-proto']) ?? (process.env.VERCEL ? 'https' : 'http');
+  if (host) {
+    try {
+      return new URL(`${protocol}://${host}`).origin;
+    } catch {
+      // Fall through to Vercel's system hostname or the local rehearsal URL.
+    }
+  }
+
+  const vercelHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+  return vercelHost ? `https://${vercelHost}` : `http://localhost:${PORT}`;
+}
 
 function json(res: ServerResponse, status: number, body: unknown) {
   // charset=utf-8 is explicit on purpose: lyrics are Portuguese, and a viewer
@@ -45,8 +67,8 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-function claimUrl(releaseRef: string): string {
-  return `${CLAIM_PUBLIC_URL}/claim?release=${encodeURIComponent(releaseRef)}`;
+function claimUrl(origin: string, releaseRef: string): string {
+  return `${origin}/claim?release=${encodeURIComponent(releaseRef)}`;
 }
 
 /** Resolve a frame reference (https URL or inline data: URL) to bytes. */
@@ -220,6 +242,7 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
   });
 
   const rel = result.releases[0];
+  const origin = publicOrigin(req);
   const onChainImage = imageBase
     ? `${imageBase}/img/${result.stored.id}.${ext}`
     : result.stored.uri;
@@ -237,12 +260,12 @@ async function handleRelease(req: IncomingMessage, res: ServerResponse) {
     // lyrics as Latin-1 ("é" -> "Ã©"). The bytes are correct either way.
     provenanceUri: result.provenance.uri,
     provenanceBlobId: result.provenance.id,
-    provenanceVerifyUrl: `${CLAIM_PUBLIC_URL}/provenance/${result.provenance.id}`,
+    provenanceVerifyUrl: `${origin}/provenance/${result.provenance.id}`,
     traits: result.traits,
     imageUri: onChainImage,
     walrusUri: result.stored.uri,
     blobId: result.stored.id,
-    claimUrl: rel?.releaseRef ? claimUrl(rel.releaseRef) : undefined,
+    claimUrl: rel?.releaseRef ? claimUrl(origin, rel.releaseRef) : undefined,
   });
 }
 
@@ -608,6 +631,7 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
+<<<<<<< HEAD
 /** Start the local sidecar. Not called when imported by the serverless entry. */
 export function startServer(port = PORT) {
   const server = createServer((req, res) => void handleRequest(req, res));
@@ -622,3 +646,11 @@ export function startServer(port = PORT) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   startServer();
 }
+=======
+server.listen(PORT, () => {
+  console.log(`[mint] sidecar on http://127.0.0.1:${PORT}`);
+  console.log(
+    `[mint] claim QR base: ${CONFIGURED_CLAIM_PUBLIC_URL ?? 'derived from each request'}`,
+  );
+});
+>>>>>>> 0c8b8c8c (Fix Vercel mint deployment URLs and types)

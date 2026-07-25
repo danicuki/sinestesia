@@ -1,3 +1,5 @@
+/// <reference path="./gifenc.d.ts" />
+
 import sharp from 'sharp';
 // gifenc ships as CommonJS; its functions live on the default export.
 import gifenc from 'gifenc';

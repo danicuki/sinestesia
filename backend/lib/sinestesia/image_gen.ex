@@ -34,14 +34,24 @@ defmodule Sinestesia.ImageGen do
 
         {:ok, target_url} ->
           if is_binary(image_url) and image_url != "" and local_morph?() do
-            case Sinestesia.ImageGen.LocalSdxl.morph(image_url, target_url) do
-              {:ok, local_url, frames} ->
-                {:ok, local_url, frames}
+            # This local SDXL morph runs AFTER the cloud provider returned, so it
+            # adds its own seconds on top. Record it separately (same process as
+            # the caller's task) so the cloud provider isn't blamed for the local
+            # morph's cost in the on-screen timings.
+            morph_started = System.system_time(:millisecond)
 
-              _err ->
-                # Fallback to original cloud image without frames
-                {:ok, target_url, []}
-            end
+            result =
+              case Sinestesia.ImageGen.LocalSdxl.morph(image_url, target_url) do
+                {:ok, local_url, frames} ->
+                  {:ok, local_url, frames}
+
+                _err ->
+                  # Fallback to original cloud image without frames
+                  {:ok, target_url, []}
+              end
+
+            Process.put(:morph_ms, System.system_time(:millisecond) - morph_started)
+            result
           else
             {:ok, target_url, []}
           end
@@ -136,6 +146,24 @@ defmodule Sinestesia.ImageGen do
       _ -> :img2img
     end
   end
+
+  @doc """
+  Record which route/model actually served this frame.
+
+  `provider/0` only reports what is *configured*, and one provider can serve a
+  frame from very different models: Cloudflare's fast 6-step SDXL-Lightning for
+  the opening text-to-image frame, then the 20-step SD-1.5 img2img build for
+  every frame after. Labelling both "cloudflare" made a 1.7s frame and a 6.9s
+  frame look like the same thing. Called by the provider module that runs, and
+  read by the pipeline task (same process) alongside the timings.
+  """
+  def note_route(route, model, steps) do
+    Process.put(:image_route, %{route: route, model: model, steps: steps})
+    :ok
+  end
+
+  @doc "Route/model recorded for the frame just generated, if the provider reported one."
+  def last_route, do: Process.get(:image_route)
 
   def provider do
     case System.get_env("IMAGE_PROVIDER", "fal") |> String.downcase() do

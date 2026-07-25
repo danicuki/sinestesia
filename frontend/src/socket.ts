@@ -32,10 +32,20 @@ export interface MelodyFeatures {
 export interface Timings {
   stt_ms: number;
   stt_provider: string;
+  // director_ms/image_ms are provider round-trips measured at the call site.
   director_ms: number;
   image_ms: number;
+  // Local SDXL morph pass that runs after the cloud image (t2i + LOCAL_MORPH).
+  // Separate from image_ms so it isn't misread as image-provider latency.
+  morph_ms?: number;
+  // Time the results spent queued in the backend pipeline rather than on a
+  // provider. Non-zero means the backend is the bottleneck, not the model.
+  queue_ms?: number;
   total_ms: number;
+  // Provider plus the route/steps that actually ran, e.g. "cloudflare img2img 20st".
   image_provider: string;
+  // The exact model id that rendered the frame, when the provider reports one.
+  image_model?: string | null;
 }
 
 export interface TranscriptMsg {
@@ -85,6 +95,8 @@ type MintCb = (m: MintMsg) => void;
 // "minting" while the release is in flight; message text on failure.
 type MintStatusCb = (status: string) => void;
 type MintErrorCb = (message: string) => void;
+// A previously-pending receipt whose on-chain settlement has now landed.
+type VerificationCb = (v: Verification) => void;
 
 const URL_DEFAULT =
   import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws/audio";
@@ -106,6 +118,7 @@ export class Socket {
   onMint: MintCb = () => {};
   onMintStatus: MintStatusCb = () => {};
   onMintError: MintErrorCb = () => {};
+  onVerification: VerificationCb = () => {};
   onOpen: () => void = () => {};
 
   constructor(url: string = URL_DEFAULT) {
@@ -184,6 +197,10 @@ export class Socket {
             frames: Array.isArray(msg.frames) ? msg.frames.map(String) : undefined,
             verification: msg.verification as Verification | undefined,
           });
+        break;
+      // Settlement landed for a receipt that shipped as pending — update the badge.
+      case "verification":
+        if (msg.verification) this.onVerification(msg.verification as Verification);
         break;
       case "error":
         this.onError(

@@ -348,6 +348,10 @@ defmodule Sinestesia.Director do
   defp try_chain([p | rest], messages) do
     case call(p, messages) do
       {:ok, prompt} ->
+        # Record which provider actually answered — the chain falls through on
+        # failure, so the configured provider is not necessarily the one that
+        # directed this frame. The provenance record must name the real one.
+        note_model(p)
         {:ok, prompt}
 
       {:error, :no_key} ->
@@ -357,6 +361,36 @@ defmodule Sinestesia.Director do
         Logger.warning("director #{p} failed (#{inspect(reason)}); trying next")
         try_chain(rest, messages)
     end
+  end
+
+  @doc """
+  Which provider/model actually produced the last Director prompt in this process.
+
+  Returns `%{provider: "gemini", model: "gemini-3.1-flash-lite"}`. Read by the
+  pipeline for the on-chain provenance record: naming the *configured* provider
+  would be wrong whenever the chain fell through to a fallback.
+  """
+  def last_model, do: Process.get(:director_model)
+
+  defp note_model(provider) do
+    cfg = Application.fetch_env!(:sinestesia, :config)
+
+    model =
+      case provider do
+        :zerog ->
+          case Sinestesia.Verifiability.last() do
+            %{"model" => m} when is_binary(m) -> m
+            _ -> "0g-compute"
+          end
+
+        :gemma -> Keyword.get(cfg, :ollama_model)
+        :gemini -> System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
+        :haiku -> "claude-haiku-4-5"
+        other -> to_string(other)
+      end
+
+    Process.put(:director_model, %{provider: to_string(provider), model: model})
+    :ok
   end
 
   ## Providers

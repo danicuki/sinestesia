@@ -5,6 +5,10 @@ app = "sinestesia-backend"
 primary_region = "mad"   # Madrid — closest Fly region to Lisbon
 
 [build]
+  # Pin the Dockerfile explicitly. Without this, `fly launch` may decide the app
+  # is buildpack-shaped and write `builder = "heroku/buildpacks:20"` here, which
+  # then fails on the remote builder ("failed to fetch builder image").
+  dockerfile = "Dockerfile"
 
 [env]
   PORT = "4000"

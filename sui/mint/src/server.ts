@@ -631,26 +631,20 @@ export async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
-<<<<<<< HEAD
 /** Start the local sidecar. Not called when imported by the serverless entry. */
 export function startServer(port = PORT) {
   const server = createServer((req, res) => void handleRequest(req, res));
   server.listen(port, () => {
     console.log(`[mint] sidecar on http://127.0.0.1:${port}`);
-    console.log(`[mint] claim QR base: ${CLAIM_PUBLIC_URL}`);
+    console.log(
+      `[mint] claim QR base: ${CONFIGURED_CLAIM_PUBLIC_URL ?? 'derived from each request'}`,
+    );
   });
   return server;
 }
 
-// Only listen when run directly (`tsx src/server.ts`), not when imported.
+// Only listen when run directly (`tsx src/server.ts`), not when imported — the
+// serverless entry imports this module and must not open a listener.
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   startServer();
 }
-=======
-server.listen(PORT, () => {
-  console.log(`[mint] sidecar on http://127.0.0.1:${PORT}`);
-  console.log(
-    `[mint] claim QR base: ${CONFIGURED_CLAIM_PUBLIC_URL ?? 'derived from each request'}`,
-  );
-});
->>>>>>> 0c8b8c8c (Fix Vercel mint deployment URLs and types)

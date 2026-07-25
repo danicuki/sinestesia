@@ -3,18 +3,19 @@ import { getBroker, getService } from './broker.js';
 import { privateKey, providerAddress, rpcUrl } from './config.js';
 
 /**
- * Minimal reproduction of the 0G verifiable-inference failure we hit:
+ * End-to-end check of 0G verifiable inference:
  *
  *   npm run repro:signature
  *
- * Inference itself works. What fails is the *verification* half — the provider's
- * broker returns `chat_id_not_found` for the very chat ID it just issued, so
- * `processResponse` can never confirm a TEE signature and every response stays
- * unverified.
+ * Written to chase what looked like a provider bug — signature retrieval failing
+ * with `chat_id_not_found` for an id the provider had just issued. It wasn't a
+ * provider bug. The verifiable chat id is the one in the ZG-Res-Key response
+ * header; the body's `id` is that same uuid prefixed with "chatcmpl-", and the
+ * provider's broker doesn't recognise it. We were verifying with the body id.
  *
- * This script isolates that by driving the two halves separately and printing
- * exactly what the network returns at each step, so a 0G engineer can see where
- * it breaks without needing our app.
+ * Kept as a diagnostic: it drives account, provider record, inference, raw
+ * signature retrieval and processResponse separately, so if verification ever
+ * fails again the failing step is obvious rather than inferred.
  */
 
 const line = (s = '') => console.log(s);
@@ -116,21 +117,35 @@ async function main() {
   }
 
   // ── 5. What the SDK concludes ─────────────────────────────────────────────
+  let verified: boolean | null = null;
   line();
   line('5. SDK processResponse()');
   try {
-    const ok = await broker.inference.processResponse(meta.provider, chatId, content);
+    const ok = await broker.inference.processResponse(meta.provider, chatId);
     line(`   => ${ok}`);
+    verified = ok;
   } catch (err) {
     line(`   => THREW: ${(err as Error).message}`);
   }
 
+  // Report what actually happened. An earlier version of this script printed a
+  // fixed conclusion, which kept asserting a provider bug after the real cause
+  // (our own chat-id extraction) was fixed — a repro that can't change its mind
+  // is worse than no repro.
   line();
   rule();
-  line('EXPECTED: step 4 returns HTTP 200 with a signature, and step 5 returns true.');
-  line('OBSERVED: step 4 returns HTTP 400 "chat_id_not_found" for the id issued in');
-  line('          step 3, so step 5 can never verify. Inference is billed and works;');
-  line('          only the verifiability guarantee is unavailable.');
+  if (verified === true) {
+    line('RESULT: verification SUCCEEDS end to end.');
+    line(`        The verifiable id is the ZG-Res-Key header (${headerId || 'n/a'}).`);
+    line('        The body id is that same uuid prefixed with "chatcmpl-", and the');
+    line('        provider does not recognise it — using it yields chat_id_not_found.');
+  } else if (verified === false) {
+    line('RESULT: signature retrieved, but processResponse returned false.');
+    line('        Check: TEE signer acknowledged, service still verifiable, and that');
+    line('        the id used came from ZG-Res-Key rather than the response body.');
+  } else {
+    line('RESULT: verification did not complete (null/threw). See steps 4-5 above.');
+  }
   rule();
   line();
 }

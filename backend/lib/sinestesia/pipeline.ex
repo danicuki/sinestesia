@@ -1396,8 +1396,9 @@ defmodule Sinestesia.Pipeline do
 
   # Fill in song/artist from the lyrics before minting, so the NFT isn't stamped
   # "Untitled" forever. An explicit MINT_SONG/MINT_ARTIST (or a `song`/`artist`
-  # option) always wins — identification only fills the blanks. Runs inside the
-  # mint task, which is already off the pipeline's hot path.
+  # option) always wins — identification only fills the blanks, and when it
+  # can't, `opening_line/1` names the performance after its own first words.
+  # Runs inside the mint task, which is already off the pipeline's hot path.
   defp name_the_song(%{song: song, artist: artist} = performance)
        when is_binary(song) and song != "" and is_binary(artist) and artist != "" do
     performance
@@ -1413,19 +1414,53 @@ defmodule Sinestesia.Pipeline do
         }
 
       {:error, reason} ->
+        fallback = opening_line(performance.transcript)
+
         # `:unknown` is the system working — the model saw the lyrics and
         # declined to guess. Anything else means no model ever got to look, and
         # that's a config/network problem worth shouting about mid-show.
         level = if reason == :unknown, do: :info, else: :warning
-        Logger.log(level, "[songid] no identification (#{inspect(reason)}); minting as Untitled")
+
+        Logger.log(
+          level,
+          "[songid] no identification (#{inspect(reason)}); minting as #{inspect(fallback)}"
+        )
 
         %{
           performance
-          | song: presence(performance.song) || "Untitled",
+          | song: presence(performance.song) || fallback,
             artist: presence(performance.artist) || default_artist()
         }
     end
   end
+
+  # When nothing could name the song, name it after how it opens. "Numa folha
+  # qualquer eu desenho…" tells you which performance this was; "Untitled" tells
+  # you nothing, and the NFT keeps it forever.
+  #
+  # The ellipsis is load-bearing: this is an excerpt of the lyrics, not a claim
+  # about the song's real title, and the record shouldn't blur the two. Falls
+  # back to "Untitled" only when there is genuinely no transcript — an
+  # instrumental, or a mint fired before anyone sang.
+  @title_words 5
+  @doc false
+  def opening_line(transcript) when is_binary(transcript) do
+    words =
+      transcript
+      |> String.trim()
+      |> String.split(~r/\s+/, trim: true)
+
+    case Enum.take(words, @title_words) do
+      [] ->
+        "Untitled"
+
+      taken ->
+        title = taken |> Enum.join(" ") |> String.trim_trailing(",")
+        if length(words) > @title_words, do: title <> "…", else: title
+    end
+  end
+
+  def opening_line(_), do: "Untitled"
 
   # The full model chain behind the painting: speech-to-text, the Director LLM
   # (distinct per prompt, so list every one that ran), and the image model.

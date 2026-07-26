@@ -41,7 +41,7 @@ defmodule Sinestesia.ImageGen.Google do
           }
         }
 
-        case Req.post(url, json: body, receive_timeout: 8_000, retry: false) do
+        case Req.post(url, json: body, receive_timeout: 10_000, retry: false) do
           {:ok, %{status: 200, body: %{"predictions" => [%{"bytesBase64Encoded" => b64} | _]}}} ->
             {:ok, "data:image/png;base64," <> b64}
 

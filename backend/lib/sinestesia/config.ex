@@ -270,12 +270,6 @@ defmodule Sinestesia.Config do
       default: "imagen-4.0-fast-generate-001",
       doc: "Imagen model for IMAGE_PROVIDER=google."
     },
-    %{
-      key: "GOOGLE_RAMEN_MODEL",
-      group: :image,
-      default: "gemini-3.1-flash-lite-image",
-      doc: "Gemini native-image model (\"instant ramen\" path, benchmarks)."
-    },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────
     %{

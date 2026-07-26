@@ -146,7 +146,6 @@ rehearsal, where finding out now beats finding out on stage.
 | `COMPOSE_MODE` | `inpaint` | `inpaint \| global` | In story mode, whether new elements are inpainted into a region or the whole frame is re-composed. |
 | `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
 | `GOOGLE_IMAGE_MODEL` | `imagen-4.0-fast-generate-001` | — | Imagen model for IMAGE_PROVIDER=google. |
-| `GOOGLE_RAMEN_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini native-image model ("instant ramen" path, benchmarks). |
 
 ### Cloudflare Workers AI
 

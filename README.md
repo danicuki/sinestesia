@@ -42,7 +42,7 @@ Live claim app for the minted paintings: <https://sinestesia-mint.vercel.app>
   was involved.
 
 Business model and go-to-market thinking live in
-**[MONETIZATION.md](MONETIZATION.md)**.
+**[PITCH_DECK.md](PITCH_DECK.md)**.
 
 ## How it works
 
@@ -224,7 +224,8 @@ site/                          Marketing / landing site
 
 PROTOCOL.md                    Single source of truth for the WS contract
 CONFIGURATION.md               Every env var, generated from code
-MONETIZATION.md                Business model and go-to-market
+PITCH_DECK.md                  Vision, market, and the investor pitch
+GTM.md                         Near-term go-to-market and revenue plan
 HANDOFF.md                     Decisions, gotchas, onboarding
 ```
 

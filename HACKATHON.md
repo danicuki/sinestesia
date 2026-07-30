@@ -107,5 +107,5 @@ founder + an AI-art-collector mentor. Lean into Lisbon soul and live emotion.
 - Keep demos within each sponsor's time limit (0G ≤3 min).
 
 ---
-*Companion to `MONETIZATION.md` — the mint feature is the onchain version of the
+*Companion to `PITCH_DECK.md` — the mint feature is the onchain version of the
 keepsake product line.*

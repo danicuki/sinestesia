@@ -107,6 +107,7 @@ PROTOCOL.md               # ★ Single source of truth for FE↔BE protocol
 14. **Instrumental intro black canvas padding** → Songs with long instrumental intros (where `first_frame_at_ms > 0`) should show a blank black screen. We automatically query the first frame's resolution via `ffprobe`, generate a matching-resolution `black.jpg` dynamically via `ffmpeg`'s `lavfi` color filter, and prepend it to the concat `input.txt` to cover the intro.
 15. **Ffmpeg trailing-frame concat bug** → ffmpeg's concat demuxer can silently truncate the final frame early if it's the last line in the input file. Resolved by duplicating the last frame entry with a small duration to act as a trailing anchor.
 16. **Diagnostic `test_out.mp4` vs `video.mp4`** → The direct CLI test file `test_out.mp4` was a transient diagnostic file created to verify transition-smoothness in isolation (deliberately omitting sound and the blank intro). The true, fully compiled asset containing both synchronized audio and the blank instrumental intro is `video.mp4` under `frontend/public/samples/<slug>/video.mp4`.
+17. **Director output must be validated, not trusted** → The Director LLM occasionally refuses or asks for clarification ("please provide the first line of the song") instead of emitting a scene. The backend rejects any output that doesn't begin with the canonical scene-opening phrase, so the multi-turn conversation never gets poisoned and meta-commentary never reaches the image model. See `director.ex`.
 
 
 ## Disabled / dead code

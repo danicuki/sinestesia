@@ -99,6 +99,7 @@ defmodule Sinestesia.Pipeline do
         end
     end
   end
+
   def audio_chunk(pid, bin), do: GenServer.cast(pid, {:audio_chunk, bin})
   def expressive(pid, features), do: GenServer.cast(pid, {:expressive, features})
   def fast_features(pid, features), do: GenServer.cast(pid, {:fast_features, features})
@@ -106,6 +107,12 @@ defmodule Sinestesia.Pipeline do
   def set_style(pid, style), do: GenServer.cast(pid, {:set_style, style})
   def set_camera(pid, camera), do: GenServer.cast(pid, {:set_camera, camera})
   def reset_song(pid), do: GenServer.cast(pid, :reset_song)
+  def mint(pid, opts \\ %{}), do: GenServer.cast(pid, {:mint, opts})
+
+  # A song ending is one event, not two: snapshot the performance for the mint
+  # and immediately clear the canvas so the next song can start singing over it.
+  # Ordering matters (mint must see the finished song), so it's one cast.
+  def end_song(pid, opts \\ %{}), do: GenServer.cast(pid, {:end_song, opts})
 
   ## Callbacks
 
@@ -120,6 +127,10 @@ defmodule Sinestesia.Pipeline do
        socket: socket_pid,
        stts: stts,
        lyrics: [],
+       # How many committed lines the Director has already been given.
+       # See unsent_text/2: without this, lines committed while an image was
+       # rendering were silently skipped.
+       lyrics_sent: 0,
        last_finals: %{},
        last_interims: %{},
        last_text_at: %{},
@@ -133,6 +144,16 @@ defmodule Sinestesia.Pipeline do
        # the next Director call; ages out after 6s. See melody_hint/1.
        melody: %{},
        fast: %{},
+       # Per-song provenance log: one entry per Director prompt, newest-first,
+       # each %{ts: iso8601, prompt: raw_director_output}. Joined with the
+       # accumulated `lyrics` transcript at song end to build the hash that
+       # proves the NFT was made in that exact live moment. Reset each song.
+       performance_steps: [],
+       # Every generated frame URL in order — the song's visual evolution. At
+       # mint time these are composed into the animated GIF / collage that
+       # becomes the NFT image (so it captures the whole song, not just the last
+       # frame). Reset each song.
+       frame_urls: [],
        last_director_at: 0,
        last_audio_chunk_at: 0,
        last_stt_ms: nil,
@@ -140,6 +161,10 @@ defmodule Sinestesia.Pipeline do
        generating?: false,
        since_last_director: false,
        last_image_url: nil,
+       # Route/model that rendered the last frame. Carried in state because the
+       # provider records it inside the image TASK's process dictionary, which
+       # the mint (running here, in the GenServer) cannot see.
+       last_image_route: nil,
        bootstrap_done?: false,
        # Story mode: the style text is appended to the Director's prompt only
        # until one styled image lands (bootstrap / after a style change). From
@@ -201,7 +226,43 @@ defmodule Sinestesia.Pipeline do
   # Reset all song-scoped state but KEEP open STT connections + socket.
   # Use when a new song starts mid-session — avoids reconnect roundtrip.
   # In-flight tasks from the previous song are invalidated via session_id.
-  def handle_cast(:reset_song, state) do
+  def handle_cast(:reset_song, state), do: {:noreply, reset_song_state(state)}
+
+  # Song over: mint what was just painted AND start the next song in one step.
+  # The mint task takes its own snapshot of the song, so resetting immediately
+  # after is safe — and necessary, because the singer is already starting again.
+  def handle_cast({:end_song, opts}, state) do
+    case state.last_image_url do
+      nil ->
+        # Nothing was painted, so there's nothing to mint — but the reset still
+        # has to happen, otherwise "End Song" would silently do nothing.
+        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
+
+      image_url ->
+        spawn_mint(state, image_url, opts)
+        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
+    end
+
+    {:noreply, reset_song_state(state)}
+  end
+
+  # Mint the finished painting: store on Walrus + mint the master on Sui via the
+  # mint sidecar, then push the claim URL for the QR overlay. Async so the show
+  # never blocks on chain latency. `opts` may carry song/artist/venue overrides.
+  def handle_cast({:mint, opts}, state) do
+    case state.last_image_url do
+      nil ->
+        push(state.socket, %{type: "mint_error", message: "nothing painted yet", ts: now_ms()})
+        {:noreply, state}
+
+      image_url ->
+        spawn_mint(state, image_url, opts)
+        push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
+        {:noreply, state}
+    end
+  end
+
+  defp reset_song_state(state) do
     new_session = state.session_id + 1
     killed = kill_pending(state.pending_pids)
 
@@ -222,35 +283,38 @@ defmodule Sinestesia.Pipeline do
       ts: now_ms()
     })
 
-    {:noreply,
-     %{
-       state
-       | lyrics: [],
-         last_finals: %{},
-         last_interims: %{},
-         last_text_at: %{},
-         last_director_text: "",
-         style: default_style,
-         style_locked?: false,
-         final_lyric_count: 0,
-         director_conversation: Sinestesia.Director.init_conversation(),
-         last_director_at: 0,
-         last_stt_ms: nil,
-         last_stt_provider: nil,
-         # Critical: clear generating? so the next director call isn't blocked
-         # waiting for an in-flight (now-stale) task that we're about to drop.
-         generating?: false,
-         since_last_director: false,
-         last_image_url: nil,
-         bootstrap_done?: false,
-         style_stamped?: false,
-         frames_since_style: 0,
-         recent_placements: [],
-         melody: %{},
-         camera: neutral_camera(),
-         session_id: new_session,
-         pending_pids: MapSet.new()
-     }}
+    %{
+      state
+      | lyrics: [],
+        lyrics_sent: 0,
+        last_finals: %{},
+        last_interims: %{},
+        last_text_at: %{},
+        last_director_text: "",
+        style: default_style,
+        style_locked?: false,
+        final_lyric_count: 0,
+        director_conversation: Sinestesia.Director.init_conversation(),
+        performance_steps: [],
+        frame_urls: [],
+        last_director_at: 0,
+        last_stt_ms: nil,
+        last_stt_provider: nil,
+        # Critical: clear generating? so the next director call isn't blocked
+        # waiting for an in-flight (now-stale) task that we're about to drop.
+        generating?: false,
+        since_last_director: false,
+        last_image_url: nil,
+        last_image_route: nil,
+        bootstrap_done?: false,
+        style_stamped?: false,
+        frames_since_style: 0,
+        recent_placements: [],
+        melody: %{},
+        camera: neutral_camera(),
+        session_id: new_session,
+        pending_pids: MapSet.new()
+    }
   end
 
   defp neutral_camera, do: %{zoom: 0.0, pan_x: 0.0, pan_y: 0.0}
@@ -334,27 +398,42 @@ defmodule Sinestesia.Pipeline do
     {:noreply, state}
   end
 
-  def handle_info({:director_done, _result, _started_at, sid}, %{session_id: cur} = state)
+  def handle_info(
+        {:director_done, _result, _started_at, _call_ms, _model, sid},
+        %{session_id: cur} = state
+      )
       when sid != cur do
     Logger.info("[director] dropping stale result (session #{sid} ≠ #{cur})")
     {:noreply, state}
   end
 
-  def handle_info({:director_done, {:ok, raw, new_conversation}, started_at, _sid}, state) do
-    director_ms = now_ms() - started_at
+  def handle_info(
+        {:director_done, {:ok, raw, new_conversation}, started_at, call_ms, director_model, _sid},
+        state
+      ) do
+    # `call_ms` is the provider round-trip measured inside the task; the gap up to
+    # now is time the reply spent queued in this GenServer's mailbox. Reporting
+    # the sum as "director" latency (the old behaviour) blamed the provider for
+    # our own backpressure, so keep them separate.
+    director_ms = call_ms
+    queue_ms = max(now_ms() - started_at - call_ms, 0)
     {prompt, extra, state} = compose_image_request(raw, state)
 
     Logger.info(
-      "[director] +#{director_ms}ms (#{turn_count(new_conversation)} turns)#{compose_tag(extra)}: #{prompt}"
+      "[director] +#{director_ms}ms (queue #{queue_ms}ms) (#{turn_count(new_conversation)} turns)#{compose_tag(extra)}: #{prompt}"
     )
 
     timings = %{
       stt_ms: state.last_stt_ms,
       stt_provider: state.last_stt_provider,
       director_ms: director_ms,
+      director_queue_ms: queue_ms,
       # The lyric window that produced this prompt — carried through to the
       # image message so the front can show what the Director was reacting to.
-      lyric: state.last_director_text
+      lyric: state.last_director_text,
+      # Verifiable-inference receipt when the Director ran on 0G Compute (nil
+      # otherwise). Rides along to the image message for the on-screen badge.
+      verification: Sinestesia.Verifiability.last()
     }
 
     img_pid =
@@ -365,13 +444,65 @@ defmodule Sinestesia.Pipeline do
       |> drop_dead()
       |> MapSet.put(img_pid)
 
+    # Record this prompt in the provenance log (newest-first). `raw` is the
+    # Director's literal output — the "director prompt" the NFT hash attests to.
+    # The model that produced it rides along: a certificate of authenticity has
+    # to say WHICH model wrote each prompt, and the chain can fall back mid-song.
+    # `lyric` is the half of the exchange that was missing: a certificate should
+    # show the conversation (what the singer sang -> what the Director answered),
+    # not just the Director's side. `verification` is the 0G receipt for THIS
+    # call, so each prompt can be tied to its own TEE signature rather than to a
+    # single song-level claim. It may still be settling here; the mint resolves
+    # any pending ones before hashing.
+    step = %{
+      ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      lyric: state.last_director_text,
+      prompt: raw,
+      model: director_model,
+      verification: Sinestesia.Verifiability.last()
+    }
+
     {:noreply,
-     %{state | generating?: true, director_conversation: new_conversation, bootstrap_done?: true, pending_pids: pids}}
+     %{
+       state
+       | generating?: true,
+         director_conversation: new_conversation,
+         bootstrap_done?: true,
+         performance_steps: [step | state.performance_steps],
+         pending_pids: pids
+     }}
   end
 
-  def handle_info({:director_done, {:error, reason}, _started_at, _sid}, state) do
+  def handle_info({:director_done, {:error, reason}, _started_at, _call_ms, _model, _sid}, state) do
     Logger.warning("[director] error: #{inspect(reason)}")
     {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:mint_done, {:ok, body}}, state) do
+    Logger.info("[mint] released #{inspect(Map.get(body, "releaseRef"))}")
+
+    push(state.socket, %{
+      type: "mint",
+      releaseRef: Map.get(body, "releaseRef"),
+      masterTokenId: Map.get(body, "masterTokenId"),
+      txId: Map.get(body, "txId"),
+      explorerUrl: Map.get(body, "explorerUrl"),
+      provenanceHash: Map.get(body, "provenanceHash"),
+      traits: Map.get(body, "traits"),
+      imageUri: Map.get(body, "imageUri"),
+      claimUrl: Map.get(body, "claimUrl"),
+      song: Map.get(body, "song"),
+      artist: Map.get(body, "artist"),
+      ts: now_ms()
+    })
+
+    {:noreply, state}
+  end
+
+  def handle_info({:mint_done, {:error, reason}}, state) do
+    Logger.warning("[mint] failed: #{inspect(reason)}")
+    push(state.socket, %{type: "mint_error", message: mint_error_msg(reason), ts: now_ms()})
+    {:noreply, state}
   end
 
   def handle_info({:image_done, _result, _timings, sid}, %{session_id: cur} = state)
@@ -381,12 +512,31 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_info({:image_done, {:ok, url, frames, prompt}, timings, _sid}, state) do
-    image_ms = now_ms() - timings.image_started_at
-    provider = Sinestesia.ImageGen.provider() |> to_string()
-    total = (timings.stt_ms || 0) + timings.director_ms + image_ms
+    # Provider round-trip (measured in the task) vs. mailbox wait, kept apart so
+    # a backed-up pipeline doesn't read as a slow image provider.
+    call_ms = Map.get(timings, :image_call_ms) || now_ms() - timings.image_started_at
+    queue_ms = max(now_ms() - timings.image_started_at - call_ms, 0)
+    dir_queue_ms = Map.get(timings, :director_queue_ms, 0)
+    # The local morph (t2i + LOCAL_MORPH) runs after the cloud call inside the
+    # same task, so subtract it out — otherwise its seconds are attributed to the
+    # image provider and make a fast provider look slow.
+    morph_ms = Map.get(timings, :morph_ms, 0)
+    image_ms = max(call_ms - morph_ms, 0)
+    route = Map.get(timings, :image_route)
+
+    # "cloudflare" alone can't distinguish a 6-step Lightning frame from a
+    # 20-step SD-1.5 i2i frame — show the route so the numbers are readable.
+    # Same label the failure path prints, so a slow frame and a failed frame
+    # describe themselves the same way.
+    label = route_of(timings)
+
+    # Wall-clock the audience actually waits: every hop plus the queueing.
+    total =
+      (timings.stt_ms || 0) + timings.director_ms + dir_queue_ms + image_ms + morph_ms +
+        queue_ms
 
     Logger.info(
-      "[image:#{provider}] +#{image_ms}ms (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + image #{image_ms})"
+      "[image:#{label}] +#{image_ms}ms (morph #{morph_ms}ms, queue #{queue_ms}ms) (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{dir_queue_ms} + image #{image_ms} + morph #{morph_ms} + imgq #{queue_ms})"
     )
 
     msg = %{
@@ -400,8 +550,15 @@ defmodule Sinestesia.Pipeline do
         stt_provider: timings.stt_provider,
         director_ms: timings.director_ms,
         image_ms: image_ms,
+        # Local SDXL morph run after the cloud image (t2i + LOCAL_MORPH), broken
+        # out so it isn't mistaken for image-provider latency.
+        morph_ms: morph_ms,
+        # Time spent waiting in the pipeline's mailbox rather than on a provider.
+        # Non-zero here means we're the bottleneck, not the model.
+        queue_ms: dir_queue_ms + queue_ms,
         total_ms: total,
-        image_provider: provider
+        image_provider: label,
+        image_model: route && route.model
       }
     }
 
@@ -409,22 +566,84 @@ defmodule Sinestesia.Pipeline do
     # absent otherwise so non-sidecar providers keep the old message shape.
     msg = if frames == [], do: msg, else: Map.put(msg, :frames, frames)
 
+    # 0G verifiable-inference receipt, present only when the Director ran on 0G.
+    receipt = Map.get(timings, :verification)
+    msg = if receipt, do: Map.put(msg, :verification, receipt), else: msg
+
     push(state.socket, msg)
+
+    # On-chain settlement finishes after the answer is already on screen, so the
+    # receipt above goes out as "pending". Chase the settled result and push it,
+    # otherwise the badge sits on "verification pending" for the whole show.
+    resolve_verification(receipt, state.socket)
 
     {:noreply,
      %{
        state
        | generating?: false,
          last_image_url: url,
+         last_image_route: route || state.last_image_route,
+         frame_urls: state.frame_urls ++ [url],
          style_stamped?: true,
          pending_pids: drop_dead(state.pending_pids)
      }}
   end
 
-  def handle_info({:image_done, {:error, reason}, _timings, _sid}, state) do
-    Logger.warning("[image] error: #{inspect(reason)}")
+  def handle_info({:image_done, {:error, reason}, timings, _sid}, state) do
+    # A bare `%Req.TransportError{reason: :timeout}` is unactionable: it doesn't
+    # say which provider, which route, which model, how long we waited, or what
+    # we sent. Report the whole attempt — the interesting failures are the ones
+    # where t2i works and i2i doesn't, and that's only visible from here.
+    Logger.warning("""
+    [image] FAILED #{route_of(timings)}
+      error:  #{inspect(reason)}
+      after:  #{Map.get(timings, :image_call_ms, "?")}ms
+      input:  #{Map.get(timings, :image_input, "?")}
+      prompt: #{Map.get(timings, :prompt_chars, "?")} chars
+      #{diagnosis(reason, timings)}\
+    """)
+
     {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
   end
+
+  defp route_of(timings) do
+    case Map.get(timings, :image_route) do
+      %{provider: p, route: r, model: m, steps: s} ->
+        "#{p} #{r} #{s}st #{m}"
+
+      _ ->
+        "#{Sinestesia.ImageGen.provider()} #{Sinestesia.ImageGen.render_mode()} (route not reported)"
+    end
+  end
+
+  # Turn the common failures into the next thing to check, so a failing show
+  # doesn't need a developer reading provider source at the sound desk.
+  defp diagnosis(%Req.TransportError{reason: :timeout}, timings) do
+    case Map.get(timings, :image_route) do
+      %{route: "i2i"} ->
+        "hint:   i2i timed out. The provider must fetch/receive the previous frame " <>
+          "(#{Map.get(timings, :image_input, "?")}) before it can start rendering, " <>
+          "so i2i can time out where t2i on the same provider succeeds. " <>
+          "Try RENDER_MODE=t2i, or fewer steps."
+
+      _ ->
+        "hint:   the provider accepted the connection but never answered in budget."
+    end
+  end
+
+  defp diagnosis(%Req.TransportError{reason: :econnrefused}, _timings),
+    do: "hint:   nothing is listening — is the sidecar running?"
+
+  defp diagnosis({:bad_status, status, _body}, _timings) when status in [401, 403],
+    do: "hint:   provider rejected the credentials; check the API key for this provider."
+
+  defp diagnosis({:bad_status, 429, _body}, _timings),
+    do: "hint:   rate limited."
+
+  defp diagnosis(reason, _timings) when reason in [:no_fal_key, :no_key],
+    do: "hint:   no API key configured for this provider (see GET /config)."
+
+  defp diagnosis(_reason, _timings), do: ""
 
   def handle_info({:style_curated, _result, sid}, %{session_id: cur} = state)
       when sid != cur do
@@ -640,8 +859,7 @@ defmodule Sinestesia.Pipeline do
       # carries the full style — there's no feedback loop for repetition to
       # bias (the style fixed-point collapse was an img2img phenomenon).
       Sinestesia.ImageGen.render_mode() == :t2i ->
-        {"A single scene showing: #{prompt}. #{state.style}",
-         %{state | frames_since_style: 0}}
+        {"A single scene showing: #{prompt}. #{state.style}", %{state | frames_since_style: 0}}
 
       not state.style_stamped? ->
         {"#{prompt}. #{state.style}", %{state | frames_since_style: 0}}
@@ -711,7 +929,10 @@ defmodule Sinestesia.Pipeline do
       {:noreply, if(from_curator?, do: %{state | style_locked?: true}, else: state)}
     else
       tag = if from_curator?, do: "[curator]", else: "[style]"
-      Logger.info("#{tag} #{inspect(state.style)} → #{inspect(new_style)} (resetting conversation)")
+
+      Logger.info(
+        "#{tag} #{inspect(state.style)} → #{inspect(new_style)} (resetting conversation)"
+      )
 
       push(state.socket, %{
         type: "style",
@@ -779,7 +1000,7 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
-  defp which_providers do
+  def which_providers do
     case System.get_env("STT_PROVIDER", "elevenlabs") |> String.downcase() do
       "both" -> [:elevenlabs, :deepgram]
       "all" -> [:elevenlabs, :deepgram, :local_whisper]
@@ -812,7 +1033,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[elevenlabs] disabled: #{inspect(reason)}")
-        send(socket_pid, {:push_json, %{type: "error", message: "elevenlabs disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "elevenlabs disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -825,7 +1051,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[deepgram] disabled: #{inspect(reason)}")
-        send(socket_pid, {:push_json, %{type: "error", message: "deepgram disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "deepgram disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -837,8 +1068,15 @@ defmodule Sinestesia.Pipeline do
         {:ok, pid}
 
       {:error, reason} ->
-        Logger.warning("[local_whisper] disabled: #{inspect(reason)} (is the sidecar running on :8002?)")
-        send(socket_pid, {:push_json, %{type: "error", message: "local_whisper disabled: #{inspect(reason)}"}})
+        Logger.warning(
+          "[local_whisper] disabled: #{inspect(reason)} (is the sidecar running on :8002?)"
+        )
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "local_whisper disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -851,7 +1089,12 @@ defmodule Sinestesia.Pipeline do
 
       {:error, reason} ->
         Logger.warning("[replay] disabled: #{inspect(reason)} (set REPLAY_FILE)")
-        send(socket_pid, {:push_json, %{type: "error", message: "replay disabled: #{inspect(reason)}"}})
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "replay disabled: #{inspect(reason)}"}}
+        )
+
         {:error, reason}
     end
   end
@@ -877,6 +1120,9 @@ defmodule Sinestesia.Pipeline do
   # Default window for subsequent calls. Defined here (NOT later) because Elixir
   # module attributes are not hoisted — used in maybe_trigger below.
   @window_words 10
+  # Wider window when there are committed lines waiting: an in-progress partial
+  # will keep growing and get another chance, a dropped commit will not.
+  @catchup_window_words 24
   # Don't fire the Director on sub-word debris like "ul" (the tail of an
   # elongated "azuuuu...ul" split across STT segments) — it wastes a whole
   # image cycle on an atmospheric non-prompt. Real 2-word lines ("Vai voando")
@@ -909,7 +1155,7 @@ defmodule Sinestesia.Pipeline do
           if bootstrap? do
             bootstrap_text(state, @bootstrap_window_words)
           else
-            pick_current_line(state, @window_words)
+            unsent_text(state, @window_words)
           end
 
         cond do
@@ -927,7 +1173,12 @@ defmodule Sinestesia.Pipeline do
             %{state | since_last_director: false}
 
           true ->
-            if bootstrap?, do: Logger.info("[director] bootstrap fire with #{word_count(text)} words: #{inspect(text)}")
+            if bootstrap?,
+              do:
+                Logger.info(
+                  "[director] bootstrap fire with #{word_count(text)} words: #{inspect(text)}"
+                )
+
             pid = spawn_director(state, text)
 
             %{
@@ -936,6 +1187,11 @@ defmodule Sinestesia.Pipeline do
                 since_last_director: false,
                 generating?: true,
                 last_director_text: text,
+                # Every line committed so far has now been handed over. The
+                # in-progress partial deliberately does NOT advance the cursor:
+                # it is still growing, and when it commits, the full line must
+                # reach the Director — that is the whole point.
+                lyrics_sent: length(state.lyrics),
                 pending_pids: MapSet.put(state.pending_pids, pid)
             }
         end
@@ -1002,12 +1258,297 @@ defmodule Sinestesia.Pipeline do
 
     {:ok, pid} =
       Task.start(fn ->
+        # Time the call HERE, inside the task. Measuring it in the parent's
+        # handle_info instead would fold in however long the message sat in this
+        # GenServer's mailbox behind audio frames — inflating what looks like
+        # provider latency. `call_ms` is the real provider round-trip; the
+        # parent derives queue wait by comparing against `started_at`.
+        call_started = now_ms()
         result = Sinestesia.Director.next_prompt(conversation, line)
-        send(parent, {:director_done, result, started_at, sid})
+        call_ms = now_ms() - call_started
+        # Which provider/model actually answered (the chain may have fallen
+        # through) — recorded for the provenance certificate.
+        send(
+          parent,
+          {:director_done, result, started_at, call_ms, Sinestesia.Director.last_model(), sid}
+        )
       end)
 
     pid
   end
+
+  # Assemble the performance record from song-scoped state and hand the finished
+  # image + provenance to the mint sidecar in a Task, so chain/Walrus latency
+  # never blocks the pipeline. Steps are stored newest-first; reverse to oldest.
+  defp spawn_mint(state, image_url, opts) do
+    parent = self()
+    steps = Enum.reverse(state.performance_steps)
+
+    transcript = state.lyrics |> Enum.join(" ")
+
+    performance = %{
+      song: opt(opts, "song", System.get_env("MINT_SONG")),
+      artist: opt(opts, "artist", System.get_env("MINT_ARTIST")),
+      venue: opt(opts, "venue", System.get_env("MINT_VENUE", "Live")),
+      transcript: transcript,
+      directorPrompts: Enum.map(steps, & &1.prompt),
+      timestamps: Enum.map(steps, & &1.ts),
+      # Per-prompt model attribution (the Director chain can fall back mid-song,
+      # so a single song-level name would be a lie).
+      directorModels: Enum.map(steps, &(&1[:model] || &1["model"])),
+      # The singer's half of each exchange. Without it the certificate shows the
+      # Director talking to itself; with it you can read the actual conversation
+      # that produced the painting.
+      directorLyrics: Enum.map(steps, &(&1[:lyric] || &1["lyric"])),
+      # Every model in the chain that produced this painting — the part of the
+      # certificate that says HOW it was made, not just what the prompts were.
+      models: models_used(state),
+      endedAtMs: now_ms()
+    }
+
+    # How the NFT image is composed from the song's frames: "webp" (default,
+    # animated evolution, full colour + small), "gif" (max compatibility),
+    # "collage" (contact sheet), or "final" (last frame).
+    mode = opt(opts, "mode", System.get_env("MINT_COMPOSE", "webp"))
+    frame_urls = state.frame_urls
+
+    Task.start(fn ->
+      performance =
+        performance
+        |> name_the_song()
+        # Verification settles after the response, so a step's receipt can still
+        # be pending when the song ends. Resolve them now: what gets hashed into
+        # the NFT should be the final verdict, not a snapshot mid-flight.
+        |> Map.put(:directorProofs, resolve_proofs(steps))
+
+      # Carry the resolved title back with the receipt: the song is only named
+      # inside this task, but the toast on stage wants to show what it minted.
+      result =
+        case do_mint(image_url, frame_urls, mode, performance) do
+          {:ok, body} ->
+            {:ok, Map.merge(body, %{"song" => performance.song, "artist" => performance.artist})}
+
+          other ->
+            other
+        end
+
+      send(parent, {:mint_done, result})
+    end)
+  end
+
+  # One proof per Director step, aligned with the prompts: the 0G chat id and
+  # whether its TEE signature verified. nil for steps that didn't run on 0G (the
+  # chain falls back mid-song), which is itself worth recording honestly.
+  # How long the mint will wait, in total, for still-settling 0G attestations
+  # before recording them as unresolved. The song is already over and the next
+  # one has started, so a few seconds costs the show nothing.
+  @proof_settle_wait_ms 4_000
+  @proof_poll_ms 500
+
+  defp resolve_proofs(steps) do
+    # The last call of the song is the one most likely still settling, so give
+    # the chain a moment rather than minting it as "unresolved". One deadline for
+    # the whole pass, not per step — otherwise a long song multiplies the wait.
+    deadline = now_ms() + @proof_settle_wait_ms
+
+    Enum.map(steps, fn step ->
+      case step[:verification] || step["verification"] do
+        receipt when is_map(receipt) ->
+          chat_id = Map.get(receipt, "chatId") || Map.get(receipt, :chatId)
+          verified = Map.get(receipt, "verified", Map.get(receipt, :verified))
+
+          %{
+            chatId: chat_id,
+            provider: Map.get(receipt, "provider") || Map.get(receipt, :provider),
+            model: Map.get(receipt, "model") || Map.get(receipt, :model),
+            network: Map.get(receipt, "network") || Map.get(receipt, :network),
+            verified:
+              if(is_nil(verified), do: settled_verification(chat_id, deadline), else: verified)
+          }
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  # Ask the sidecar for a chat's settled verdict, retrying until `deadline`.
+  # Returns nil when it still hasn't landed — recorded as "unresolved" rather
+  # than guessed either way.
+  defp settled_verification(chat_id, deadline) when is_binary(chat_id) and chat_id != "" do
+    url =
+      System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <>
+        "/v1/verification/" <> URI.encode(chat_id)
+
+    case Req.get(url, receive_timeout: 3_000, retry: false) do
+      {:ok, %{status: 200, body: %{"pending" => false, "verified" => v}}} ->
+        v
+
+      _ ->
+        if now_ms() < deadline do
+          Process.sleep(@proof_poll_ms)
+          settled_verification(chat_id, deadline)
+        end
+    end
+  end
+
+  defp settled_verification(_, _), do: nil
+
+  # Fill in song/artist from the lyrics before minting, so the NFT isn't stamped
+  # "Untitled" forever. An explicit MINT_SONG/MINT_ARTIST (or a `song`/`artist`
+  # option) always wins — identification only fills the blanks, and when it
+  # can't, `opening_line/1` names the performance after its own first words.
+  # Runs inside the mint task, which is already off the pipeline's hot path.
+  defp name_the_song(%{song: song, artist: artist} = performance)
+       when is_binary(song) and song != "" and is_binary(artist) and artist != "" do
+    performance
+  end
+
+  defp name_the_song(performance) do
+    case Sinestesia.SongId.identify(performance.transcript) do
+      {:ok, %{title: title, artist: found_artist}} ->
+        %{
+          performance
+          | song: presence(performance.song) || title,
+            artist: presence(performance.artist) || found_artist || default_artist()
+        }
+
+      {:error, reason} ->
+        fallback = opening_line(performance.transcript)
+
+        # `:unknown` is the system working — the model saw the lyrics and
+        # declined to guess. Anything else means no model ever got to look, and
+        # that's a config/network problem worth shouting about mid-show.
+        level = if reason == :unknown, do: :info, else: :warning
+
+        Logger.log(
+          level,
+          "[songid] no identification (#{inspect(reason)}); minting as #{inspect(fallback)}"
+        )
+
+        %{
+          performance
+          | song: presence(performance.song) || fallback,
+            artist: presence(performance.artist) || default_artist()
+        }
+    end
+  end
+
+  # When nothing could name the song, name it after how it opens. "Numa folha
+  # qualquer eu desenho…" tells you which performance this was; "Untitled" tells
+  # you nothing, and the NFT keeps it forever.
+  #
+  # The ellipsis is load-bearing: this is an excerpt of the lyrics, not a claim
+  # about the song's real title, and the record shouldn't blur the two. Falls
+  # back to "Untitled" only when there is genuinely no transcript — an
+  # instrumental, or a mint fired before anyone sang.
+  @title_words 5
+  @doc false
+  def opening_line(transcript) when is_binary(transcript) do
+    words =
+      transcript
+      |> String.trim()
+      |> String.split(~r/\s+/, trim: true)
+
+    case Enum.take(words, @title_words) do
+      [] ->
+        "Untitled"
+
+      taken ->
+        title = taken |> Enum.join(" ") |> String.trim_trailing(",")
+        if length(words) > @title_words, do: title <> "…", else: title
+    end
+  end
+
+  def opening_line(_), do: "Untitled"
+
+  # The full model chain behind the painting: speech-to-text, the Director LLM
+  # (distinct per prompt, so list every one that ran), and the image model.
+  defp models_used(state) do
+    director =
+      state.performance_steps
+      |> Enum.map(&(&1[:model] || &1["model"]))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    # From state, not the process dictionary: the route is recorded inside the
+    # image task, which is a different process from this one.
+    route = state.last_image_route
+
+    %{
+      stt: %{provider: state.last_stt_provider},
+      director: director,
+      image:
+        %{provider: to_string(Sinestesia.ImageGen.provider())}
+        |> Map.merge(
+          case route do
+            %{route: r, model: m, steps: s} -> %{route: r, model: m, steps: s}
+            _ -> %{}
+          end
+        ),
+      renderMode: to_string(Sinestesia.ImageGen.render_mode())
+    }
+  end
+
+  defp default_artist, do: System.get_env("MINT_ARTIST", "Sinestesia")
+
+  defp presence(v) when is_binary(v), do: if(String.trim(v) == "", do: nil, else: v)
+  defp presence(_), do: nil
+
+  defp do_mint(image_url, frame_urls, mode, performance) do
+    url = System.get_env("MINT_SIDECAR_URL", "http://127.0.0.1:8790") <> "/release"
+
+    with {:ok, bytes} <- fetch_image_bytes(image_url),
+         payload <- %{
+           imageBase64: Base.encode64(bytes),
+           frameUrls: frame_urls,
+           mode: mode,
+           performance: performance
+         },
+         {:ok, %{status: 200, body: body}} <-
+           Req.post(url, json: payload, receive_timeout: 180_000, retry: false) do
+      {:ok, body}
+    else
+      {:ok, %{status: status, body: body}} -> {:error, {:bad_status, status, body}}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  # The final canvas is either an https URL (fal.ai/pollinations) or an inline
+  # data: URL (google) — handle both so any image provider can be minted.
+  defp fetch_image_bytes("data:" <> _ = url) do
+    case String.split(url, ",", parts: 2) do
+      [_header, b64] ->
+        case Base.decode64(b64) do
+          {:ok, bytes} -> {:ok, bytes}
+          :error -> {:error, :bad_data_url}
+        end
+
+      _ ->
+        {:error, :bad_data_url}
+    end
+  end
+
+  defp fetch_image_bytes(url) when is_binary(url) do
+    case Req.get(url, receive_timeout: 30_000, retry: false, decode_body: false) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) -> {:ok, body}
+      {:ok, %{status: status}} -> {:error, {:image_fetch, status}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp opt(opts, key, default) do
+    case Map.get(opts, key) do
+      v when is_binary(v) and v != "" -> v
+      _ -> default
+    end
+  end
+
+  defp mint_error_msg({:image_fetch, status}), do: "could not fetch the painting (#{status})"
+  defp mint_error_msg({:bad_status, status, _body}), do: "mint service error (#{status})"
+  defp mint_error_msg(:bad_data_url), do: "the painting image was malformed"
+  defp mint_error_msg(reason), do: "mint failed: #{inspect(reason)}"
 
   # Compact textual summary of HOW the line is being sung (frontend `melody`
   # message, see PROTOCOL.md). Colors the Director's mood without competing
@@ -1045,24 +1586,59 @@ defmodule Sinestesia.Pipeline do
     Enum.count(conversation, &(&1.role == "user"))
   end
 
-  defp pick_current_line(state, window \\ @window_words) do
-    # Pick the text from whichever provider updated MOST RECENTLY, then take
-    # the trailing N words. This is robust to both segmenting providers
-    # (Deepgram → short fragment, we keep all) and accumulating providers
-    # (ElevenLabs → long running transcript, we keep only the end).
-    state.last_text_at
-    |> Enum.map(fn {provider, ts} ->
-      raw = Map.get(state.last_interims, provider, "")
-      {ts, last_n_words(raw, window)}
-    end)
-    |> Enum.reject(fn {_, text} -> text == "" end)
-    |> case do
-      [] ->
-        ""
+  @doc false
+  # Everything sung since the Director last ran: the lyric lines committed while
+  # it was busy, plus the line currently in progress.
+  #
+  # This used to be the trailing words of the current interim and nothing else,
+  # which quietly threw away most of the song. ElevenLabs in VAD mode grows a
+  # partial and then commits it, resetting the partial to a few words of the
+  # NEXT segment. The Director fires the moment the previous frame lands, so it
+  # caught whatever fragment happened to be in flight at that instant — "Num
+  # instante im" — and the rest of that line ("imagino uma linda gaivota voar no
+  # céu") was committed while the image was rendering and then dropped on the
+  # floor, because by the next trigger the interim had moved on. Three words in,
+  # a whole phrase gone, and the Director painting from a truncation.
+  #
+  # Committed lines are consumed exactly once (`lyrics_sent` is the cursor), so
+  # nothing is sent twice and, more importantly, nothing is skipped: a line that
+  # lands mid-render is still waiting at the next call.
+  def unsent_text(state, window \\ @window_words) do
+    unsent_finals = state.lyrics |> Enum.drop(state.lyrics_sent) |> Enum.join(" ")
+    interim = latest_interim(state)
 
-      candidates ->
-        {_ts, text} = Enum.max_by(candidates, fn {ts, _} -> ts end)
-        text
+    # After a commit, `last_interims` still holds the text that just became a
+    # final, and keeps holding it until the next segment starts. Appending it
+    # would duplicate the line — and once the cursor had consumed that line, it
+    # would keep re-offering it on every trigger forever. So the partial counts
+    # only when it is genuinely still in progress: not already a committed line,
+    # sent or unsent.
+    in_progress? =
+      interim != "" and interim not in state.lyrics and
+        not String.contains?(unsent_finals, interim)
+
+    parts = if in_progress?, do: [unsent_finals, interim], else: [unsent_finals]
+
+    text = parts |> Enum.reject(&(&1 == "")) |> Enum.join(" ")
+
+    # Catching up on committed lines is the case where truncation costs the most
+    # — that's the material that is otherwise lost for good — so give it a wider
+    # window than a bare in-progress partial.
+    window = if unsent_finals == "", do: window, else: max(window, @catchup_window_words)
+
+    last_n_words(text, window)
+  end
+
+  # The in-progress partial from whichever provider spoke most recently. Robust
+  # to both segmenting providers (Deepgram → short fragments) and accumulating
+  # ones (ElevenLabs → a growing line).
+  defp latest_interim(state) do
+    state.last_text_at
+    |> Enum.map(fn {provider, ts} -> {ts, Map.get(state.last_interims, provider, "")} end)
+    |> Enum.reject(fn {_, text} -> String.trim(text) == "" end)
+    |> case do
+      [] -> ""
+      candidates -> candidates |> Enum.max_by(fn {ts, _} -> ts end) |> elem(1) |> String.trim()
     end
   end
 
@@ -1081,7 +1657,6 @@ defmodule Sinestesia.Pipeline do
 
   defp last_n_words(_, _), do: ""
 
-
   defp spawn_image(prompt, timings, prev_url, sid, camera, extra \\ []) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
@@ -1092,6 +1667,10 @@ defmodule Sinestesia.Pipeline do
 
     {:ok, pid} =
       Task.start(fn ->
+        # Timed inside the task for the same reason as the Director call: the
+        # parent's mailbox wait is our backpressure, not the provider's latency.
+        call_started = now_ms()
+
         result =
           case Sinestesia.ImageGen.generate(prompt, opts) do
             # local_sdxl returns the latent-morph frame sequence alongside the
@@ -1101,10 +1680,88 @@ defmodule Sinestesia.Pipeline do
             err -> err
           end
 
+        # ImageGen stashes the local-morph duration in this task's process
+        # dictionary (same process), so we can split provider vs. local cost.
+        morph_ms = Process.get(:morph_ms, 0)
+
+        timings =
+          timings
+          |> Map.put(:image_call_ms, now_ms() - call_started)
+          |> Map.put(:morph_ms, morph_ms)
+          # Which model actually rendered this frame (routes differ wildly in
+          # cost). Recorded by the provider before it calls out, so it is
+          # present on failures too — that's the whole point.
+          |> Map.put(:image_route, Sinestesia.ImageGen.last_route())
+          # What we handed the provider. An i2i call that fails while a t2i call
+          # on the same provider succeeds usually fails *because of* this input.
+          |> Map.put(:image_input, describe_input(opts[:image_url]))
+          |> Map.put(:prompt_chars, String.length(prompt))
+
         send(parent, {:image_done, result, timings, sid})
       end)
 
     pid
+  end
+
+  # i2i hands the provider the previous frame. Whether that was an https URL the
+  # provider has to fetch, or a multi-megabyte data: URL inlined in the request
+  # body, changes what a failure means — and a data: URL is a common cause of a
+  # call that "just times out" with no server-side error to report.
+  defp describe_input(nil), do: "none (t2i)"
+  defp describe_input(""), do: "none (t2i)"
+
+  defp describe_input("data:" <> _ = url),
+    do: "data: URL, #{div(byte_size(url), 1024)}KB inlined"
+
+  defp describe_input(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{host: h} when is_binary(h) -> "url #{h}"
+      _ -> "url (unparseable)"
+    end
+  end
+
+  defp describe_input(other), do: inspect(other)
+
+  # Ask the 0G sidecar for the settled verification of a receipt that went out as
+  # pending, and push the resolved state to the front. Runs in its own task and
+  # polls a few times: settlement is an on-chain round-trip (~1s on testnet) that
+  # we deliberately do NOT wait for in the response path.
+  defp resolve_verification(nil, _socket), do: :ok
+
+  defp resolve_verification(receipt, socket) do
+    chat_id = Map.get(receipt, "chatId") || Map.get(receipt, :chatId)
+
+    # Only chase receipts still unresolved; a receipt that already carries a
+    # true/false verdict is final.
+    verified = Map.get(receipt, "verified", Map.get(receipt, :verified))
+
+    if is_binary(chat_id) and chat_id != "" and is_nil(verified) do
+      Task.start(fn -> poll_verification(receipt, chat_id, socket, 6) end)
+    end
+
+    :ok
+  end
+
+  defp poll_verification(_receipt, _chat_id, _socket, 0), do: :ok
+
+  defp poll_verification(receipt, chat_id, socket, attempts) do
+    Process.sleep(750)
+
+    url =
+      System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <>
+        "/v1/verification/" <> URI.encode(chat_id)
+
+    case Req.get(url, receive_timeout: 2_000, retry: false) do
+      {:ok, %{status: 200, body: %{"pending" => false, "verified" => v}}} ->
+        resolved = Map.merge(receipt, %{"verified" => v, "chatId" => chat_id})
+        Sinestesia.Verifiability.put(resolved)
+        send(socket, {:push_json, %{type: "verification", verification: resolved}})
+        Logger.info("[0g] verification resolved for #{chat_id}: #{inspect(v)}")
+        :ok
+
+      _ ->
+        poll_verification(receipt, chat_id, socket, attempts - 1)
+    end
   end
 
   defp push(socket, msg), do: send(socket, {:push_json, msg})

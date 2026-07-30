@@ -11,8 +11,7 @@ defmodule Sinestesia.ImageGen.GeminiImage do
     * image-to-image — `generate(prompt, image_url: data_or_http_url)` (the seed
       is sent as an inline image part alongside the prompt)
 
-  Returns `data:image/...;base64,...`. Model id comes from `opts[:model]`, then
-  `GOOGLE_RAMEN_MODEL`, then the default. The "instant ramen" codename shipped as
+  Returns `data:image/...;base64,...`. Model id comes from `opts[:model]` then the default. The "instant ramen" codename shipped as
   `gemini-3.1-flash-lite-image` (the lite, fast variant — not the heavier
   `gemini-3.1-flash-image`). A leading `models/` prefix is stripped.
   """
@@ -23,7 +22,10 @@ defmodule Sinestesia.ImageGen.GeminiImage do
   @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, opts \\ []) do
     cfg = Application.fetch_env!(:sinestesia, :config)
-    model = (opts[:model] || System.get_env("GOOGLE_RAMEN_MODEL") || @default_model) |> normalize_model()
+
+    model =
+      (opts[:model] || @default_model)
+      |> normalize_model()
 
     case Keyword.get(cfg, :google_api_key) do
       nil ->

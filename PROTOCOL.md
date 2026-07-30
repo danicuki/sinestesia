@@ -176,6 +176,45 @@ After the reset the backend pushes a `style` message back with
 `IMAGE_MODE` (story → `"loose ink sketch on aged paper, ..."`). The
 frontend can use this to clear its style input.
 
+Note this **discards** the performance: nothing is minted. Ending a real song
+uses `end_song` (below); `reset` is the soundcheck / false-start path, bound to
+the `r` key rather than a button so a performance can't be thrown away by a
+misclick.
+
+### `mint` (song ended — mint the finished painting)
+
+Stores the final canvas on **Walrus** and mints it as a **Sui** NFT (master 1/1
+to the artist + an open print window) with the performance provenance the
+backend accumulated during the song. Async: the backend replies with
+`mint_status` immediately, then `mint` (success) or `mint_error`.
+
+```json
+{ "type": "mint", "song": "Águas de Março", "artist": "…", "venue": "…" }
+```
+
+`song`/`artist`/`venue` are optional; omitted fields fall back to the backend
+env defaults (`MINT_SONG` / `MINT_ARTIST` / `MINT_VENUE`). Requires the mint
+sidecar (`sui/mint`, `npm run serve`) reachable at `MINT_SIDECAR_URL`.
+
+### `end_song` (the one the show actually uses)
+
+A song ending is one event: mint what was just painted, then reset for the next
+song. Same payload and same replies as `mint` (`mint_status`, then `mint` or
+`mint_error`), plus the `style` echo with `"source": "reset"`.
+
+```json
+{ "type": "end_song", "song": "Águas de Março", "artist": "…", "venue": "…" }
+```
+
+The order matters and is guaranteed backend-side: the mint task snapshots the
+finished performance before the reset clears it. `mint` and `reset` remain as
+separate primitives (mint without ending; discard without minting), but a client
+that composes them itself is one dropped message away from losing a performance —
+so the UI sends `end_song`.
+
+If nothing was painted, the backend replies `mint_error` **and still resets** —
+ending a song must never silently do nothing.
+
 ### `ping`
 Liveness check. Backend responds with `pong`.
 
@@ -232,6 +271,17 @@ Liveness check. Backend responds with `pong`.
 - `frames` *(optional, added 2026-06-10)*: only present when `image_provider` is `local_sdxl`. A **generative morph sequence** from the previous image to the new one — slerp interpolation in SDXL latent space, decoded server-side — ordered by progress and **always ending on the same image as `url`**. Intended frontend behaviour: preload all frames, then play them as a chained morph (each consecutive pair is a mini-crossfade segment spread over the image cadence) instead of a single A→B crossfade. The in-between frames are real decoded images (shapes transform, not pixels dissolving). Clients that ignore `frames` and just use `url` keep working exactly as before.
 - `prompt`: included for debugging/overlay; can be ignored visually.
 - `timings`: per-cycle latency breakdown. Useful for the `?debug=1` overlay to compare providers.
+- `verification` *(optional, added 2026-07-24)*: present only when the Director ran on the **0G Compute Network** (`DIRECTOR_PROVIDER=zerog`, via the `zerog/` sidecar). A verifiable-inference receipt for the model that produced `prompt`:
+  ```json
+  "verification": {
+    "provider": "0xa48f01287233509FD694a22Bf840225062E67836",
+    "model": "qwen/qwen2.5-omni-7b",
+    "chatId": "chatcmpl-…",
+    "verified": true,
+    "network": "0g-compute"
+  }
+  ```
+  `verified: true` means the provider's **TEE (TeeML) signature** for that exact response was checked on-chain (`broker.inference.processResponse`); `false`/`null` means the answer arrived but wasn't cryptographically confirmed. Absent when a fallback provider (Gemma/Gemini/Haiku) produced the prompt. Drives the on-screen "Verifiable AI" badge (`frontend/src/verify_badge.ts`).
 
 ### `error`
 
@@ -242,6 +292,43 @@ Liveness check. Backend responds with `pong`.
 The `provider` field is present when the error is scoped to one STT provider.
 
 Non-fatal. Frontend may log; demo continues.
+
+### `mint_status` / `mint` / `mint_error` (minting the finished painting)
+
+Reply sequence to a client `mint` message. `mint_status` fires immediately so
+the frontend can show a "minting…" overlay while Walrus + Sui settle:
+
+```json
+{ "type": "mint_status", "status": "minting", "ts": 1721800000000 }
+```
+
+On success, `mint` carries everything the QR toast needs:
+
+```json
+{
+  "type": "mint",
+  "releaseRef": "0x…",             // the shared Release object (audience claims prints against this)
+  "masterTokenId": "0x…",          // the artist's 1/1
+  "txId": "…",
+  "explorerUrl": "https://suiscan.xyz/testnet/object/0x…",
+  "provenanceHash": "sha256…",     // hash of transcript + Director prompts + timestamps
+  "traits": { "rarity": "legendary", "dominantColor": "yellow", "…": "…" },
+  "imageUri": "https://aggregator.walrus-testnet.walrus.space/v1/blobs/…",
+  "claimUrl": "http://…/claim?release=0x…",   // what the QR encodes
+  "song": "Águas de Março",        // as identified from the lyrics, or the configured override
+  "artist": "…",
+  "ts": 1721800002500
+}
+```
+
+The frontend renders `claimUrl` as a QR in the corner
+(`frontend/src/mint_toast.ts`) so the room can scan to claim a free print — a
+corner and not a modal, because by the time it lands the next song is already
+painting. On failure instead:
+
+```json
+{ "type": "mint_error", "message": "could not fetch the painting (502)", "ts": 1721800002500 }
+```
 
 ### `style` (echo of accepted style)
 

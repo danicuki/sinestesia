@@ -2,6 +2,17 @@
 
 **Live AI VJ that listens to a singer and draws the stage in real time.**
 
+> **ETHGlobal Lisbon 2026 — Track 02, Extend Open Source.**
+> This repo predates the event (first commit 2026-06-04). Everything built
+> during the hackathon is in one branch, so the diff is auditable in one click:
+> **[`main...feat/hackathon`](https://github.com/danicuki/sinestesia/compare/main...feat/hackathon)**
+>
+> The feature: the finished painting is minted on **Sui** (artwork on **Walrus**)
+> with provenance proving it was made live, and the AI director runs on
+> **0G Compute** as TEE-sealed verifiable inference.
+> Live claim app: <https://sinestesia-mint.vercel.app>
+> Plan and process: [`SUBMISSION.md`](SUBMISSION.md) · [`HACKATHON.md`](HACKATHON.md) · [`DEMO_RUNBOOK.md`](DEMO_RUNBOOK.md)
+
 The visuals don't cut between unrelated images. They accumulate. As the song unfolds, one hand-drawn scene grows on screen — a sun, a castle, a glove, an umbrella — each new element added without erasing what came before. Like the music video for Toquinho's *Aquarela*, but generated live from whatever is being sung.
 
 ## 🎬 Watch the live demo
@@ -96,18 +107,27 @@ The task automatically exports all generated frames and updates `frontend/public
 
 Sinestesia is highly configurable, supporting both cloud-bound and 100% offline local AI stacks. Configuration is managed via the `.env` file at the root of the project.
 
-> [!TIP]
-> For a complete, in-depth guide to all **40+ active environment variables**, deep-dive hyperparameters, VRAM tuning, and hardware suggestions, see the **[CONFIGURATION.md](file:///Users/danicuki/dev/vibeton/CONFIGURATION.md)** reference guide.
+**To see what a machine is actually running**, don't read this table — ask it. The backend prints its entire configuration at boot, marking every value that came from the environment rather than a default, and serves the same thing live:
 
-Here are the primary variables you will want to toggle most frequently:
+```bash
+curl localhost:4000/config?format=text   # the boot banner
+cd backend && mix sinestesia.config      # the same, without booting anything
+```
+
+API keys are never printed, only whether they are set.
+
+> [!TIP]
+> Every variable, with defaults and accepted values, is in **[CONFIGURATION.md](CONFIGURATION.md)** — generated from `backend/lib/sinestesia/config.ex`, so it can't drift from the code.
+
+The five you'll toggle most:
 
 | Environment Variable | Default | Options / Profiles | Description |
 | :--- | :--- | :--- | :--- |
-| **`STT_PROVIDER`** | `elevenlabs` | `elevenlabs` \| `deepgram` \| `both` \| `local_whisper` | Speech-to-text service used to transcribe real-time vocals. |
-| **`DIRECTOR_PROVIDER`** | `gemma` | `gemma` (local) \| `gemini` (cloud) \| `haiku` (cloud) | LLM dispatcher that compiles the accumulative scene description. |
-| **`IMAGE_PROVIDER`** | `fal` | `fal` (cloud Flux) \| `local_sdxl` \| `google` \| `cloudflare` | Image-to-image generator that renders the stage canvas. |
+| **`STT_PROVIDER`** | `elevenlabs` | `elevenlabs` \| `deepgram` \| `both` \| `local_whisper` \| `replay` | Speech-to-text service used to transcribe real-time vocals. |
+| **`DIRECTOR_PROVIDER`** | `gemma` | `gemma` (local) \| `gemini` \| `haiku` \| `zerog` (verifiable) | LLM that compiles the accumulative scene description. Note this picks the *provider*: `OLLAMA_MODEL` only applies when it is `gemma`. |
+| **`IMAGE_PROVIDER`** | `fal` | `fal` \| `cloudflare` \| `google` \| `pollinations` \| `local_sdxl` | Who renders the stage canvas. |
+| **`RENDER_MODE`** | `i2i` | `i2i` (evolve the previous frame) \| `t2i` (render each frame fresh) | Independent of the provider — they all do both. `i2i` buys continuity at several seconds per frame; `t2i` is faster and never drifts. |
 | **`IMAGE_MODE`** | `story` | `story` (accumulative canvas) \| `classic` (independent frames) | If `story`, drawings morph and accumulate lyric elements sequentially. |
-| **`COMPOSE_MODE`** | `inpaint` | `inpaint` (grid-based ellipse) \| `global` (full re-denoise) | `inpaint` soft-masks elements to guarantee legibility & scene continuity. |
 
 
 ## Repo layout

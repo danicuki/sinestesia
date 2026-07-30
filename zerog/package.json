@@ -1,0 +1,26 @@
+{
+  "name": "sinestesia-zerog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "0G Compute sidecar: routes the Sinestesia Director LLM through verifiable, TEE-sealed inference on the 0G Compute Network.",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "serve": "tsx src/server.ts",
+    "setup": "tsx src/setup.ts",
+    "providers": "tsx src/providers.ts",
+    "status": "tsx src/status.ts",
+    "repro:signature": "tsx src/repro-signature.ts",
+    "bench:image": "tsx src/bench-image.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@0gfoundation/0g-compute-ts-sdk": "^0.8.0",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

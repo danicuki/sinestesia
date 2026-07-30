@@ -28,16 +28,8 @@ defmodule Mix.Tasks.Sinestesia.Bench do
     |--------------|-----|-----|------------------------------------------------|
     | `fal`        |  ✓  |  ✓  | Flux Schnell (t2i) / Flux dev (i2i), paid      |
     | `google`     |  ✓  |  —  | Imagen 4 Fast — text-to-image only             |
-    | `ramen`      |  ✓  |  ✓  | Google early-access "instant ramen" model      |
     | `cloudflare` |  ✓  |  ✓  | Workers AI (Flux schnell / SD 1.5), credits    |
     | `local`      |  ✓  |  ✓  | local SDXL Turbo sidecar (port 8003), free     |
-
-  The early-access **instant ramen** model is benchmarked via `ramen`, which
-  talks to Google's Gemini `:generateContent` image endpoint
-  (`Sinestesia.ImageGen.GeminiImage`) — that's the API this model family uses,
-  and it does both t2i and i2i through the same call. The "instant ramen"
-  codename shipped as `gemini-3.1-flash-lite-image` (the default); override with
-  `GOOGLE_RAMEN_MODEL` (a `models/` prefix is stripped).
 
   ## Output
 

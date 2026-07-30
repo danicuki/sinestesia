@@ -7,12 +7,16 @@ defmodule Sinestesia.Director do
   ONE visual prompt for that line, building narrative continuity across turns.
 
   Provider via `DIRECTOR_PROVIDER`:
+    "zerog"  → verifiable, TEE-sealed inference on the 0G Compute Network
+               (via the local sidecar, `zerog/`), receipt shown on screen
     "gemma"  → Gemma 4 12B via local Ollama
     "gemini" → Google Gemini 2.5 Flash via API
     "haiku"  → Claude Haiku 4.5 via Anthropic API
 
   On primary failure, falls through to remaining providers (in the order:
-  primary → gemma → gemini → haiku, deduped).
+  primary → gemma → gemini → haiku, deduped). This keeps a live show resilient:
+  when 0G is the primary, a hiccup silently falls back to local Gemma so the
+  visuals never stall — and the on-screen receipt reflects which one ran.
   """
   require Logger
 
@@ -38,7 +42,7 @@ defmodule Sinestesia.Director do
   # (crisp, persistent); elements that fall out live on only through img2img
   # inheritance and naturally fade over the following frames. Big enough for
   # context, small enough that recent lyrics carry the most weight.
-  defp scene_window do
+  def scene_window do
     case Integer.parse(System.get_env("SCENE_WINDOW", "5")) do
       {n, _} when n > 1 -> n
       _ -> 5
@@ -145,16 +149,30 @@ defmodule Sinestesia.Director do
   @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
   @haiku_timeout_ms 3_000
+  # 0G routes inference over the network with an on-chain-signed request. The
+  # sidecar now settles/verifies ON-CHAIN IN THE BACKGROUND (off the response
+  # path), so the Director only waits for request-signing + inference: ~1.7s warm,
+  # ~2.8s cold. 5s leaves comfortable headroom while failing over fast if the
+  # provider stalls. (Was 12s, back when settlement blocked the response.)
+  @zerog_timeout_ms 5_000
 
   @doc """
   Compose mode (default): each Director reply is ONE new element + a position,
   rendered by the sidecar as a localized INPAINT — the element is guaranteed
   to materialize and the rest of the canvas is untouched. `COMPOSE_MODE=global`
   falls back to whole-canvas img2img with a scene-list prompt.
+
+  Requires a provider that can actually inpaint. A `NEW: … | POS: …` delta is
+  meaningless to anything else: with no mask and no input image it becomes the
+  *whole* prompt for an independent render, so the song turns into a series of
+  isolated objects — a sun, a hand, an umbrella — none of them sharing a canvas.
+  Imagen and Pollinations can't inpaint, so they get the scene-list prompt
+  instead, which is the form that carries the accumulated scene and the style.
   """
   def compose? do
     mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global" and
-      Sinestesia.ImageGen.render_mode() != :t2i
+      Sinestesia.ImageGen.render_mode() != :t2i and
+      Sinestesia.ImageGen.supports?(:inpaint)
   end
 
   @placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)
@@ -171,7 +189,12 @@ defmodule Sinestesia.Director do
     case Regex.run(~r/NEW:\s*(.+?)\s*\|\s*POS:\s*([a-zA-Z\-]+)/, text) do
       [_, element, pos] ->
         pos = pos |> String.downcase() |> String.trim()
-        %{kind: :new, element: String.trim(element), placement: if(pos in @placements, do: pos, else: "center")}
+
+        %{
+          kind: :new,
+          element: String.trim(element),
+          placement: if(pos in @placements, do: pos, else: "center")
+        }
 
       nil ->
         # `[^|]` strips trailing junk Gemma sometimes appends ("ATMOS: a
@@ -200,7 +223,8 @@ defmodule Sinestesia.Director do
       %{role: "user", content: "molha o céu, molha o chão"},
       %{
         role: "assistant",
-        content: "low cracked sky pouring sheets of rain onto bare earth, mud splashing upward. #{style}"
+        content:
+          "low cracked sky pouring sheets of rain onto bare earth, mud splashing upward. #{style}"
       }
     ]
   end
@@ -257,6 +281,11 @@ defmodule Sinestesia.Director do
     primary = provider()
     chain = Enum.uniq([primary, :gemma, :gemini, :haiku])
 
+    # A fresh turn: clear any stale 0G receipt so the frontend never shows a
+    # verified badge for a frame the fallback providers actually produced. The
+    # zerog provider re-populates it on success.
+    Sinestesia.Verifiability.put(nil)
+
     case try_chain(chain, messages) do
       {:ok, response} ->
         if valid_scene?(response, mode()) do
@@ -306,6 +335,8 @@ defmodule Sinestesia.Director do
 
   def provider do
     case System.get_env("DIRECTOR_PROVIDER", "gemma") |> String.downcase() do
+      "zerog" -> :zerog
+      "0g" -> :zerog
       "gemini" -> :gemini
       "haiku" -> :haiku
       _ -> :gemma
@@ -331,6 +362,10 @@ defmodule Sinestesia.Director do
   defp try_chain([p | rest], messages) do
     case call(p, messages) do
       {:ok, prompt} ->
+        # Record which provider actually answered — the chain falls through on
+        # failure, so the configured provider is not necessarily the one that
+        # directed this frame. The provenance record must name the real one.
+        note_model(p)
         {:ok, prompt}
 
       {:error, :no_key} ->
@@ -342,7 +377,73 @@ defmodule Sinestesia.Director do
     end
   end
 
+  @doc """
+  Which provider/model actually produced the last Director prompt in this process.
+
+  Returns `%{provider: "gemini", model: "gemini-3.1-flash-lite"}`. Read by the
+  pipeline for the on-chain provenance record: naming the *configured* provider
+  would be wrong whenever the chain fell through to a fallback.
+  """
+  def last_model, do: Process.get(:director_model)
+
+  defp note_model(provider) do
+    cfg = Application.fetch_env!(:sinestesia, :config)
+
+    model =
+      case provider do
+        :zerog ->
+          case Sinestesia.Verifiability.last() do
+            %{"model" => m} when is_binary(m) -> m
+            _ -> "0g-compute"
+          end
+
+        :gemma ->
+          Keyword.get(cfg, :ollama_model)
+
+        :gemini ->
+          System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
+
+        :haiku ->
+          "claude-haiku-4-5"
+
+        other ->
+          to_string(other)
+      end
+
+    Process.put(:director_model, %{provider: to_string(provider), model: model})
+    :ok
+  end
+
   ## Providers
+
+  # Verifiable inference on the 0G Compute Network via the local sidecar
+  # (`zerog/`), which speaks OpenAI's chat-completions shape and attaches a
+  # `verification` receipt (provider, model, chatId, TEE-verified bool). We stash
+  # that receipt so the pipeline can put it on screen next to the frame it made.
+  defp call(:zerog, messages) do
+    url = System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <> "/v1/chat/completions"
+    body = %{messages: messages, temperature: 0.8, max_tokens: 100}
+
+    case Req.post(url, json: body, receive_timeout: @zerog_timeout_ms, retry: false) do
+      {:ok,
+       %{
+         status: 200,
+         body: %{"choices" => [%{"message" => %{"content" => content}} | _]} = resp
+       }}
+      when is_binary(content) and byte_size(content) > 0 ->
+        Sinestesia.Verifiability.put(Map.get(resp, "verification"))
+        {:ok, clean(content)}
+
+      {:ok, %{status: 200, body: body}} ->
+        {:error, {:empty_response, body}}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, {:bad_status, status, body}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp call(:gemma, messages) do
     cfg = Application.fetch_env!(:sinestesia, :config)

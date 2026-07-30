@@ -42,3 +42,5 @@ separated/
 
 # Benchmark output (mix sinestesia.bench): results txt + sample images
 backend/bench-*/
+.vercel
+.env*

@@ -39,6 +39,8 @@ defmodule Sinestesia.ImageGen.Cloudflare do
 
   @spec text2img(String.t()) :: {:ok, String.t()} | {:error, term()}
   def text2img(prompt) do
+    Sinestesia.ImageGen.note_route("t2i", t2i_model(), t2i_steps())
+
     body = %{
       prompt: prompt,
       width: width(),
@@ -66,6 +68,8 @@ defmodule Sinestesia.ImageGen.Cloudflare do
 
   @spec img2img(String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def img2img(prompt, image_url) do
+    Sinestesia.ImageGen.note_route("i2i", img2img_model(), steps())
+
     with {:ok, b64} <- input_b64(image_url) do
       body = %{
         prompt: prompt,

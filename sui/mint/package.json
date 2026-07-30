@@ -1,0 +1,23 @@
+{
+  "name": "sinestesia-mint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Store a live-painted canvas on Walrus and mint it as a Sui NFT with performance provenance.",
+  "scripts": {
+    "keygen": "tsx src/keygen.ts",
+    "mint": "tsx src/cli.ts",
+    "serve": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.30.0",
+    "gifenc": "^1.0.3",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

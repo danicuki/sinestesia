@@ -32,10 +32,20 @@ export interface MelodyFeatures {
 export interface Timings {
   stt_ms: number;
   stt_provider: string;
+  // director_ms/image_ms are provider round-trips measured at the call site.
   director_ms: number;
   image_ms: number;
+  // Local SDXL morph pass that runs after the cloud image (t2i + LOCAL_MORPH).
+  // Separate from image_ms so it isn't misread as image-provider latency.
+  morph_ms?: number;
+  // Time the results spent queued in the backend pipeline rather than on a
+  // provider. Non-zero means the backend is the bottleneck, not the model.
+  queue_ms?: number;
   total_ms: number;
+  // Provider plus the route/steps that actually ran, e.g. "cloudflare img2img 20st".
   image_provider: string;
+  // The exact model id that rendered the frame, when the provider reports one.
+  image_model?: string | null;
 }
 
 export interface TranscriptMsg {
@@ -45,11 +55,38 @@ export interface TranscriptMsg {
   latencyMs?: number;
 }
 
+// Verifiable-inference receipt, present on `image` messages only when the
+// Director prompt was computed on the 0G Compute Network (TEE-sealed).
+export interface Verification {
+  provider: string;
+  model: string;
+  chatId: string;
+  verified: boolean | null;
+  network: string;
+}
+
 export interface ImageMsg {
   url: string;
   prompt: string;
   timings?: Timings;
   frames?: string[];
+  verification?: Verification;
+}
+
+// Sent when the finished painting has been stored on Walrus and minted on Sui.
+export interface MintMsg {
+  releaseRef?: string;
+  masterTokenId?: string;
+  txId?: string;
+  explorerUrl?: string;
+  provenanceHash?: string;
+  traits?: Record<string, string | number>;
+  imageUri?: string;
+  /** URL the audience QR encodes — opens the claim page. */
+  claimUrl?: string;
+  /** Title/artist as identified from the lyrics (or the configured override). */
+  song?: string;
+  artist?: string;
 }
 
 type TranscriptCb = (m: TranscriptMsg) => void;
@@ -57,6 +94,12 @@ type ImageCb = (m: ImageMsg) => void;
 type ErrorCb = (message: string, provider?: string) => void;
 // `source`: "user" (our echo), "curator" (auto-picked), or "reset" (new song).
 type StyleCb = (style: string, source: string) => void;
+type MintCb = (m: MintMsg) => void;
+// "minting" while the release is in flight; message text on failure.
+type MintStatusCb = (status: string) => void;
+type MintErrorCb = (message: string) => void;
+// A previously-pending receipt whose on-chain settlement has now landed.
+type VerificationCb = (v: Verification) => void;
 
 const URL_DEFAULT =
   import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws/audio";
@@ -75,6 +118,10 @@ export class Socket {
   onImage: ImageCb = () => {};
   onError: ErrorCb = () => {};
   onStyle: StyleCb = () => {};
+  onMint: MintCb = () => {};
+  onMintStatus: MintStatusCb = () => {};
+  onMintError: MintErrorCb = () => {};
+  onVerification: VerificationCb = () => {};
   onOpen: () => void = () => {};
 
   constructor(url: string = URL_DEFAULT) {
@@ -151,7 +198,12 @@ export class Socket {
             prompt: String(msg.prompt ?? ""),
             timings: msg.timings as Timings | undefined,
             frames: Array.isArray(msg.frames) ? msg.frames.map(String) : undefined,
+            verification: msg.verification as Verification | undefined,
           });
+        break;
+      // Settlement landed for a receipt that shipped as pending — update the badge.
+      case "verification":
+        if (msg.verification) this.onVerification(msg.verification as Verification);
         break;
       case "error":
         this.onError(
@@ -163,6 +215,26 @@ export class Socket {
         // Backend echo of the accepted (sanitized/capped) style. `source`
         // tells us whether it was our own change, the curator, or a reset.
         this.onStyle(String(msg.style ?? ""), String(msg.source ?? "user"));
+        break;
+      case "mint_status":
+        this.onMintStatus(String(msg.status ?? "minting"));
+        break;
+      case "mint":
+        this.onMint({
+          releaseRef: msg.releaseRef ? String(msg.releaseRef) : undefined,
+          masterTokenId: msg.masterTokenId ? String(msg.masterTokenId) : undefined,
+          txId: msg.txId ? String(msg.txId) : undefined,
+          explorerUrl: msg.explorerUrl ? String(msg.explorerUrl) : undefined,
+          provenanceHash: msg.provenanceHash ? String(msg.provenanceHash) : undefined,
+          traits: msg.traits as Record<string, string | number> | undefined,
+          imageUri: msg.imageUri ? String(msg.imageUri) : undefined,
+          claimUrl: msg.claimUrl ? String(msg.claimUrl) : undefined,
+          song: msg.song ? String(msg.song) : undefined,
+          artist: msg.artist ? String(msg.artist) : undefined,
+        });
+        break;
+      case "mint_error":
+        this.onMintError(String(msg.message ?? "mint failed"));
         break;
       case "pong":
         break;
@@ -206,6 +278,21 @@ export class Socket {
   sendReset() {
     if (!this.ready) return;
     this.ws!.send(JSON.stringify({ type: "reset" }));
+  }
+
+  // Mint the finished painting. Optional song/artist/venue override the backend
+  // env defaults. Backend replies with `mint_status` then `mint` (or `mint_error`).
+  sendMint(meta: { song?: string; artist?: string; venue?: string } = {}) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "mint", ...meta }));
+  }
+
+  // End the song: mint what was painted and reset for the next one, in that
+  // order, as a single backend action. Replies are the same as `mint` (plus the
+  // `style` echo with source "reset"), so nothing new to handle on this side.
+  sendEndSong(meta: { song?: string; artist?: string; venue?: string } = {}) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "end_song", ...meta }));
   }
 
   sendFastFeatures(rms: number, tempo_estimate?: number) {

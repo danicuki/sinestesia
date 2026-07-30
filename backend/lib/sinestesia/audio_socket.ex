@@ -63,6 +63,16 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.reset_song(pid)
         {:ok, state}
 
+      # Song over: mint the finished painting and start the next song, in that
+      # order. `reset` and `mint` remain available separately for rehearsal.
+      {:ok, %{"type" => "end_song"} = msg} when not is_nil(pid) ->
+        Sinestesia.Pipeline.end_song(pid, Map.drop(msg, ["type"]))
+        {:ok, state}
+
+      {:ok, %{"type" => "mint"} = msg} when not is_nil(pid) ->
+        Sinestesia.Pipeline.mint(pid, Map.drop(msg, ["type"]))
+        {:ok, state}
+
       {:ok, other} ->
         Logger.debug("[ws] unknown text msg: #{inspect(other)}")
         {:ok, state}

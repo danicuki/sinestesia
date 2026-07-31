@@ -65,6 +65,14 @@ export interface Verification {
   network: string;
 }
 
+// Musical structure (BE->FE `structure`, PROTOCOL.md). Pushed on a section
+// boundary and on a meaningful tempo change once lyrics + MUSICAL_STRUCTURE are
+// active on the backend. Purely informational — never feeds provenance.
+export interface StructureMsg {
+  section: { label: string; occurrence: number; index: number } | null;
+  tempoBpm: number | null;
+}
+
 export interface ImageMsg {
   url: string;
   prompt: string;
@@ -100,6 +108,7 @@ type MintStatusCb = (status: string) => void;
 type MintErrorCb = (message: string) => void;
 // A previously-pending receipt whose on-chain settlement has now landed.
 type VerificationCb = (v: Verification) => void;
+type StructureCb = (m: StructureMsg) => void;
 
 const URL_DEFAULT =
   import.meta.env.VITE_WS_URL ?? "ws://localhost:4000/ws/audio";
@@ -122,6 +131,7 @@ export class Socket {
   onMintStatus: MintStatusCb = () => {};
   onMintError: MintErrorCb = () => {};
   onVerification: VerificationCb = () => {};
+  onStructure: StructureCb = () => {};
   onOpen: () => void = () => {};
 
   constructor(url: string = URL_DEFAULT) {
@@ -236,6 +246,19 @@ export class Socket {
       case "mint_error":
         this.onMintError(String(msg.message ?? "mint failed"));
         break;
+      case "structure":
+        this.onStructure({
+          section:
+            msg.section && typeof msg.section === "object"
+              ? {
+                  label: String(msg.section.label ?? ""),
+                  occurrence: Number(msg.section.occurrence ?? 1),
+                  index: Number(msg.section.index ?? 0),
+                }
+              : null,
+          tempoBpm: typeof msg.tempo_bpm === "number" ? msg.tempo_bpm : null,
+        });
+        break;
       case "pong":
         break;
       default:
@@ -273,12 +296,13 @@ export class Socket {
     this.ws!.send(JSON.stringify({ type: "style", style }));
   }
 
-  // Load (or clear) the song's lyrics for predictive look-ahead. The backend
-  // renders each line ahead of the singer and reveals it on STT confirmation
-  // (requires SPECULATIVE_LOOKAHEAD on the backend). Empty array clears.
-  sendLyrics(lines: string[]) {
+  // Load (or clear) the song's lyrics for predictive look-ahead AND musical
+  // structure. `text` is the RAW pasted lyrics — blank lines between stanzas
+  // are what let the backend tell a verse from a chorus (MUSICAL_STRUCTURE);
+  // look-ahead (SPECULATIVE_LOOKAHEAD) works either way. Empty string clears.
+  sendLyrics(text: string) {
     if (!this.ready) return;
-    this.ws!.send(JSON.stringify({ type: "lyrics", lines }));
+    this.ws!.send(JSON.stringify({ type: "lyrics", text }));
   }
 
   // New song: reset all song-scoped backend state without dropping the WS.

@@ -132,24 +132,57 @@ The style may also be set automatically by the backend's **StyleCurator** after
 the first ~5 final lyrics. When that happens, the echoed `style` message
 carries `"source": "curator"` instead of `"source": "user"`.
 
-### `lyrics` (song lyrics for predictive look-ahead)
+### `lyrics` (song lyrics for predictive look-ahead + musical structure)
 
-Loads (or clears) the pasted lyrics of the song about to be sung, so the backend
-can render each line **ahead** of the singer and reveal it the moment STT
-confirms the line was sung — hiding the render lag. `lines` is an array of lyric
-lines (a single string with newlines is also accepted); an empty array clears.
+Loads (or clears) the pasted lyrics of the song about to be sung. Enables two
+independent backend capabilities:
+
+- **Predictive look-ahead** (`SPECULATIVE_LOOKAHEAD`): render each line **ahead**
+  of the singer and reveal it the moment STT confirms it was sung, hiding the
+  render lag.
+- **Musical structure** (`MUSICAL_STRUCTURE`): detect verse/chorus/bridge/outro
+  from the lyrics' **blank-line stanzas**, track which section the confirmed
+  singing is in, and tell the Director when the song returns to the chorus (it
+  already holds the whole conversation, so it supplies the visual echo itself).
+
+Send the **raw pasted text**, stanzas separated by a blank line — that blank line
+is what structure detection reads as a verse/chorus boundary:
 
 ```json
-{ "type": "lyrics", "lines": ["Numa folha qualquer eu desenho um sol amarelo", "É fácil fazer um castelo"] }
+{ "type": "lyrics", "text": "Numa folha qualquer eu desenho um sol amarelo\nÉ fácil fazer um castelo\n\nVai vai vai, aquarela do Brasil\nVai vai vai, pinta o campo e o gentil" }
 ```
 
-There is **no echo** — loading lyrics is advisory. It only has an effect when the
-backend has `SPECULATIVE_LOOKAHEAD` enabled; otherwise it is stored and ignored.
-Even enabled, it can never break a show: if no lyrics are loaded, or the singing
-diverges from them (improvisation, a skipped verse), the backend falls back to
-its normal reactive rendering with no desync. Lyrics persist across a `reset`
-(rehearsing the same song), but the position is re-acquired from scratch. Send
-`{ "type": "lyrics", "lines": [] }` to clear them for a different song.
+A flat array of lines (`{ "lines": [...] }`) is still accepted for backward
+compatibility — look-ahead works the same, but with no blank lines to read,
+structure degrades to a single section (no chorus detected).
+
+There is **no echo** — loading lyrics is advisory. Both capabilities are inert
+unless their env var is set on the backend; loading lyrics with neither enabled
+just stores them. Even enabled, neither can break a show: if no lyrics are
+loaded, or the singing diverges from them (improvisation, a skipped verse), the
+backend falls back to its normal reactive rendering with no desync. Lyrics (and
+the structure derived from them) persist across a `reset` (rehearsing the same
+song), but the position is re-acquired from scratch. Send
+`{ "type": "lyrics", "text": "" }` to clear them for a different song.
+
+A recorded replay session (`tests/sessions/*.json`) may carry the same
+information as `"lyrics_text"` (raw, structure-aware) or `"lyrics"` (flat array,
+look-ahead only) — see `Sinestesia.ReplaySTT`.
+
+### `structure` (server → client: current section + tempo)
+
+Pushed whenever the confirmed singing crosses into a new section (verse → chorus
+etc.) and periodically with the smoothed tempo estimate, so a HUD can show where
+the song is. Purely informational — nothing here feeds provenance.
+
+```json
+{ "type": "structure", "section": { "label": "chorus", "occurrence": 2, "index": 8 }, "tempo_bpm": 96 }
+```
+
+`section` is `null` before any position is known (no lyrics loaded, or nothing
+sung yet); `tempo_bpm` is `null` until the audio-side estimator has enough
+consistent onsets to be confident (see `fast_features` above) — the tempo is a
+**best-effort, singing-only estimate**, not a claim of musical fact.
 
 ### `camera` (operator-driven virtual camera) *(added 2026-06-10)*
 

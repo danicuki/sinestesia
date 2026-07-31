@@ -200,7 +200,19 @@ defmodule Sinestesia.Pipeline do
        script: [],
        script_active?: false,
        script_cursor: -1,
-       speculation: nil
+       speculation: nil,
+       # Musical structure (MUSICAL_STRUCTURE): verse/chorus/bridge/outro derived
+       # from the pasted lyrics (blank lines = stanza breaks). `current_section`
+       # is the section id covering `script_cursor`, updated alongside it — see
+       # update_position/2. Independent of look-ahead: works whenever lyrics are
+       # loaded, even with SPECULATIVE_LOOKAHEAD off.
+       structure: Sinestesia.MusicalStructure.analyze(nil),
+       current_section: nil,
+       # Smoothed tempo estimate from Rail 1 (`fast_features`, onset intervals),
+       # for the structure HUD and (loosely) to corroborate section timing. Never
+       # feeds provenance — it is a best-effort atmosphere signal, not a fact.
+       tempo_bpm: nil,
+       tempo_at: 0
      }}
   end
 
@@ -215,7 +227,30 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_cast({:fast_features, f}, state) do
-    {:noreply, %{state | fast: f}}
+    prev = %{bpm: state.tempo_bpm, at: state.tempo_at}
+    next = Sinestesia.Tempo.smooth(prev, Map.get(f, "tempo_estimate"), now_ms())
+    state = %{state | fast: f, tempo_bpm: next.bpm, tempo_at: next.at}
+
+    # Only worth telling the HUD when the DISPLAYED number actually moves, and
+    # only when there is a section to report against — otherwise this is silent
+    # bookkeeping (still useful: it corroborates section timing at mint/debug
+    # time via state.tempo_bpm, never provenance).
+    state =
+      if structure_enabled?() and not is_nil(state.current_section) and
+           Sinestesia.Tempo.display(next) != Sinestesia.Tempo.display(prev) do
+        section = Enum.at(state.structure.sections, state.current_section)
+
+        push(
+          state.socket,
+          structure_msg(section, state.script_cursor, Sinestesia.Tempo.display(next))
+        )
+
+        state
+      else
+        state
+      end
+
+    {:noreply, state}
   end
 
   def handle_cast({:melody, f}, state) when is_map(f) do
@@ -240,15 +275,7 @@ defmodule Sinestesia.Pipeline do
   # position and any look-ahead in flight and re-acquires from wherever the
   # singing currently is.
   def handle_cast({:set_lyrics, raw}, state) do
-    script = Sinestesia.PerformanceFollower.normalize(raw)
-    active? = script != []
-
-    Logger.info(
-      if(active?, do: "[lyrics] loaded #{length(script)} line(s)", else: "[lyrics] cleared")
-    )
-
-    state = discard_speculation(state)
-    {:noreply, %{state | script: script, script_active?: active?, script_cursor: -1}}
+    {:noreply, load_lyrics(state, raw, "[lyrics]")}
   end
 
   # Reset all song-scoped state but KEEP open STT connections + socket.
@@ -342,11 +369,12 @@ defmodule Sinestesia.Pipeline do
         camera: neutral_camera(),
         session_id: new_session,
         pending_pids: MapSet.new(),
-        # Keep the pasted lyrics across a reset (rehearsing the same song is
-        # common, and a stale script simply degrades to reactive), but drop the
-        # position and any in-flight look-ahead — this is a new performance.
+        # Keep the pasted lyrics AND structure across a reset (rehearsing the
+        # same song is common, and a stale script simply degrades to reactive),
+        # but drop the position and any in-flight look-ahead — new performance.
         script_cursor: -1,
-        speculation: nil
+        speculation: nil,
+        current_section: nil
     }
   end
 
@@ -422,14 +450,11 @@ defmodule Sinestesia.Pipeline do
     apply_style(state, style, _from_curator? = false)
   end
 
-  # Replay sessions can carry the song's lyrics, so predictive look-ahead can be
-  # exercised headlessly. Same effect as the operator sending a `lyrics` message.
-  def handle_info({:replay_lyrics, lines}, state) do
-    script = Sinestesia.PerformanceFollower.normalize(lines)
-    active? = script != []
-    Logger.info("[lyrics] replay loaded #{length(script)} line(s)")
-    state = discard_speculation(state)
-    {:noreply, %{state | script: script, script_active?: active?, script_cursor: -1}}
+  # Replay sessions can carry the song's lyrics (flat list, or raw text with
+  # blank lines for structure), so predictive look-ahead AND structure detection
+  # can both be exercised headlessly. Same effect as the operator sending `lyrics`.
+  def handle_info({:replay_lyrics, raw}, state) do
+    {:noreply, load_lyrics(state, raw, "[lyrics] replay")}
   end
 
   # Forwarded so the headless replay task (and optionally the front) knows the
@@ -675,7 +700,11 @@ defmodule Sinestesia.Pipeline do
             }
 
             {:noreply,
-             %{state | speculation: spec2, pending_pids: MapSet.put(drop_dead(state.pending_pids), pid)}}
+             %{
+               state
+               | speculation: spec2,
+                 pending_pids: MapSet.put(drop_dead(state.pending_pids), pid)
+             }}
 
           {:error, reason} ->
             # Drop the look-ahead; the confirming STT line already set
@@ -699,7 +728,15 @@ defmodule Sinestesia.Pipeline do
     case state.speculation do
       %{index: ^index, status: :image} = spec ->
         out = image_out(url, frames, prompt, timings)
-        spec2 = %{spec | status: :ready, frame_msg: out.msg, frame_url: url, frame_route: out.route}
+
+        spec2 = %{
+          spec
+          | status: :ready,
+            frame_msg: out.msg,
+            frame_url: url,
+            frame_route: out.route
+        }
+
         state = %{state | speculation: spec2, pending_pids: drop_dead(state.pending_pids)}
 
         if spec.confirmed do
@@ -716,7 +753,9 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_info({:spec_image_done, {:error, reason}, timings, _sid, index}, state) do
-    Logger.warning("[spec] image FAILED #{route_of(timings)} (#{inspect(reason)}); dropping look-ahead")
+    Logger.warning(
+      "[spec] image FAILED #{route_of(timings)} (#{inspect(reason)}); dropping look-ahead"
+    )
 
     case state.speculation do
       %{index: ^index} -> {:noreply, discard_speculation(state)}
@@ -1373,9 +1412,9 @@ defmodule Sinestesia.Pipeline do
     started_at = now_ms()
     conversation = state.director_conversation
     sid = state.session_id
-    # Melody hint appended HERE (not to last_director_text) so the
+    # Melody/section hints appended HERE (not to last_director_text) so the
     # duplicate-line guard keeps comparing raw lyrics.
-    line = text <> melody_hint(state)
+    line = text <> melody_hint(state) <> current_section_hint(state)
     Logger.debug("[director] spawning (current line: #{inspect(line)})")
 
     {:ok, pid} =
@@ -1695,6 +1734,34 @@ defmodule Sinestesia.Pipeline do
 
   defp melody_hint(_), do: ""
 
+  # Section hint for the REACTIVE Director call: derived from `current_section`,
+  # which tracks the last CONFIRMED line (updated in update_position/2). Gated on
+  # MUSICAL_STRUCTURE so a user can run look-ahead without changing prompts.
+  defp current_section_hint(%{current_section: nil}), do: ""
+
+  defp current_section_hint(state) do
+    if structure_enabled?() do
+      state.structure.sections
+      |> Enum.at(state.current_section)
+      |> Sinestesia.MusicalStructure.hint()
+    else
+      ""
+    end
+  end
+
+  # Section hint for the SPECULATIVE Director call: the target line's index is
+  # known directly (it hasn't been confirmed yet, so `current_section` doesn't
+  # cover it) — look it up straight from the structure.
+  defp lookahead_section_hint(structure, index) do
+    if structure_enabled?() do
+      structure
+      |> Sinestesia.MusicalStructure.section_at(index)
+      |> Sinestesia.MusicalStructure.hint()
+    else
+      ""
+    end
+  end
+
   defp register_word(r) when is_number(r) and r >= 0.66, do: "high register"
   defp register_word(r) when is_number(r) and r <= 0.33, do: "low register"
   defp register_word(_), do: nil
@@ -1904,7 +1971,39 @@ defmodule Sinestesia.Pipeline do
 
   # ── Predictive look-ahead helpers ──────────────────────────────────────────
 
-  defp lookahead_enabled?, do: System.get_env("SPECULATIVE_LOOKAHEAD") in ["1", "true", "on", "yes"]
+  # Shared by the operator's `lyrics` WS message and a replay session's
+  # `lyrics`/`lyrics_text`: normalize into the flat script the follower matches
+  # against, analyze structure from the SAME raw payload (so blank-line stanza
+  # boundaries survive when present), and reset position + any look-ahead — a
+  # reload mid-song is a new performance to track from scratch.
+  defp load_lyrics(state, raw, log_tag) do
+    script = Sinestesia.PerformanceFollower.normalize(raw)
+    structure = Sinestesia.MusicalStructure.analyze(raw)
+    active? = script != []
+
+    Logger.info(
+      if active? do
+        "#{log_tag} loaded #{length(script)} line(s), #{length(structure.sections)} section(s)"
+      else
+        "#{log_tag} cleared"
+      end
+    )
+
+    state
+    |> discard_speculation()
+    |> Map.merge(%{
+      script: script,
+      script_active?: active?,
+      script_cursor: -1,
+      structure: structure,
+      current_section: nil
+    })
+  end
+
+  defp lookahead_enabled?,
+    do: System.get_env("SPECULATIVE_LOOKAHEAD") in ["1", "true", "on", "yes"]
+
+  defp structure_enabled?, do: System.get_env("MUSICAL_STRUCTURE") in ["1", "true", "on", "yes"]
 
   defp lyric_window do
     case Integer.parse(System.get_env("LYRIC_WINDOW", "3")) do
@@ -1923,24 +2022,38 @@ defmodule Sinestesia.Pipeline do
   # Advance the script cursor from a confirmed sung line, and decide whether the
   # look-ahead path serviced this line (`:handled`) or the reactive Director
   # still needs to run (`:fallthrough`). Only finals carry a confirmed line.
+  #
+  # Position/section tracking and look-ahead are independent capabilities:
+  # SPECULATIVE_LOOKAHEAD gets full tracking as a side effect of doing its job;
+  # MUSICAL_STRUCTURE alone (no look-ahead) still tracks position so section
+  # hints reach the reactive Director. Neither flag set → fully inert, same as
+  # Phase 1's original behaviour.
   defp advance_script(state, _text, false), do: {state, :fallthrough}
 
   defp advance_script(%{script_active?: true} = state, text, true) do
-    if lookahead_enabled?(), do: match_and_advance(state, text), else: {state, :fallthrough}
+    cond do
+      lookahead_enabled?() -> match_and_advance(state, text)
+      structure_enabled?() -> {track_position(state, text), :fallthrough}
+      true -> {state, :fallthrough}
+    end
   end
 
   defp advance_script(state, _text, true), do: {state, :fallthrough}
 
-  defp match_and_advance(state, text) do
-    match =
-      Sinestesia.PerformanceFollower.match(text, state.script, state.script_cursor,
-        window: lyric_window(),
-        threshold: lyric_threshold()
-      )
+  # Structure-only tracking (MUSICAL_STRUCTURE without SPECULATIVE_LOOKAHEAD):
+  # update the position when the follower finds forward progress; never touches
+  # `speculation` (there isn't one) and never blocks the reactive Director.
+  defp track_position(state, text) do
+    case follower_match(state, text) do
+      {:match, idx} when idx > state.script_cursor -> update_position(state, idx)
+      _ -> state
+    end
+  end
 
-    case match do
+  defp match_and_advance(state, text) do
+    case follower_match(state, text) do
       {:match, idx} when idx > state.script_cursor ->
-        state = %{state | script_cursor: idx}
+        state = update_position(state, idx)
 
         case state.speculation do
           # We rendered this exact line ahead of time and it's ready — reveal now.
@@ -1961,7 +2074,8 @@ defmodule Sinestesia.Pipeline do
         end
 
       # Matched the current or an earlier line (a repeat, or STT re-segmenting the
-      # same line): already on screen, nothing new to draw.
+      # same line): already on screen, nothing new to draw. Position/section are
+      # left untouched — only forward progress moves them.
       {:match, _idx} ->
         {%{state | since_last_director: false}, :handled}
 
@@ -1970,6 +2084,54 @@ defmodule Sinestesia.Pipeline do
       :no_match ->
         {discard_speculation(state), :fallthrough}
     end
+  end
+
+  defp follower_match(state, text) do
+    Sinestesia.PerformanceFollower.match(text, state.script, state.script_cursor,
+      window: lyric_window(),
+      threshold: lyric_threshold()
+    )
+  end
+
+  # Move the confirmed-position cursor forward and recompute the section it
+  # falls in, logging when that crosses a section boundary (the moment a
+  # section hint starts reaching the Director — see section_hint_for/1).
+  defp update_position(state, idx) do
+    section_id = Sinestesia.MusicalStructure.section_index_at(state.structure, idx)
+
+    crossed? =
+      structure_enabled?() and
+        Sinestesia.MusicalStructure.boundary?(state.structure, state.script_cursor, idx)
+
+    # boundary?/3 only returns true when the new section id is non-nil (see its
+    # definition), so this Enum.at is always in range when crossed? is true.
+    if crossed? do
+      section = Enum.at(state.structure.sections, section_id)
+
+      Logger.info(
+        "[structure] entering #{section.label} (occurrence #{section.occurrence}) at line #{idx}"
+      )
+
+      tempo = Sinestesia.Tempo.display(%{bpm: state.tempo_bpm, at: state.tempo_at})
+      push(state.socket, structure_msg(section, idx, tempo))
+    end
+
+    %{state | script_cursor: idx, current_section: section_id}
+  end
+
+  # The `structure` push (see PROTOCOL.md): informational only, never feeds
+  # provenance. `tempo_bpm` may be nil (no confident audio estimate yet).
+  defp structure_msg(section, line_index, tempo_bpm) do
+    %{
+      type: "structure",
+      section: %{
+        label: to_string(section.label),
+        occurrence: section.occurrence,
+        index: line_index
+      },
+      tempo_bpm: tempo_bpm,
+      ts: now_ms()
+    }
   end
 
   # If lyrics are loaded and the canvas is ready, render the predicted next line
@@ -2024,7 +2186,8 @@ defmodule Sinestesia.Pipeline do
     started_at = now_ms()
     conversation = state.director_conversation
     sid = state.session_id
-    full = line <> melody_hint(state)
+    full = line <> melody_hint(state) <> lookahead_section_hint(state.structure, index)
+    Logger.debug("[spec] director spawning for line #{index} (current line: #{inspect(full)})")
 
     {:ok, pid} =
       Task.start(fn ->
@@ -2034,8 +2197,8 @@ defmodule Sinestesia.Pipeline do
 
         send(
           parent,
-          {:spec_director_done, result, started_at, call_ms, Sinestesia.Director.last_model(), sid,
-           index}
+          {:spec_director_done, result, started_at, call_ms, Sinestesia.Director.last_model(),
+           sid, index}
         )
       end)
 

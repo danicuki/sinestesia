@@ -29,6 +29,12 @@ export class FastFeatures {
   private centroid = 0.5; // smoothed, starts neutral
   private pitch = 0; // smoothed f0 in Hz, 0 = unvoiced (no clear pitch)
 
+  // Best-effort tempo, from onset spacing — there is no drum track behind a
+  // solo voice, so this is coarse (syllable attacks, not beats) and openly
+  // labeled that way: 0 means "no confident estimate", not "silence".
+  private onsetTimes: number[] = []; // performance.now() of recent onsets
+  private tempo = 0; // bpm, 0 = unknown
+
   constructor(ctx: AudioContext) {
     this.sr = ctx.sampleRate;
     this.analyser = ctx.createAnalyser();
@@ -90,6 +96,9 @@ export class FastFeatures {
 
     this.rms = rms;
 
+    if (this.onsetFlag) this.registerOnset();
+    this.tempo = this.estimateTempo();
+
     // Live pitch (for the on-screen tuner). Raw f0 per frame, then a gentle
     // glide so the readout doesn't jitter — but snap on big jumps / octave
     // changes so a new note lands immediately.
@@ -116,6 +125,54 @@ export class FastFeatures {
   /** Current sung fundamental in Hz, or 0 when no clear pitch is present. */
   pitchHz(): number {
     return this.pitch;
+  }
+
+  /**
+   * Best-effort tempo in BPM from the spacing between onsets, or 0 when there
+   * isn't a confident estimate (too few onsets yet, or singing has paused).
+   * Coarse by nature — a solo voice has no percussion to lock onto — so this
+   * is meant for an atmosphere/HUD reading, matched server-side by
+   * `Sinestesia.Tempo`, never anything provenance-critical.
+   */
+  tempoBpm(): number {
+    return this.tempo;
+  }
+
+  private registerOnset() {
+    const now = performance.now();
+    const last = this.onsetTimes[this.onsetTimes.length - 1];
+    // A single syllable attack can trip the onset flag on a couple of
+    // consecutive frames — debounce so it counts as one onset, not several.
+    if (last === undefined || now - last > 150) {
+      this.onsetTimes.push(now);
+      if (this.onsetTimes.length > 8) this.onsetTimes.shift();
+    }
+  }
+
+  private estimateTempo(): number {
+    if (this.onsetTimes.length < 4) return 0; // not enough data to trust yet
+
+    const now = performance.now();
+    const lastOnset = this.onsetTimes[this.onsetTimes.length - 1];
+    // The singer paused (or stopped) — a frozen old estimate would be a lie by
+    // omission. Age out to unknown rather than keep reporting it.
+    if (now - lastOnset > 3000) return 0;
+
+    const intervals: number[] = [];
+    for (let i = 1; i < this.onsetTimes.length; i++) {
+      intervals.push(this.onsetTimes[i] - this.onsetTimes[i - 1]);
+    }
+    intervals.sort((a, b) => a - b);
+    const median = intervals[Math.floor(intervals.length / 2)];
+    if (!(median > 0)) return 0;
+
+    let bpm = 60000 / median;
+    // Octave-fold into the plausible singing-tempo band (matches the backend's
+    // Sinestesia.Tempo clamp) rather than discarding a reading that's simply
+    // twice or half the true tempo — rapid syllables commonly read as 2x.
+    while (bpm > 200) bpm /= 2;
+    while (bpm > 0 && bpm < 50) bpm *= 2;
+    return bpm >= 50 && bpm <= 200 ? bpm : 0;
   }
 }
 

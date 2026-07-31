@@ -182,6 +182,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `SPECULATIVE_LOOKAHEAD` | _unset_ | `1 \| true \| on` | When the operator has pasted the song's lyrics (the `lyrics` WS message), render the predicted NEXT line ahead of time and hold it, revealing it only when STT confirms that line was sung. Off = today's reactive behaviour. |
 | `LYRIC_MATCH_THRESHOLD` | `0.6` | `0.0-1.0` | Word-overlap similarity a sung line needs to be considered a match for a pasted lyric line. Lower tolerates looser singing; too low misfires on the wrong line. |
 | `LYRIC_WINDOW` | `3` | — | How many lyric lines ahead of the current position the follower will look, so a skipped line is still found. |
+| `MUSICAL_STRUCTURE` | _unset_ | `1 \| true \| on` | Detect verse/chorus/bridge/outro from the pasted lyrics' blank-line stanzas, track which section the confirmed singing is in, and append a short structural hint to the Director's line (e.g. "chorus returns") so a returning chorus can echo its established imagery via the Director's own conversation memory. Independent of SPECULATIVE_LOOKAHEAD — works whenever lyrics are loaded. |
 
 ### Mint & provenance
 

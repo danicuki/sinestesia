@@ -1,15 +1,20 @@
 // Lyrics control — a collapsible textarea, bottom-left, where the operator
-// pastes the song's lyrics (one line per line) BEFORE it is sung. With the
-// backend's SPECULATIVE_LOOKAHEAD on, this lets it render each line ahead of the
-// singer and reveal it the moment STT confirms the line, hiding the render lag.
-// Hidden under ?clean=1 like the style control.
+// pastes the song's lyrics BEFORE it is sung, one stanza per verse/chorus,
+// separated by a BLANK LINE (so the backend can tell a verse from a chorus).
+// With SPECULATIVE_LOOKAHEAD on, the backend renders each line ahead of the
+// singer and reveals it the moment STT confirms it, hiding the render lag; with
+// MUSICAL_STRUCTURE on, it also detects verse/chorus/bridge/outro from the
+// blank-line stanzas and tells the Director when the song returns to the
+// chorus. Hidden under ?clean=1 like the style control.
 //
-// Per PROTOCOL.md: "Load" sends { type: "lyrics", lines: string[] }; "Clear"
-// sends an empty array. There is no backend echo — loading lyrics is advisory,
-// and if none are loaded (or the singing goes off-script) the backend simply
-// falls back to its reactive behaviour, so this control can never break a show.
+// Per PROTOCOL.md: "Load" sends { type: "lyrics", text }, the RAW textarea
+// content (blank lines intact — that's what carries the stanza boundaries to
+// the backend's structure detection); "Clear" sends an empty string. There is
+// no backend echo — loading lyrics is advisory, and if none are loaded (or the
+// singing goes off-script) the backend simply falls back to its reactive
+// behaviour, so this control can never break a show.
 
-type SendLyricsCb = (lines: string[]) => void;
+type SendLyricsCb = (text: string) => void;
 
 export class LyricsControl {
   private textarea: HTMLTextAreaElement;
@@ -64,7 +69,8 @@ export class LyricsControl {
 
     this.textarea = document.createElement("textarea");
     this.textarea.spellcheck = false;
-    this.textarea.placeholder = "Paste the song's lyrics,\none line per line…";
+    this.textarea.placeholder =
+      "Paste the song's lyrics.\nSeparate verse/chorus stanzas\nwith a BLANK LINE.";
     this.textarea.value = initial;
     Object.assign(this.textarea.style, {
       width: "300px",
@@ -128,8 +134,8 @@ export class LyricsControl {
     this.panel.style.display = this.open ? "flex" : "none";
   }
 
-  /** Split the textarea into non-empty, trimmed lines. */
-  lines(): string[] {
+  /** Non-empty, trimmed lines — used only for the "N lines loaded" status text. */
+  private nonBlankLines(): string[] {
     return this.textarea.value
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -137,14 +143,15 @@ export class LyricsControl {
   }
 
   private load() {
-    const lines = this.lines();
-    this.send(lines);
-    this.status.textContent = lines.length ? `${lines.length} lines loaded` : "cleared";
+    const text = this.textarea.value; // raw — blank lines carry the stanza breaks
+    const n = this.nonBlankLines().length;
+    this.send(text);
+    this.status.textContent = n ? `${n} lines loaded` : "cleared";
   }
 
   private clear() {
     this.textarea.value = "";
-    this.send([]);
+    this.send("");
     this.status.textContent = "cleared";
   }
 }

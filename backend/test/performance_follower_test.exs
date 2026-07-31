@@ -11,8 +11,11 @@ defmodule Sinestesia.PerformanceFollowerTest do
 
   describe "match/4 — sequential progress" do
     test "exact line advances to its index" do
-      assert {:match, 0} = Follower.match("Numa folha qualquer eu desenho um sol amarelo", @script, -1)
-      assert {:match, 1} = Follower.match("E com cinco ou seis retas é fácil fazer um castelo", @script, 0)
+      assert {:match, 0} =
+               Follower.match("Numa folha qualquer eu desenho um sol amarelo", @script, -1)
+
+      assert {:match, 1} =
+               Follower.match("E com cinco ou seis retas é fácil fazer um castelo", @script, 0)
     end
 
     test "tolerates STT typos and dropped words" do

@@ -384,6 +384,14 @@ defmodule Sinestesia.Config do
       doc:
         "How many lyric lines ahead of the current position the follower will look, so a skipped line is still found."
     },
+    %{
+      key: "MUSICAL_STRUCTURE",
+      group: :lookahead,
+      default: nil,
+      values: "1 | true | on",
+      doc:
+        "Detect verse/chorus/bridge/outro from the pasted lyrics' blank-line stanzas, track which section the confirmed singing is in, and append a short structural hint to the Director's line (e.g. \"chorus returns\") so a returning chorus can echo its established imagery via the Director's own conversation memory. Independent of SPECULATIVE_LOOKAHEAD — works whenever lyrics are loaded."
+    },
 
     # ── Mint ────────────────────────────────────────────────────────────────
     %{

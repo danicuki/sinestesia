@@ -11,6 +11,12 @@ defmodule Sinestesia.ReplaySTT do
       {
         "name": "aquarela-tarsila",
         "style": "Tarsila do Amaral style, ...",   // optional
+        "lyrics_text": "line one\nline two\n\nchorus line\n\n...", // optional, blank-line
+                                                                    // stanzas — enables
+                                                                    // predictive look-ahead
+                                                                    // AND structure detection
+        "lyrics": ["line one", "line two", "..."], // optional, flat — look-ahead only,
+                                                    // ignored if lyrics_text is present
         "events": [
           {"at_ms": 0,    "text": "Numa folha qualquer.", "final": false},
           {"at_ms": 4526, "text": "Numa folha qualquer eu desenho um sol amarelooo.", "final": true}
@@ -143,7 +149,10 @@ defmodule Sinestesia.ReplaySTT do
        %{
          name: Map.get(json, "name", Path.basename(file, ".json")),
          style: Map.get(json, "style"),
-         lyrics: Map.get(json, "lyrics"),
+         # Prefer the raw text (preserves blank-line stanza boundaries, so
+         # MusicalStructure can detect sections); fall back to the flat array
+         # (look-ahead still works, structure degrades to one section).
+         lyrics: Map.get(json, "lyrics_text") || Map.get(json, "lyrics"),
          events: parsed,
          duration_ms: List.last(parsed).at_ms
        }}

@@ -15,7 +15,10 @@ defmodule Sinestesia.AudioSocket do
         # waits for the previous pipeline to die. If we hit this, the old
         # pipeline is wedged — the new connection would adopt a corpse.
         # Better to fail fast: the browser's reconnect logic will retry.
-        Logger.error("[ws] previous pipeline still registered (#{inspect(pid)}); refusing connection")
+        Logger.error(
+          "[ws] previous pipeline still registered (#{inspect(pid)}); refusing connection"
+        )
+
         {:ok, %{pipeline: nil}}
 
       {:error, reason} ->
@@ -55,10 +58,14 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.set_style(pid, style)
         {:ok, state}
 
-      # Operator pasted the song's lyrics for predictive look-ahead. `lines` is
-      # an array of lyric lines (or a single string with newlines); empty clears.
-      {:ok, %{"type" => "lyrics", "lines" => lines}} when not is_nil(pid) ->
-        Sinestesia.Pipeline.set_lyrics(pid, lines)
+      # Operator pasted the song's lyrics for predictive look-ahead AND musical
+      # structure (verse/chorus/bridge). Prefer raw `text` — it preserves the
+      # blank lines between stanzas that structure detection needs; `lines` (an
+      # array, or a single string) is accepted for backward compatibility but
+      # carries no stanza boundaries, so structure degrades to one section.
+      {:ok, %{"type" => "lyrics"} = msg} when not is_nil(pid) ->
+        raw = Map.get(msg, "text") || Map.get(msg, "lines") || []
+        Sinestesia.Pipeline.set_lyrics(pid, raw)
         {:ok, state}
 
       {:ok, %{"type" => "camera"} = msg} when not is_nil(pid) ->

@@ -6,6 +6,7 @@
 import type {
   ExpressiveFeatures,
   MelodyFeatures,
+  StructureMsg,
   Timings,
   TranscriptMsg,
 } from "./socket";
@@ -33,6 +34,7 @@ export class DebugOverlay {
   private elExpressive: HTMLDivElement;
   private elMelody: HTMLDivElement;
   private elSemiotics: HTMLDivElement;
+  private elStructure: HTMLDivElement;
   private elTranscript: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
@@ -74,6 +76,7 @@ export class DebugOverlay {
     this.elExpressive = this.section(left, "rail 3 — expression");
     this.elMelody = this.section(left, "melody → director");
     this.elSemiotics = this.section(left, "tatit & segreto semiotics (expressive)");
+    this.elStructure = this.section(left, "structure (phase 2 — lyrics look-ahead)");
     this.elTranscript = this.section(left, "transcript");
     this.elPrompt = this.section(left, "director prompt");
     this.elLyric = this.section(left, "sample lyric");
@@ -196,6 +199,23 @@ export class DebugOverlay {
     if (m.energy != null)
       parts.push(span("en ", COL.dim) + span(m.energy.toFixed(2), COL.img));
     this.elMelody.innerHTML = parts.length ? parts.join("  ") : "—";
+  }
+
+  // Current section + tempo (musical structure, pushed only when the backend
+  // has lyrics loaded and MUSICAL_STRUCTURE on). `section: null` before any
+  // position is known; `tempoBpm: null` is an honest "no confident estimate",
+  // not silence — never rendered as 0.
+  setStructure(m: StructureMsg) {
+    const sectionText = m.section
+      ? span(m.section.label.toUpperCase(), COL.tot, true) +
+        (m.section.occurrence > 1 ? span(` ×${m.section.occurrence}`, COL.dir) : "") +
+        span(`  (line ${m.section.index})`, COL.dim)
+      : span("no position yet", COL.dim);
+    const tempoText =
+      m.tempoBpm != null
+        ? span("  ~", COL.dim) + span(`${Math.round(m.tempoBpm)} bpm`, COL.stt)
+        : "";
+    this.elStructure.innerHTML = sectionText + tempoText;
   }
 
   // Rolling history of the last 5 cycles (top row = latest).

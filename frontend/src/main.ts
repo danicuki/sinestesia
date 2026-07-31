@@ -56,6 +56,12 @@ let mic: MicPanel | null = null;
 // When a sample sequence is playing, this advances the continuous morph each
 // frame (see playDemo). Null on the live path.
 let demoUpdate: (() => void) | null = null;
+// Assigned in start() (skipped under ?mock=1). Declared here, not there, so the
+// render loop below — which starts immediately, before start() runs — can send
+// Rail-1 features once a socket exists.
+let socket: Socket | null = null;
+let lastFastFeaturesSentAt = 0;
+
 function frame() {
   if (fast) {
     fast.update();
@@ -64,6 +70,15 @@ function frame() {
     debug?.setAudio(u.rms, u.centroid, u.onset);
     mic?.setLevel(u.rms);
     mic?.setPitch(fast.pitchHz());
+
+    // Rail 1 -> backend, throttled to ~2Hz (PROTOCOL.md: "optional, ~10 Hz" is a
+    // ceiling, not a target — tempo is a slow-moving estimate, no need for more).
+    const now = performance.now();
+    if (socket && now - lastFastFeaturesSentAt > 500) {
+      lastFastFeaturesSentAt = now;
+      const bpm = fast.tempoBpm();
+      socket.sendFastFeatures(u.rms, bpm > 0 ? bpm : undefined);
+    }
   }
   demoUpdate?.();
   scene.render();
@@ -325,7 +340,7 @@ async function start() {
 
   // ---- Socket (skipped in mock) ----
   const savedStyle = localStorage.getItem(STYLE_KEY) ?? "";
-  const socket = MOCK ? null : new Socket();
+  socket = MOCK ? null : new Socket();
   if (socket) {
     socket.onImage = ({ url, prompt, timings, frames, verification }) => {
       console.log("[main] image:", prompt, timings ?? "", "frames:", frames ?? "none");
@@ -340,6 +355,11 @@ async function start() {
     socket.onVerification = (verification) => {
       console.log("[main] verification resolved:", verification);
       verifyBadge?.update(verification);
+    };
+    // Musical structure (section + tempo), pushed only when the backend has
+    // lyrics loaded and MUSICAL_STRUCTURE on — otherwise this never fires.
+    socket.onStructure = (m) => {
+      debug?.setStructure(m);
     };
     socket.onTranscript = (m) => {
       const tag = `[${m.provider ?? "?"}${m.isFinal ? " FINAL" : ""}]`;
@@ -363,7 +383,7 @@ async function start() {
       console.log("[main] websocket connected");
       // Re-apply the persisted style so a reload restores the chosen look.
       // (The backend starts each session on its own default.)
-      if (savedStyle) socket.sendStyle(savedStyle);
+      if (savedStyle && socket) socket.sendStyle(savedStyle);
     };
 
     // End the song from the keyboard ("m"), which works even in clean/stage mode
@@ -410,10 +430,10 @@ async function start() {
   // and pushes to the backend (a no-op unless SPECULATIVE_LOOKAHEAD is on).
   if (!CLEAN) {
     const savedLyrics = localStorage.getItem(LYRICS_KEY) ?? "";
-    new LyricsControl((lines) => {
-      localStorage.setItem(LYRICS_KEY, lines.join("\n"));
-      if (socket) socket.sendLyrics(lines);
-      else console.log("[mock] would send lyrics:", lines.length, "lines");
+    new LyricsControl((text) => {
+      localStorage.setItem(LYRICS_KEY, text);
+      if (socket) socket.sendLyrics(text);
+      else console.log("[mock] would send lyrics:", text.length, "chars");
     }, savedLyrics);
   }
 

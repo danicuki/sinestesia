@@ -159,6 +159,14 @@ defmodule Sinestesia.Config do
       doc: "Silence before VAD commits a line. Lower = more responsive, more fragments."
     },
     %{
+      key: "ELEVEN_NO_VERBATIM",
+      group: :stt,
+      default: nil,
+      values: "1 | true | on",
+      doc:
+        "Ask Scribe to clean the transcript instead of returning it verbatim. Off by default: its documented job is removing filler words, REPEATED PHRASES and stuttering, and a song repeats on purpose — stripping a returning chorus would remove the very signal PerformanceFollower uses to place the singer. Worth measuring on a real run for the false starts a live mic produces, but it is not the fix for held vowels (\"castelooo\"): the docs never claim it normalizes those, so the follower's own repeated-letter collapse stays on regardless and also covers the Deepgram and local-Whisper paths, which have no equivalent option."
+    },
+    %{
       key: "LOCAL_WHISPER_HOST",
       group: :stt,
       default: "127.0.0.1",

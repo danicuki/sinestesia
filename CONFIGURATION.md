@@ -120,6 +120,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `ELEVEN_LANG` | `pt` | `ISO-639-1` | Language hint for ElevenLabs. Wrong language wrecks Portuguese lyrics. |
 | `ELEVEN_COMMIT` | `vad` | `vad \| manual` | How a transcript segment is closed: voice-activity detection, or explicit commits. |
 | `ELEVEN_VAD_SILENCE` | `0.6` | `seconds` | Silence before VAD commits a line. Lower = more responsive, more fragments. |
+| `ELEVEN_NO_VERBATIM` | _unset_ | `1 \| true \| on` | Ask Scribe to clean the transcript instead of returning it verbatim. Off by default: its documented job is removing filler words, REPEATED PHRASES and stuttering, and a song repeats on purpose — stripping a returning chorus would remove the very signal PerformanceFollower uses to place the singer. Worth measuring on a real run for the false starts a live mic produces, but it is not the fix for held vowels ("castelooo"): the docs never claim it normalizes those, so the follower's own repeated-letter collapse stays on regardless and also covers the Deepgram and local-Whisper paths, which have no equivalent option. |
 | `LOCAL_WHISPER_HOST` | `127.0.0.1` | — | Host of the local Whisper sidecar (STT_PROVIDER=local_whisper). |
 | `LOCAL_WHISPER_PORT` | `8002` | — | Port of the local Whisper sidecar. |
 | `LOCAL_WHISPER_PATH` | `/transcribe` | — | Transcription path on the local Whisper sidecar. |

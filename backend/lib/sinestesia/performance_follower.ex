@@ -178,20 +178,31 @@ defmodule Sinestesia.PerformanceFollower do
   # ending "É fácil fazer um castelo" scored exactly 0.600 against a 0.6
   # threshold, clearing by a hair purely because "fácil" AND "castelo" were
   # both elongated. One more held vowel and the castle picture would not have
-  # been shown at all. Collapsing to 1.000 removes that cliff.
+  # been shown at all. Collapsing takes that line to 1.000.
   #
-  # Applied to BOTH sides (this is the only tokenizer), which is why runs
-  # collapse to a single letter rather than two: that also folds Portuguese's
-  # legitimate doubles the same way on each side ("passa"/"pasa",
-  # "terra"/"tera"), so an elongated double consonant still matches. The cost
-  # is that a handful of distinct words become equal ("casa"/"cassa"), which
-  # is harmless when matching against one known song's own lines.
+  # Only runs of THREE or more collapse. Two-letter runs are left alone
+  # because they are real words, not held notes — "moon", "ecoou", "carro",
+  # "corro", "passa", "terra". Collapsing every run instead would fold each of
+  # those into a different word ("corro" -> "coro"), and this very song opens
+  # "Corro o lápis em torno da mão", so the collision is live, not theoretical.
+  # (Both sides run through this same function, so an all-runs collapse would
+  # still match a word against ITSELF; the damage is against the OTHER
+  # candidate lines in the window, which is exactly what the follower is
+  # trying to tell apart.)
+  #
+  # Three-plus is where a singer actually lives, and it composes correctly
+  # with real doubles: "passaaa" keeps its "ss" and loses only the held "aaa".
+  # Measured against the live transcripts, 3+ recovers the whole win the
+  # all-runs version did on held vowels (0.600 -> 1.000 on the castle scene)
+  # while leaving every real word distinct. It gives up a little where the STT
+  # *doubles* a letter rather than the singer holding one ("réttas",
+  # "fáciil": 1.000 -> 0.833), which still clears the threshold with room.
   defp tokens(text) do
     text
     |> String.downcase()
     |> fold_accents()
     |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
-    |> String.replace(~r/(.)\1+/u, "\\1")
+    |> String.replace(~r/(.)\1{2,}/u, "\\1")
     |> String.split(~r/\s+/, trim: true)
     |> MapSet.new()
   end

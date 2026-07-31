@@ -127,11 +127,18 @@ defmodule Sinestesia.PerformanceFollowerTest do
       end
     end
 
-    test "the collapse folds legitimate doubles on BOTH sides, so they still match" do
-      # "passa"/"terra" keep their doubles in the script; an elongated sung
-      # version must still land, and a genuinely different line must not.
-      assert Follower.covers?("a moçaaa paaassa na terrrra", "A moça passa na terra")
-      refute Follower.covers?("uma gaivota no céu", "A moça passa na terra")
+    test "a real doubled letter is NOT a held note — those words stay distinct" do
+      # Only runs of three or more collapse. Two-letter runs are real words,
+      # and folding them would merge genuinely different lines: this very song
+      # opens "Corro o lápis", one letter away from "coro".
+      refute Follower.covers?("coro", "corro")
+      refute Follower.covers?("caro", "carro")
+      refute Follower.covers?("mon", "moon")
+      refute Follower.covers?("ecou", "ecoou")
+
+      # ...while a held vowel ON a word that also has a real double still
+      # lands, because the "ss" survives and only the "aaa" collapses.
+      assert Follower.covers?("a moçaaa paaassa", "A moça passa")
     end
 
     test "a covered line with an UNCOVERED gap before it is a later repeat, not real progress" do

@@ -18,6 +18,7 @@ defmodule Sinestesia.ElevenSTT do
   #   ELEVEN_MODEL    (default "scribe_v2_realtime")
   #   ELEVEN_LANG     (default "pt" — try "por", "pt-BR", or "" to disable)
   #   ELEVEN_COMMIT   (default "vad", or "manual" to commit every chunk)
+  #   ELEVEN_NO_VERBATIM (unset; "1"/"true"/"on" asks Scribe to clean the text)
   defp path do
     model = System.get_env("ELEVEN_MODEL", "scribe_v2_realtime")
     lang = System.get_env("ELEVEN_LANG", "pt")
@@ -29,8 +30,23 @@ defmodule Sinestesia.ElevenSTT do
     base =
       "/v1/speech-to-text/realtime?model_id=#{model}&audio_format=pcm_16000&commit_strategy=#{commit}&vad_silence_threshold_secs=#{vad_silence}"
 
-    if lang == "", do: base, else: base <> "&language_code=#{lang}"
+    base
+    |> then(&if(lang == "", do: &1, else: &1 <> "&language_code=#{lang}"))
+    |> then(&if(no_verbatim?(), do: &1 <> "&no_verbatim=true", else: &1))
   end
+
+  # Scribe's "no verbatim" mode. OFF by default and deliberately so — its
+  # documented job is removing filler words, REPEATED PHRASES and stuttering,
+  # and a song is repetitive on purpose. A mode that strips repeats could eat
+  # the second occurrence of a chorus, which is exactly the signal
+  # PerformanceFollower needs to know where in the song we are. It is exposed
+  # because it may still clean up the false starts a live mic produces
+  # ("Isso é fácil chover" before "E se faço chover"), and that is worth
+  # measuring on a real run — but it is NOT the fix for held vowels: the docs
+  # never claim it normalizes "castelooo" to "castelo", so the tokenizer's
+  # own collapse stays regardless, and also covers the Deepgram and local
+  # Whisper paths, which have no such option at all.
+  defp no_verbatim?, do: System.get_env("ELEVEN_NO_VERBATIM") in ~w(1 true on)
 
   ## API
 

@@ -158,19 +158,21 @@ defmodule Sinestesia.SongLibrary do
   end
 
   # Mirrors Sinestesia.PerformanceFollower's tokenizer, including the
-  # repeated-letter collapse — identification compares the first SUNG words
-  # against every catalog song's opening, so it hits held vowels
-  # ("folhaaa", "amarelooo") for exactly the same reason position tracking
-  # does. Kept as its own copy rather than shared because the two answer
-  # different questions (see HANDOFF gotcha #31) and neither should silently
-  # change when the other is tuned.
+  # held-vowel collapse (runs of THREE or more only — two-letter runs are real
+  # words like "moon"/"carro"/"corro", not held notes; see that module for the
+  # full reasoning). Identification compares the first SUNG words against
+  # every catalog song's opening, so it hits "folhaaa"/"amarelooo" for exactly
+  # the same reason position tracking does — and here a false merge is worse,
+  # since it ranks DIFFERENT songs against each other. Kept as its own copy
+  # rather than shared because the two answer different questions (see HANDOFF
+  # gotcha #31) and neither should silently change when the other is tuned.
   defp tokens(text) do
     text
     |> String.downcase()
     |> :unicode.characters_to_nfd_binary()
     |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
     |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
-    |> String.replace(~r/(.)\1+/u, "\\1")
+    |> String.replace(~r/(.)\1{2,}/u, "\\1")
     |> String.split(~r/\s+/, trim: true)
     |> MapSet.new()
   end

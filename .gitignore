@@ -44,3 +44,4 @@ separated/
 backend/bench-*/
 .vercel
 .env*
+songs/*

@@ -141,7 +141,7 @@ defmodule Sinestesia.LyricsChunker do
 
     case Keyword.get(cfg, :google_api_key) do
       key when is_binary(key) and key != "" ->
-        model = System.get_env("LYRICS_CHUNK_GEMINI_MODEL", "gemini-3.1-flash-lite")
+        model = System.get_env("LYRICS_CHUNK_GEMINI_MODEL", "gemini-3.5-flash-lite")
 
         url =
           "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"

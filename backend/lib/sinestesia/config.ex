@@ -404,9 +404,9 @@ defmodule Sinestesia.Config do
     %{
       key: "LYRICS_CHUNK_GEMINI_MODEL",
       group: :lookahead,
-      default: "gemini-3.1-flash-lite",
+      default: "gemini-3.5-flash-lite",
       doc:
-        "Model asked to split a loaded song's full lyrics into visually coherent scene units (see Sinestesia.LyricsChunker), replacing the old fixed-word/fixed-line guess with a real per-song read of the whole text. Unlike SONGID_GEMINI_MODEL, this task needs no real-world knowledge — just fast structural reading of text it's already given — so it defaults to the same lite tier as GEMINI_MODEL. A non-lite model measured live spending the whole timeout budget on 'thinking' before answering, so every chunking call fell back to one-line-per-chunk every time — the exact thinness this feature exists to fix. Runs once per song, off the critical path — never blocks a render."
+        "Model asked to split a loaded song's full lyrics into visually coherent scene units (see Sinestesia.LyricsChunker), replacing the old fixed-word/fixed-line guess with a real per-song read of the whole text. Unlike SONGID_GEMINI_MODEL, this task needs no real-world knowledge — just fast structural reading of text it's already given — so it defaults to a lite tier rather than the non-lite model song ID needs. A non-lite model measured live spending the whole timeout budget on 'thinking' before answering, so every chunking call fell back to one-line-per-chunk every time — the exact thinness this feature exists to fix; gemini-3.5-flash-lite confirmed live to resolve in time. Runs once per song, off the critical path — never blocks a render."
     },
     %{
       key: "LYRICS_CHUNK_ANTHROPIC_MODEL",

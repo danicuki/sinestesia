@@ -157,12 +157,20 @@ defmodule Sinestesia.SongLibrary do
     if denom == 0, do: 0.0, else: MapSet.size(MapSet.intersection(sung, line)) / denom
   end
 
+  # Mirrors Sinestesia.PerformanceFollower's tokenizer, including the
+  # repeated-letter collapse — identification compares the first SUNG words
+  # against every catalog song's opening, so it hits held vowels
+  # ("folhaaa", "amarelooo") for exactly the same reason position tracking
+  # does. Kept as its own copy rather than shared because the two answer
+  # different questions (see HANDOFF gotcha #31) and neither should silently
+  # change when the other is tuned.
   defp tokens(text) do
     text
     |> String.downcase()
     |> :unicode.characters_to_nfd_binary()
     |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
     |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
+    |> String.replace(~r/(.)\1+/u, "\\1")
     |> String.split(~r/\s+/, trim: true)
     |> MapSet.new()
   end

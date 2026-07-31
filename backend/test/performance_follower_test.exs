@@ -106,6 +106,34 @@ defmodule Sinestesia.PerformanceFollowerTest do
       assert idx <= 2
     end
 
+    test "held vowels don't cost coverage — the real strings a singer's STT produces" do
+      # Verbatim committed transcripts from a live Aquarela run, against the
+      # script lines they're supposed to cover. Asserted at a STRICTER
+      # threshold than production's 0.6 on purpose: what the collapse buys is
+      # headroom, not a pass/fail flip. The castle line scored exactly 0.600
+      # before it — clearing by nothing at all — and 1.000 after. A scene that
+      # fails to clear is a picture that never appears, so margin here is the
+      # difference between "worked tonight" and "works every night".
+      for {sung, line} <- [
+            {"\"E com cincooo ou seis retas é fááácil fazer um castelooo\".",
+             "É fácil fazer um castelo"},
+            {"Numa folhaaa qualquer eu desenho um sol amarelooo.",
+             "Eu desenho um sol amarelo"},
+            {"\"Se um pinguinho de tinta cai num pedacinho azul do papééél.\"",
+             "Cai num pedacinho azul do papel"}
+          ] do
+        assert Follower.covers?(sung, line, threshold: 0.95),
+               "held vowels ate the margin on #{inspect(line)}"
+      end
+    end
+
+    test "the collapse folds legitimate doubles on BOTH sides, so they still match" do
+      # "passa"/"terra" keep their doubles in the script; an elongated sung
+      # version must still land, and a genuinely different line must not.
+      assert Follower.covers?("a moçaaa paaassa na terrrra", "A moça passa na terra")
+      refute Follower.covers?("uma gaivota no céu", "A moça passa na terra")
+    end
+
     test "a covered line with an UNCOVERED gap before it is a later repeat, not real progress" do
       # Modeled on the live Fly Me To The Moon failure (HANDOFF gotcha #42).
       # Short lines of common words make coverage/2 — whose denominator is the

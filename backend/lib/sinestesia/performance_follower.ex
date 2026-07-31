@@ -168,12 +168,30 @@ defmodule Sinestesia.PerformanceFollower do
   end
 
   # Lowercase, fold accents (STT and the pasted lyrics disagree on diacritics),
-  # drop punctuation, split to a word set.
+  # drop punctuation, collapse repeated letters, split to a word set.
+  #
+  # The collapse is what makes this work on SUNG input rather than spoken:
+  # singers hold vowels, and the STT transcribes what it hears, so the same
+  # word arrives as "castelooo", "castééelo", "cincooo", "fááácil", "papééél",
+  # "céééu", "folhaaa". None of those are the script's token, and each miss
+  # costs real matching headroom — measured on a live Aquarela run, the scene
+  # ending "É fácil fazer um castelo" scored exactly 0.600 against a 0.6
+  # threshold, clearing by a hair purely because "fácil" AND "castelo" were
+  # both elongated. One more held vowel and the castle picture would not have
+  # been shown at all. Collapsing to 1.000 removes that cliff.
+  #
+  # Applied to BOTH sides (this is the only tokenizer), which is why runs
+  # collapse to a single letter rather than two: that also folds Portuguese's
+  # legitimate doubles the same way on each side ("passa"/"pasa",
+  # "terra"/"tera"), so an elongated double consonant still matches. The cost
+  # is that a handful of distinct words become equal ("casa"/"cassa"), which
+  # is harmless when matching against one known song's own lines.
   defp tokens(text) do
     text
     |> String.downcase()
     |> fold_accents()
     |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
+    |> String.replace(~r/(.)\1+/u, "\\1")
     |> String.split(~r/\s+/, trim: true)
     |> MapSet.new()
   end

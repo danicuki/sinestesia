@@ -1,4 +1,3 @@
-import { mountInDock } from "./dock";
 // Visual style control — small input + "End Song" button, top-right. Lets the
 // singer steer the art direction and close out a song live during rehearsal.
 // Hidden under ?clean=1 for a clean stage demo.
@@ -80,8 +79,7 @@ export class StyleControl {
     this.menu = document.createElement("div");
     Object.assign(this.menu.style, {
       position: "absolute",
-      // Opens upward: the control now sits on the bottom edge in the dock.
-      bottom: "calc(100% + 4px)",
+      top: "calc(100% + 4px)",
       left: "0",
       right: "0",
       maxHeight: "240px",
@@ -114,7 +112,26 @@ export class StyleControl {
     wrap.appendChild(label);
     wrap.appendChild(field);
     wrap.appendChild(endBtn);
-    mountInDock(wrap);
+    // Top-right, deliberately NOT in the bottom dock: this is the one control
+    // touched mid-song, its autocomplete needs room to drop DOWN, and down
+    // there it collided with the panels that open upward.
+    Object.assign(wrap.style, {
+      position: "fixed",
+      top: "10px",
+      right: "10px",
+      zIndex: "25",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      padding: "6px 8px",
+      background: "rgba(0,0,0,0.55)",
+      borderRadius: "4px",
+      font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
+      color: "#e5e7eb",
+      opacity: "0.7",
+      cursor: "auto",
+    } as CSSStyleDeclaration);
+    document.body.appendChild(wrap);
 
     // Open the list whenever the field is focused or clicked, even if it already
     // holds a full value — that was the whole point of replacing <datalist>.
@@ -149,12 +166,19 @@ export class StyleControl {
   // Options matching the current text. Empty field (or an exact match of a
   // suggestion) shows the whole list so you can browse alternatives; partial
   // typing filters by substring.
+  //
+  // A filter that matches NOTHING falls back to the whole list rather than
+  // showing an empty menu. This field is not a search box over a closed set —
+  // any text is a valid style — so typing a custom one used to make the
+  // presets vanish, with no way back to them except deleting what you had just
+  // written. Browsing the presets and writing your own have to coexist.
   private filtered(): string[] {
     const q = this.input.value.trim().toLowerCase();
     if (!q || STYLE_SUGGESTIONS.some((s) => s.toLowerCase() === q)) {
       return STYLE_SUGGESTIONS;
     }
-    return STYLE_SUGGESTIONS.filter((s) => s.toLowerCase().includes(q));
+    const hits = STYLE_SUGGESTIONS.filter((s) => s.toLowerCase().includes(q));
+    return hits.length > 0 ? hits : STYLE_SUGGESTIONS;
   }
 
   private renderOptions() {

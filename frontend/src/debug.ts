@@ -288,26 +288,49 @@ export class DebugOverlay {
   // it into the scene (onPick) so the transition shader can be iterated without
   // a mic or the backend. The overlay root is pointer-transparent, so this
   // section opts back into pointer events.
+  // A combo, not one link per sequence: this list is as long as the sample
+  // catalog and it sat in a fixed-height overlay, so every added sequence stole
+  // another line from the stage. One row, whatever the catalog size.
   setSamples(seqs: SampleSequence[], onPick: (slug: string) => void) {
     this.elSamples.innerHTML = "";
     this.elSamples.style.pointerEvents = "auto";
+    if (seqs.length === 0) return;
+
+    const select = document.createElement("select");
+    Object.assign(select.style, {
+      maxWidth: "100%",
+      background: "rgba(0,0,0,0.55)",
+      border: "1px solid #374151",
+      borderRadius: "2px",
+      color: COL.dir,
+      font: "inherit",
+      padding: "2px 4px",
+      cursor: "pointer",
+    } as CSSStyleDeclaration);
+
+    // A placeholder first option, so picking the sequence that happens to be
+    // first in the list still fires a change event.
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "▸ play a sample…";
+    select.appendChild(placeholder);
+
     for (const s of seqs) {
-      const a = document.createElement("a");
-      a.href = "#";
-      a.textContent = `▸ ${s.title}`;
-      a.title = s.description;
-      Object.assign(a.style, {
-        display: "block",
-        color: COL.dir,
-        cursor: "pointer",
-        textDecoration: "none",
-      } as CSSStyleDeclaration);
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        onPick(s.slug);
-      });
-      this.elSamples.appendChild(a);
+      const opt = document.createElement("option");
+      opt.value = s.slug;
+      opt.textContent = s.title;
+      opt.title = s.description;
+      select.appendChild(opt);
     }
+
+    select.addEventListener("change", () => {
+      const slug = select.value;
+      if (!slug) return;
+      onPick(slug);
+      select.value = ""; // back to the placeholder, ready for the next pick
+    });
+
+    this.elSamples.appendChild(select);
   }
 }
 

@@ -1,3 +1,4 @@
+import { mountInDock } from "./dock";
 // Visual style control — small input + "End Song" button, top-right. Lets the
 // singer steer the art direction and close out a song live during rehearsal.
 // Hidden under ?clean=1 for a clean stage demo.
@@ -39,23 +40,6 @@ export class StyleControl {
     initial = "",
   ) {
     const wrap = document.createElement("div");
-    Object.assign(wrap.style, {
-      position: "fixed",
-      top: "10px",
-      right: "10px",
-      zIndex: "20",
-      display: "flex",
-      alignItems: "center",
-      gap: "6px",
-      padding: "6px 8px",
-      background: "rgba(0,0,0,0.55)",
-      borderRadius: "4px",
-      font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-      color: "#e5e7eb",
-      opacity: "0.7",
-      cursor: "auto",
-    } as CSSStyleDeclaration);
-
     const label = document.createElement("span");
     label.textContent = "style";
     Object.assign(label.style, {
@@ -96,7 +80,8 @@ export class StyleControl {
     this.menu = document.createElement("div");
     Object.assign(this.menu.style, {
       position: "absolute",
-      top: "calc(100% + 4px)",
+      // Opens upward: the control now sits on the bottom edge in the dock.
+      bottom: "calc(100% + 4px)",
       left: "0",
       right: "0",
       maxHeight: "240px",
@@ -129,7 +114,7 @@ export class StyleControl {
     wrap.appendChild(label);
     wrap.appendChild(field);
     wrap.appendChild(endBtn);
-    document.body.appendChild(wrap);
+    mountInDock(wrap);
 
     // Open the list whenever the field is focused or clicked, even if it already
     // holds a full value — that was the whole point of replacing <datalist>.

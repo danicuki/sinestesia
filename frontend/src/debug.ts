@@ -57,6 +57,12 @@ export class DebugOverlay {
       alignItems: "flex-start",
       gap: "24px",
       padding: "8px 12px",
+      // Hard ceiling: instrumentation must never creep up over the picture.
+      // The dock's own controls sit above this, so leave them room too.
+      maxHeight: "30vh",
+      overflow: "hidden",
+      // Keep clear of the control dock in the bottom-right corner.
+      paddingRight: "22vw",
       background: "rgba(0,0,0,0.55)",
       font: "11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace",
       color: COL.final,
@@ -66,26 +72,32 @@ export class DebugOverlay {
       wordBreak: "break-word",
     } as CSSStyleDeclaration);
 
-    // Left column: live speech + the prompt it produced. Takes the slack so long
-    // text wraps here. Right column: the timing history (its top row is the
-    // latest cycle, so a separate "current" line is redundant).
-    const left = column("1 1 auto");
-    const right = column("0 0 auto");
+    // Three columns, not one tall stack plus a sidebar. Eight sections in a
+    // single column made the overlay tall enough to eat the middle of the
+    // stage — the picture is the show, and this is instrumentation. Spread
+    // across three, the strip is about a third as tall for the same content.
+    //
+    // Grouped by what they answer, so the eye knows where to look: how the
+    // voice SOUNDS, what it SAID, and how the run is PERFORMING.
+    const sound = column("1 1 0");
+    const words = column("1 1 0");
+    const run = column("0 0 auto");
 
-    this.elAudio = this.section(left, "rail 1 — movement");
-    this.elExpressive = this.section(left, "rail 3 — expression");
-    this.elMelody = this.section(left, "melody → director");
-    this.elSemiotics = this.section(left, "tatit & segreto semiotics (expressive)");
-    this.elStructure = this.section(left, "structure (phase 2 — lyrics look-ahead)");
-    this.elTranscript = this.section(left, "transcript");
-    this.elPrompt = this.section(left, "director prompt");
-    this.elLyric = this.section(left, "sample lyric");
-    this.elHistory = this.section(right, "history (last 5)");
-    this.elSamples = this.section(right, "sample sequences");
-    this.elParams = this.section(right, "run params");
+    this.elAudio = this.section(sound, "rail 1 — movement");
+    this.elExpressive = this.section(sound, "rail 3 — expression");
+    this.elMelody = this.section(sound, "melody → director");
+    this.elSemiotics = this.section(sound, "tatit & segreto semiotics (expressive)");
 
-    this.root.appendChild(left);
-    this.root.appendChild(right);
+    this.elTranscript = this.section(words, "transcript");
+    this.elPrompt = this.section(words, "director prompt");
+    this.elStructure = this.section(words, "structure (phase 2 — lyrics look-ahead)");
+    this.elLyric = this.section(words, "sample lyric");
+
+    this.elHistory = this.section(run, "history (last 5)");
+    this.elSamples = this.section(run, "sample sequences");
+    this.elParams = this.section(run, "run params");
+
+    this.root.append(sound, words, run);
     document.body.appendChild(this.root);
 
     // Refresh relative "ago" timestamps once a second.

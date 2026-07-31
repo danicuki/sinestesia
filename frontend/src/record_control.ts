@@ -1,3 +1,4 @@
+import { mountInDock } from "./dock";
 // "Save take" button — bottom-right, next to the other operator controls and
 // hidden under ?clean=1 like all of them.
 //
@@ -23,18 +24,6 @@ export class RecordControl {
     private onClear: ClearCb,
   ) {
     const wrap = document.createElement("div");
-    Object.assign(wrap.style, {
-      position: "fixed",
-      bottom: "10px",
-      right: "10px",
-      zIndex: "20",
-      display: "flex",
-      alignItems: "center",
-      gap: "8px",
-      font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-      color: "#e5e7eb",
-    } as CSSStyleDeclaration);
-
     this.counter = document.createElement("span");
     this.counter.style.opacity = "0.6";
     this.counter.textContent = "0 events";
@@ -74,7 +63,11 @@ export class RecordControl {
     });
 
     wrap.append(this.counter, this.button, clear);
-    document.body.appendChild(wrap);
+    mountInDock(wrap);
+    // The dock stacks children vertically by default; these three read as one
+    // unit, so keep them on a line.
+    wrap.style.flexDirection = "row";
+    wrap.style.alignItems = "center";
   }
 
   setCount(n: number): void {

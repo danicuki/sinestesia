@@ -1,3 +1,4 @@
+import { mountInDock, panelOpensUpward } from "./dock";
 // Lyrics control — a collapsible textarea, bottom-left, where the operator
 // pastes the song's lyrics BEFORE it is sung, one stanza per verse/chorus,
 // separated by a BLANK LINE (so the backend can tell a verse from a chorus).
@@ -26,19 +27,6 @@ export class LyricsControl {
     initial = "",
   ) {
     const wrap = document.createElement("div");
-    Object.assign(wrap.style, {
-      position: "fixed",
-      bottom: "10px",
-      left: "10px",
-      zIndex: "20",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-start",
-      gap: "6px",
-      font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-      color: "#e5e7eb",
-    } as CSSStyleDeclaration);
-
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.textContent = "lyrics";
@@ -66,6 +54,7 @@ export class LyricsControl {
       border: "1px solid #374151",
       borderRadius: "4px",
     } as CSSStyleDeclaration);
+    panelOpensUpward(this.panel);
 
     this.textarea = document.createElement("textarea");
     this.textarea.spellcheck = false;
@@ -107,7 +96,7 @@ export class LyricsControl {
 
     wrap.appendChild(toggle);
     wrap.appendChild(this.panel);
-    document.body.appendChild(wrap);
+    mountInDock(wrap);
   }
 
   private status: HTMLSpanElement;

@@ -22,7 +22,9 @@ export class MintToast {
     root.style.cssText = [
       "position:fixed",
       "right:16px",
-      "bottom:16px",
+      // Clears the operator control dock along the bottom edge (see dock.ts);
+      // the toast is stage-facing and must not land on the buttons.
+      "bottom:52px",
       "z-index:10000",
       "display:none",
       "max-width:260px",

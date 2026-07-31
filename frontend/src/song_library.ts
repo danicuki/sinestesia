@@ -1,3 +1,4 @@
+import { mountInDock, panelOpensUpward } from "./dock";
 // Song library control — a collapsible panel, bottom-right, mirroring the
 // LyricsControl/StyleControl pattern. Talks entirely through the socket's
 // song-library methods (PROTOCOL.md "Song library" section):
@@ -18,7 +19,8 @@ type LoadSetlistCb = (ids: string[]) => void;
 
 export class SongLibraryControl {
   private panel: HTMLDivElement;
-  private listEl: HTMLDivElement;
+  private select: HTMLSelectElement;
+  private setlistEl: HTMLDivElement;
   private status: HTMLSpanElement;
   private importInput: HTMLInputElement;
   private saveTitleInput: HTMLInputElement;
@@ -36,19 +38,6 @@ export class SongLibraryControl {
     private onLoadSetlist: LoadSetlistCb,
   ) {
     const wrap = document.createElement("div");
-    Object.assign(wrap.style, {
-      position: "fixed",
-      bottom: "10px",
-      right: "10px",
-      zIndex: "20",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "flex-end",
-      gap: "6px",
-      font: "11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace",
-      color: "#e5e7eb",
-    } as CSSStyleDeclaration);
-
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.textContent = "songs";
@@ -79,15 +68,54 @@ export class SongLibraryControl {
       border: "1px solid #374151",
       borderRadius: "4px",
     } as CSSStyleDeclaration);
+    panelOpensUpward(this.panel);
 
-    this.listEl = document.createElement("div");
-    Object.assign(this.listEl.style, { display: "flex", flexDirection: "column", gap: "2px" } as CSSStyleDeclaration);
+    // A <select> rather than a row per song: the panel used to grow by one
+    // line for every song in the library, which is fine at three and unusable
+    // at thirty. The combo stays one line tall no matter how big the catalog
+    // gets, and the browser gives keyboard search over it for free.
+    const pickRow = row();
+    this.select = document.createElement("select");
+    Object.assign(this.select.style, {
+      flex: "1 1 auto",
+      minWidth: "0",
+      background: "rgba(0,0,0,0.55)",
+      border: "1px solid #374151",
+      borderRadius: "2px",
+      color: "#e5e7eb",
+      font: "inherit",
+      padding: "3px 6px",
+      cursor: "pointer",
+    } as CSSStyleDeclaration);
+
+    const loadBtn = this.button("Load", () => {
+      const id = this.select.value;
+      if (id) this.onLoadSong(id);
+    });
+    const queueBtn = this.button("+ Setlist", () => {
+      const id = this.select.value;
+      if (id) {
+        this.checked.add(id);
+        this.renderSetlist();
+      }
+    });
+    pickRow.append(this.select, loadBtn, queueBtn);
+
+    // The queued setlist, as a compact line of chips with the running order —
+    // replaces the per-song checkbox, which gave no sense of ORDER and needed
+    // a scan of the whole list to read back what was selected.
+    this.setlistEl = document.createElement("div");
+    Object.assign(this.setlistEl.style, {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "4px",
+    } as CSSStyleDeclaration);
 
     const setlistRow = row();
-    const setlistBtn = this.button("Load Setlist (checked)", () => {
-      if (this.checked.size > 0) this.onLoadSetlist([...this.checked]);
-    });
-    setlistRow.appendChild(setlistBtn);
+    setlistRow.style.flexDirection = "column";
+    setlistRow.style.alignItems = "stretch";
+    setlistRow.appendChild(this.setlistEl);
 
     const importRow = row();
     this.importInput = document.createElement("input");
@@ -128,7 +156,7 @@ export class SongLibraryControl {
     this.status = document.createElement("span");
     Object.assign(this.status.style, { color: "#9ca3af" } as CSSStyleDeclaration);
 
-    this.panel.appendChild(this.listEl);
+    this.panel.appendChild(pickRow);
     this.panel.appendChild(setlistRow);
     this.panel.appendChild(divider());
     this.panel.appendChild(importRow);
@@ -137,7 +165,7 @@ export class SongLibraryControl {
 
     wrap.appendChild(toggle);
     wrap.appendChild(this.panel);
-    document.body.appendChild(wrap);
+    mountInDock(wrap);
   }
 
   private toggleOpen() {
@@ -187,45 +215,72 @@ export class SongLibraryControl {
   }
 
   private renderList() {
-    this.listEl.innerHTML = "";
+    const keep = this.select.value;
+    this.select.innerHTML = "";
+
     if (this.songs.length === 0) {
-      const empty = document.createElement("div");
-      empty.textContent = "no songs yet — import or save one below";
-      Object.assign(empty.style, { color: "#6b7280" } as CSSStyleDeclaration);
-      this.listEl.appendChild(empty);
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "no songs yet — import or save one below";
+      this.select.appendChild(opt);
+      this.select.disabled = true;
+      this.renderSetlist();
       return;
     }
 
+    this.select.disabled = false;
     for (const s of this.songs) {
-      const line = row();
-      Object.assign(line.style, { alignItems: "center", gap: "6px" } as CSSStyleDeclaration);
-
-      const check = document.createElement("input");
-      check.type = "checkbox";
-      check.checked = this.checked.has(s.id);
-      check.addEventListener("change", () => {
-        if (check.checked) this.checked.add(s.id);
-        else this.checked.delete(s.id);
-      });
-
-      const label = document.createElement("span");
-      label.textContent = s.artist ? `${s.title} — ${s.artist}` : s.title;
-      Object.assign(label.style, {
-        flex: "1 1 auto",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        color: this.currentSongId === s.id ? "#93c5fd" : "#e5e7eb",
-        fontWeight: this.currentSongId === s.id ? "700" : "400",
-      } as CSSStyleDeclaration);
-
-      const loadBtn = this.button("Load", () => this.onLoadSong(s.id));
-
-      line.appendChild(check);
-      line.appendChild(label);
-      line.appendChild(loadBtn);
-      this.listEl.appendChild(line);
+      const opt = document.createElement("option");
+      opt.value = s.id;
+      // The loaded song is marked in the option text: a <select>'s own styling
+      // is not reliably themable across browsers, so highlighting by colour
+      // the way the old list did would silently do nothing on some of them.
+      const label = s.artist ? `${s.title} — ${s.artist}` : s.title;
+      opt.textContent = this.currentSongId === s.id ? `▸ ${label}` : label;
+      this.select.appendChild(opt);
     }
+
+    // Keep the operator's choice across a refresh; fall back to whatever is
+    // loaded so the combo isn't showing something unrelated to the stage.
+    if (keep && this.songs.some((s) => s.id === keep)) this.select.value = keep;
+    else if (this.currentSongId) this.select.value = this.currentSongId;
+
+    this.renderSetlist();
+  }
+
+  private renderSetlist() {
+    this.setlistEl.innerHTML = "";
+    if (this.checked.size === 0) return;
+
+    const order = [...this.checked];
+    order.forEach((id, i) => {
+      const song = this.songs.find((s) => s.id === id);
+      const chip = document.createElement("span");
+      chip.textContent = `${i + 1}. ${song?.title ?? id} ✕`;
+      chip.title = "Remove from the setlist";
+      Object.assign(chip.style, {
+        background: "rgba(147,197,253,0.15)",
+        border: "1px solid #374151",
+        borderRadius: "10px",
+        padding: "1px 7px",
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      } as CSSStyleDeclaration);
+      chip.addEventListener("click", () => {
+        this.checked.delete(id);
+        this.renderSetlist();
+      });
+      this.setlistEl.appendChild(chip);
+    });
+
+    const go = this.button(`Load setlist (${order.length})`, () =>
+      this.onLoadSetlist(order),
+    );
+    const clear = this.button("Clear", () => {
+      this.checked.clear();
+      this.renderSetlist();
+    });
+    this.setlistEl.append(go, clear);
   }
 }
 

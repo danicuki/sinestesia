@@ -147,11 +147,55 @@ defmodule Sinestesia.PipelineSongLibraryTest do
       assert state.script_active? == true
     end
 
+    test "on: auto-identifying a song with a pinned style applies it, same as load_song", %{
+      pid: pid
+    } do
+      System.put_env("SONG_AUTO_IDENTIFY", "on")
+
+      Sinestesia.SongLibrary.save(%{
+        title: "Garota de Ipanema",
+        lyrics_text: "Olha que coisa mais linda mais cheia de graca\nE ela menina que vem",
+        style: "watercolor and ink, pale washes"
+      })
+
+      sing(pid, "Olha que coisa mais linda mais cheia de graca")
+
+      assert_receive {:push_json, %{type: "style", style: "watercolor and ink, pale washes"}}
+      assert_receive {:push_json, %{type: "song_identified", title: "Garota de Ipanema"}}
+      state = :sys.get_state(pid)
+      assert state.style == "watercolor and ink, pale washes"
+    end
+
     test "on: an unrelated improvisation never auto-loads anything", %{pid: pid} do
       System.put_env("SONG_AUTO_IDENTIFY", "on")
 
       sing(pid, "some completely unrelated improvised words")
 
+      state = :sys.get_state(pid)
+      refute state.script_active?
+      assert state.current_song_id == nil
+    end
+
+    test "a long, genuinely unrelated performance never accumulates into a false match", %{
+      pid: pid
+    } do
+      System.put_env("SONG_AUTO_IDENTIFY", "on")
+
+      # None of these lines IS the catalog opening, but by word 32 the pooled
+      # vocabulary across all four coincidentally contains every token from
+      # "Numa folha qualquer eu desenho um sol amarelo" (scattered, not in
+      # order) — exactly the scenario an uncapped, ever-growing comparison
+      # text is vulnerable to: match_score's overlap coefficient can only ever
+      # go UP as more is sung, never down, so a long enough unrelated
+      # performance eventually looks like any short catalog opening by pure
+      # vocabulary coincidence. Capping to the first N sung words (the actual
+      # opening) keeps this from ever firing.
+      sing(pid, "gosto muito de andar por essa cidade hoje")
+      sing(pid, "eu tenho um carro velho e quebrado")
+      sing(pid, "gosto de folha seca no chao frio")
+      sing(pid, "desenho qualquer sol amarelo numa tarde calma")
+
+      refute_receive {:push_json, %{type: "song_identified"}}, 200
       state = :sys.get_state(pid)
       refute state.script_active?
       assert state.current_song_id == nil
@@ -169,6 +213,30 @@ defmodule Sinestesia.PipelineSongLibraryTest do
 
       state = :sys.get_state(pid)
       assert state.script == ["totally different lyrics", "second line"]
+    end
+
+    test "on: singing a DIFFERENT catalog song mid-performance switches to it", %{pid: pid} do
+      System.put_env("SONG_AUTO_IDENTIFY", "on")
+      System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+      Sinestesia.SongLibrary.save(%{
+        title: "Garota de Ipanema",
+        lyrics_text:
+          "Olha que coisa mais linda mais cheia de graca\nE ela menina que vem e que passa"
+      })
+
+      # Aquarela is loaded (manually, same as an operator picking a setlist
+      # entry), but the performance is a COMPLETELY different song — caught
+      # live: the wrong song was loaded and the pipeline never recovered.
+      Sinestesia.Pipeline.load_song(pid, "aquarela")
+      assert_receive {:push_json, %{type: "song_loaded", id: "aquarela"}}
+
+      sing(pid, "Olha que coisa mais linda mais cheia de graca")
+
+      assert_receive {:push_json, %{type: "song_identified", title: "Garota de Ipanema"}}
+      state = :sys.get_state(pid)
+      assert state.current_song_id == "garota-de-ipanema"
+      assert "Olha que coisa mais linda mais cheia de graca" in state.script
     end
   end
 

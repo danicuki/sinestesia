@@ -246,6 +246,46 @@ defmodule Sinestesia.PipelineBootstrapTest do
     refute state.bootstrap_done?
   end
 
+  test "off-script singing discards a HELD eager bootstrap instead of blocking forever", %{
+    pid: pid
+  } do
+    System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+    state =
+      seed_bootstrap_speculation(pid, %{
+        status: :ready,
+        frame_url: "https://example.test/opening.jpg",
+        frame_msg: %{type: "image", url: "https://example.test/opening.jpg"}
+      })
+
+    refute state.bootstrap_done?
+
+    # Caught live: the operator had @script loaded but the performance was a
+    # COMPLETELY different song. Before the fix, `bootstrap_target_reached?`
+    # (its own from-scratch furthest_match over `state.lyrics`) never crossed
+    # the threshold, and `maybe_trigger`'s bootstrap branch had no other
+    # escape hatch — the pipeline sat silent forever, no matter how many real
+    # words were spoken, because a non-nil `bootstrap_speculation` blocks
+    # EVERYTHING (reveal AND reactive fallback) until its own target is
+    # reached.
+    sing(pid, "Olha que coisa mais linda mais cheia de graça")
+
+    state = :sys.get_state(pid)
+    # The held eager render is abandoned — it was a bet on the wrong content.
+    assert state.bootstrap_speculation == nil
+    refute state.bootstrap_done?
+    refute_received {:push_json, %{type: "image"}}
+
+    # Sing enough more (still off-script) to cross the ordinary reactive
+    # bootstrap's word threshold (@bootstrap_min_words = 15) — proving the
+    # pipeline fell back into the SAME plain reactive path it would use if no
+    # script had ever been loaded, instead of staying stuck.
+    sing(pid, "que vem e que passa num doce balanco a caminho do mar")
+
+    state = :sys.get_state(pid)
+    assert state.generating? == true
+  end
+
   test "a stale completion from a discarded attempt (wrong generation) is dropped, not adopted",
        %{pid: pid} do
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")

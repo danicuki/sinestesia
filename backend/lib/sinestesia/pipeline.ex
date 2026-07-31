@@ -2405,6 +2405,16 @@ defmodule Sinestesia.Pipeline do
 
   defp last_n_words(_, _), do: ""
 
+  defp first_n_words(text, n) when is_binary(text) do
+    text
+    |> String.trim()
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(n)
+    |> Enum.join(" ")
+  end
+
+  defp first_n_words(_, _), do: ""
+
   defp spawn_image(prompt, timings, prev_url, sid, camera, extra) do
     do_spawn_image(prompt, timings, prev_url, camera, extra, fn result, t ->
       {:image_done, result, t, sid}
@@ -2620,44 +2630,87 @@ defmodule Sinestesia.Pipeline do
   # Sinestesia.SongLibrary — and load it mid-stream (same eager-bootstrap
   # machinery as loading it by hand; catch_up_position_from_accumulated/1,
   # triggered from the reveal path, positions the cursor from whatever's
-  # already been sung). Only ever attempts once per song: the moment it
-  # succeeds, script_active? becomes true and the guard clause below blocks
-  # further attempts. A wrong guess is not worse than not guessing — it just
+  # already been sung). A wrong guess is not worse than not guessing — it just
   # costs a discarded speculative render once the singer's real words diverge,
   # the same graceful fallback the rest of the look-ahead machinery relies on.
+  #
+  # This is the COLD-START case only (no script active yet). A script already
+  # being active does NOT block re-identification for the rest of the show —
+  # see `match_and_advance/2`'s `:no_match` clause, which re-runs identify/2
+  # against the just-sung off-script line so a live switch to a DIFFERENT
+  # catalog song (an unplanned song, or the wrong one loaded) is caught too,
+  # not just the very first line of the performance.
   defp maybe_auto_identify(%{script_active?: true} = state, _is_final), do: state
   defp maybe_auto_identify(state, false), do: state
 
+  # Only the OPENING is a distinctive signal for cross-song identification —
+  # capped, not the full running transcript. match_score's overlap coefficient
+  # is denominator-capped at the (short) candidate opening line, so its
+  # numerator can only ever grow as more is sung; an uncapped sung_so_far would
+  # make a false match strictly MORE likely the longer an unrecognized song
+  # plays, with no way to self-correct. Capping to the first
+  # @song_identify_max_words freezes the comparison at the actual opening,
+  # matching the original "identify from the first few words" intent.
+  @song_identify_max_words 24
+
   defp maybe_auto_identify(state, true) do
     if auto_identify_enabled?() do
-      case state.lyrics |> Enum.join(" ") do
+      case state.lyrics |> Enum.join(" ") |> first_n_words(@song_identify_max_words) do
         "" ->
           state
 
         sung_so_far ->
           case Sinestesia.SongLibrary.identify(sung_so_far) do
-            {:match, song} ->
-              Logger.info(
-                "[song-library] auto-identified: #{song.title}#{artist_suffix(song.artist)}"
-              )
-
-              push(state.socket, %{
-                type: "song_identified",
-                id: song.id,
-                title: song.title,
-                artist: song.artist
-              })
-
-              state
-              |> load_lyrics(song.lyrics_text, "[song-library]")
-              |> Map.put(:current_song_id, song.id)
-
-            :no_match ->
-              state
+            {:match, song} -> load_identified_song(state, song, "auto-identified")
+            :no_match -> state
           end
       end
     else
       state
+    end
+  end
+
+  # Shared by the cold-start path above and the mid-show re-identify in
+  # match_and_advance/2's :no_match clause — both end up loading a catalog
+  # song the same way a manual load_song/load_setlist_song would. Style MUST
+  # be applied before load_lyrics: apply_style/3 resets director_conversation,
+  # and load_lyrics's maybe_speculate_bootstrap/1 immediately spawns a
+  # Director call against whatever conversation exists at that moment (see
+  # gotcha #30 in HANDOFF.md — the same ordering bug this function exists to
+  # not repeat for the identify path too).
+  defp load_identified_song(state, song, reason) do
+    Logger.info("[song-library] #{reason}: #{song.title}#{artist_suffix(song.artist)}")
+
+    {:noreply, state} =
+      if song.style, do: apply_style(state, song.style, false), else: {:noreply, state}
+
+    push(state.socket, %{
+      type: "song_identified",
+      id: song.id,
+      title: song.title,
+      artist: song.artist
+    })
+
+    state
+    |> load_lyrics(song.lyrics_text, "[song-library]")
+    |> Map.put(:current_song_id, song.id)
+  end
+
+  # Re-identify against just the ONE just-confirmed off-script line, mirroring
+  # the cold-start signal ("a few sung words" is enough — see identify/2's
+  # docs) rather than the accumulated-and-capped text maybe_auto_identify uses
+  # for its own from-scratch, no-script-yet case. Returns :no_match (never
+  # switches) when auto-identify is off, nothing matches, or the match IS the
+  # song already loaded — the last guard avoids a pointless reload loop from a
+  # coincidental strong match against the very song already playing.
+  defp mid_song_reidentify(%{current_song_id: current}, text) do
+    if auto_identify_enabled?() do
+      case Sinestesia.SongLibrary.identify(text) do
+        {:match, %{id: ^current}} -> :no_match
+        other -> other
+      end
+    else
+      :no_match
     end
   end
 
@@ -2753,10 +2806,34 @@ defmodule Sinestesia.Pipeline do
       {:match, _idx} ->
         {%{state | since_last_director: false}, :handled}
 
-      # Off-script (improv, or a line the pasted lyrics don't contain): drop any
-      # look-ahead and fall back to reactive rendering from what she actually sang.
+      # Off-script (improv, a line the pasted lyrics don't contain, or a
+      # DIFFERENT song entirely): first check whether SONG_AUTO_IDENTIFY
+      # recognizes this off-script line as the opening of some OTHER catalog
+      # song — a live switch (wrong song loaded, or an unplanned song) — and
+      # if so, load it and let its own eager bootstrap take over. Otherwise,
+      # drop any look-ahead and fall back to reactive rendering from what she
+      # actually sang.
+      #
+      # The look-ahead discard MUST also drop a still-held eager bootstrap,
+      # not just ordinary speculation. Without this, `maybe_trigger`'s
+      # bootstrap branch has no escape hatch: as long as `bootstrap_speculation`
+      # is non-nil, it blocks on `bootstrap_target_reached?` alone (its OWN
+      # from-scratch furthest_match over `state.lyrics`, oblivious to what this
+      # function just found), and NOTHING is ever generated — no reveal
+      # (correct, wrong content) but also no reactive fallback (wrong) — if the
+      # loaded song's opening is never actually sung (wrong song loaded, or a
+      # performance that diverges before the bootstrap's target line). Found
+      # live: an operator loaded one song but sang a different one, and the
+      # pipeline sat silent indefinitely, no matter how many real words were
+      # spoken.
       :no_match ->
-        {discard_speculation(state), :fallthrough}
+        case mid_song_reidentify(state, text) do
+          {:match, song} ->
+            {load_identified_song(state, song, "auto-identified mid-performance"), :handled}
+
+          :no_match ->
+            {state |> discard_speculation() |> discard_bootstrap_speculation(), :fallthrough}
+        end
     end
   end
 

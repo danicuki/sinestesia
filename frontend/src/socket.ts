@@ -42,6 +42,10 @@ export interface Timings {
   // provider. Non-zero means the backend is the bottleneck, not the model.
   queue_ms?: number;
   total_ms: number;
+  // True when the frame was rendered AHEAD of the singing (eager bootstrap or
+  // deep look-ahead). Its stt_ms is null and its director_ms is a cost paid
+  // seconds earlier, so these numbers are not the latency the audience saw.
+  prerendered?: boolean;
   // Provider plus the route/steps that actually ran, e.g. "cloudflare img2img 20st".
   image_provider: string;
   // The exact model id that rendered the frame, when the provider reports one.

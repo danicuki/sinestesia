@@ -1094,7 +1094,7 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_info(
-        {:bootstrap_spec_director_done, {:ok, raw, new_conversation}, _started_at, _call_ms,
+        {:bootstrap_spec_director_done, {:ok, raw, new_conversation}, _started_at, call_ms,
          model, _sid, _gen},
         state
       ) do
@@ -1103,11 +1103,17 @@ defmodule Sinestesia.Pipeline do
         {prompt, extra, state2} = compose_image_request(raw, state)
         receipt = Sinestesia.Verifiability.last()
 
+        # `director_ms` is the REAL cost of this call, not 0 — it just happened
+        # before the line was sung. `stt_ms` stays nil because there genuinely
+        # was no transcription round-trip on this frame's path: it was rendered
+        # from the pasted lyrics, ahead of the voice. `prerendered` says so, so
+        # a HUD can't read "0ms" as "the Director is instant". See gotcha #48.
         timings = %{
           stt_ms: nil,
           stt_provider: nil,
-          director_ms: 0,
+          director_ms: call_ms,
           director_queue_ms: 0,
+          prerendered: true,
           lyric: bs.text,
           verification: receipt
         }
@@ -1231,7 +1237,7 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_info(
-        {:prerender_director_done, {:ok, raw, new_conversation}, _started_at, _call_ms, model,
+        {:prerender_director_done, {:ok, raw, new_conversation}, _started_at, call_ms, model,
          _sid, index, seed_url, seed_delta},
         state
       ) do
@@ -1244,11 +1250,14 @@ defmodule Sinestesia.Pipeline do
         {prompt, extra, view2} = compose_image_request(raw, view)
         receipt = Sinestesia.Verifiability.last()
 
+        # Same as the eager bootstrap: real Director cost, no STT leg, and an
+        # explicit marker that this frame was drawn ahead of the singing.
         timings = %{
           stt_ms: nil,
           stt_provider: nil,
-          director_ms: 0,
+          director_ms: call_ms,
           director_queue_ms: 0,
+          prerendered: true,
           lyric: pr.line,
           verification: receipt
         }
@@ -3817,7 +3826,11 @@ defmodule Sinestesia.Pipeline do
         queue_ms: dir_queue_ms + queue_ms,
         total_ms: total,
         image_provider: label,
-        image_model: route && route.model
+        image_model: route && route.model,
+        # Absent on reactive frames; true when the frame was rendered ahead of
+        # the singing, so the HUD can say "pre-rendered" instead of showing a
+        # STT leg that never happened.
+        prerendered: Map.get(timings, :prerendered, false)
       }
     }
 

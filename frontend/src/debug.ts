@@ -84,9 +84,12 @@ export class DebugOverlay {
     // Equal thirds. `run` used to be "0 0 auto", so it sized to its widest
     // history row and took whatever it wanted — which, with a full model id on
     // every line, was most of the strip, crushing the other two.
+    // Not quite even: the history rows are the widest content in the strip and
+    // wrap the moment they're short of room, so `run` gets a little more and
+    // the transcript — which wraps gracefully — gives it up.
     const sound = column("1 1 0");
-    const words = column("1 1 0");
-    const run = column("1 1 0");
+    const words = column("0.85 1 0");
+    const run = column("1.3 1 0");
 
     this.elAudio = this.section(sound, "rail 1 — movement");
     this.elExpressive = this.section(sound, "rail 3 — expression");
@@ -247,6 +250,24 @@ export class DebugOverlay {
   // separately (and only when non-trivial) so our own backpressure isn't misread
   // as a slow model.
   private formatTiming(t: Timings): string {
+    // A pre-rendered frame has no STT leg at all — it was drawn from the pasted
+    // lyrics before the line was sung — and its Director cost was paid seconds
+    // earlier, so neither belongs in a latency read-out. Printing them anyway
+    // gave "STT null | DIR 0", which reads as the Director being instantaneous
+    // rather than as the work having already been done. Say what happened.
+    if (t.prerendered) {
+      return (
+        span("PRE", COL.dir, true) +
+        span(" | ", COL.dim) +
+        span(`IMG ${t.image_ms}`, COL.img) +
+        (t.morph_ms && t.morph_ms > 0
+          ? span(" | ", COL.dim) + span(`MRP ${t.morph_ms}`, COL.img)
+          : "") +
+        span("  drawn ahead of the voice", COL.dim) +
+        " " +
+        this.provider(t.image_provider)
+      );
+    }
     const queue =
       t.queue_ms && t.queue_ms > 0
         ? span(" | ", COL.dim) + span(`Q ${t.queue_ms}`, COL.dim)

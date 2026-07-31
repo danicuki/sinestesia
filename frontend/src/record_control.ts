@@ -39,11 +39,14 @@ export class RecordControl {
     this.counter.style.opacity = "0.6";
     this.counter.textContent = "0 events";
 
-    this.button = document.createElement("button");
-    this.button.textContent = "Save take";
-    this.button.title =
-      "Download this take as JSON (what was sung + what was shown, with timings). Replays with mix sinestesia.replay.";
-    Object.assign(this.button.style, {
+    // A plain object, applied to each button separately. Copying one button's
+    // live `.style` onto another's looks like it would work and does not: a
+    // CSSStyleDeclaration's own enumerable properties are its read-only
+    // numeric indices, and assigning those throws a TypeError under the strict
+    // mode ES modules always run in — which killed this constructor and, with
+    // it, every operator control mounted after it (style, lyrics, song
+    // library), since they share one `if (!CLEAN)` sequence.
+    const buttonStyle = {
       font: "inherit",
       color: "#e5e7eb",
       background: "rgba(17,24,39,0.75)",
@@ -51,13 +54,19 @@ export class RecordControl {
       borderRadius: "4px",
       padding: "4px 8px",
       cursor: "pointer",
-    } as CSSStyleDeclaration);
+    };
+
+    this.button = document.createElement("button");
+    this.button.textContent = "Save take";
+    this.button.title =
+      "Download this take as JSON (what was sung + what was shown, with timings). Replays with mix sinestesia.replay.";
+    Object.assign(this.button.style, buttonStyle);
     this.button.addEventListener("click", () => this.onSave());
 
     const clear = document.createElement("button");
     clear.textContent = "Reset";
     clear.title = "Discard what has been captured and start a fresh take.";
-    Object.assign(clear.style, this.button.style as unknown as CSSStyleDeclaration);
+    Object.assign(clear.style, buttonStyle);
     clear.style.opacity = "0.7";
     clear.addEventListener("click", () => {
       this.onClear();

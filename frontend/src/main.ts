@@ -416,14 +416,6 @@ async function start() {
     });
   }
 
-  // "Save take" — rehearsal/diagnostic tooling, hidden on stage like the rest.
-  if (!CLEAN) {
-    recordControl = new RecordControl(
-      () => recorder.download(),
-      () => recorder.clear(),
-    );
-  }
-
   // Style control + "End Song" — visible during rehearsal, hidden under
   // ?clean=1. Prefilled with the persisted style.
   if (!CLEAN) {
@@ -488,6 +480,19 @@ async function start() {
       socket.onSongSaved = (m) => library.setSaved(m);
       socket.onSongError = (message) => library.setError(message);
     }
+  }
+
+  // "Save take" — diagnostic tooling, so it mounts LAST on purpose: these
+  // controls share one straight-line sequence with no error boundary between
+  // them, and the first cut of this threw in its constructor and silently took
+  // the style, lyrics and song-library controls down with it. Nothing the show
+  // depends on should sit behind a rehearsal convenience.
+  if (!CLEAN) {
+    recordControl = new RecordControl(
+      () => recorder.download(),
+      () => recorder.clear(),
+    );
+    recordControl.setCount(recorder.count);
   }
 
   if (socket) socket.connect();

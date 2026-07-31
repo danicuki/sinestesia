@@ -97,6 +97,26 @@ export interface MintMsg {
   artist?: string;
 }
 
+// Song library (Sinestesia.SongLibrary) — PROTOCOL.md "Song library" section.
+export interface SongSummary {
+  id: string;
+  title: string;
+  artist?: string;
+}
+
+export interface SongLoadedMsg {
+  id: string;
+  title: string;
+  artist?: string;
+  setlistIndex?: number;
+}
+
+type SongsCb = (songs: SongSummary[]) => void;
+type SongLoadedCb = (m: SongLoadedMsg) => void;
+type SongIdentifiedCb = (m: SongLoadedMsg) => void;
+type SongSavedCb = (m: SongLoadedMsg) => void;
+type SongErrorCb = (message: string) => void;
+
 type TranscriptCb = (m: TranscriptMsg) => void;
 type ImageCb = (m: ImageMsg) => void;
 type ErrorCb = (message: string, provider?: string) => void;
@@ -132,6 +152,11 @@ export class Socket {
   onMintError: MintErrorCb = () => {};
   onVerification: VerificationCb = () => {};
   onStructure: StructureCb = () => {};
+  onSongs: SongsCb = () => {};
+  onSongLoaded: SongLoadedCb = () => {};
+  onSongIdentified: SongIdentifiedCb = () => {};
+  onSongSaved: SongSavedCb = () => {};
+  onSongError: SongErrorCb = () => {};
   onOpen: () => void = () => {};
 
   constructor(url: string = URL_DEFAULT) {
@@ -246,6 +271,43 @@ export class Socket {
       case "mint_error":
         this.onMintError(String(msg.message ?? "mint failed"));
         break;
+      case "songs":
+        this.onSongs(
+          Array.isArray(msg.songs)
+            ? msg.songs.map((s: any) => ({
+                id: String(s.id ?? ""),
+                title: String(s.title ?? ""),
+                artist: s.artist ? String(s.artist) : undefined,
+              }))
+            : [],
+        );
+        break;
+      case "song_loaded":
+        this.onSongLoaded({
+          id: String(msg.id ?? ""),
+          title: String(msg.title ?? ""),
+          artist: msg.artist ? String(msg.artist) : undefined,
+          setlistIndex:
+            typeof msg.setlist_index === "number" ? msg.setlist_index : undefined,
+        });
+        break;
+      case "song_identified":
+        this.onSongIdentified({
+          id: String(msg.id ?? ""),
+          title: String(msg.title ?? ""),
+          artist: msg.artist ? String(msg.artist) : undefined,
+        });
+        break;
+      case "song_saved":
+        this.onSongSaved({
+          id: String(msg.id ?? ""),
+          title: String(msg.title ?? ""),
+          artist: msg.artist ? String(msg.artist) : undefined,
+        });
+        break;
+      case "song_error":
+        this.onSongError(String(msg.message ?? "song library error"));
+        break;
       case "structure":
         this.onStructure({
           section:
@@ -303,6 +365,32 @@ export class Socket {
   sendLyrics(text: string) {
     if (!this.ready) return;
     this.ws!.send(JSON.stringify({ type: "lyrics", text }));
+  }
+
+  // Song library (Sinestesia.SongLibrary) — PROTOCOL.md "Song library" section.
+  sendListSongs() {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "list_songs" }));
+  }
+
+  sendLoadSong(id: string) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "load_song", id }));
+  }
+
+  sendImportSong(url: string, opts: { title?: string; artist?: string; load?: boolean } = {}) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "import_song", url, ...opts }));
+  }
+
+  sendSaveSong(attrs: { title: string; artist?: string; lyrics_text?: string }) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "save_song", ...attrs }));
+  }
+
+  sendLoadSetlist(ids: string[]) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "load_setlist", ids }));
   }
 
   // New song: reset all song-scoped backend state without dropping the WS.

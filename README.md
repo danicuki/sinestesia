@@ -221,6 +221,9 @@ frontend/                      Vite + TypeScript + Three.js
 sui/                           On-chain: Move contract + mint/claim sidecar
 zerog/                         0G Compute verifiable-inference sidecar
 site/                          Marketing / landing site
+songs/                         Known-song library (Sinestesia.SongLibrary) —
+                                one JSON file per song: lyrics, pinned style,
+                                source URL
 
 PROTOCOL.md                    Single source of truth for the WS contract
 CONFIGURATION.md               Every env var, generated from code

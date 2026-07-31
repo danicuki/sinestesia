@@ -185,6 +185,14 @@ rehearsal, where finding out now beats finding out on stage.
 | `MUSICAL_STRUCTURE` | _unset_ | `1 \| true \| on` | Detect verse/chorus/bridge/outro from the pasted lyrics' blank-line stanzas, track which section the confirmed singing is in, and append a short structural hint to the Director's line (e.g. "chorus returns") so a returning chorus can echo its established imagery via the Director's own conversation memory. Independent of SPECULATIVE_LOOKAHEAD — works whenever lyrics are loaded. |
 | `LOOKAHEAD_DEPTH` | `1` | `positive integer` | How many lyric lines SPECULATIVE_LOOKAHEAD is allowed to pre-render ahead of the singer (chained sequentially — i2i needs the previous frame, so this can never parallelize). 1 (default) is Phase 1's original one-line lookahead, exactly. Above 1, the pipeline races further ahead in a background cache whenever there's a head start (e.g. lyrics loaded during an instrumental intro); every frame is still revealed only on STT confirmation. Deeper values mean more frames are generated well before they're sung — read this alongside how the mint certificate / any marketing describes "how live" the show is. |
 
+### Song library
+
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `SONGS_DIR` | `../songs` | — | Where Sinestesia.SongLibrary stores/reads known songs (one JSON file per song). Default is relative to the backend's working directory, same convention as tests/sessions/ for replay. |
+| `SONG_AUTO_IDENTIFY` | _unset_ | `1 \| true \| on` | When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream (same eager-bootstrap/look-ahead machinery as loading it by hand). A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in. |
+| `SONG_IDENTIFY_THRESHOLD` | `0.7` | `0.0-1.0` | Word-overlap similarity a few sung words need against a library song's opening line to auto-identify it. Higher than LYRIC_MATCH_THRESHOLD by default — a short fragment matched against MANY candidate songs is inherently more ambiguous than matching one already-known song's next line. |
+
 ### Mint & provenance
 
 | Variable | Default | Accepts | Description |

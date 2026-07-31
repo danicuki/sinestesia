@@ -52,6 +52,7 @@ defmodule Sinestesia.Config do
     local_sdxl: "Local SDXL sidecar",
     scene: "Scene & style",
     lookahead: "Predictive look-ahead",
+    library: "Song library",
     mint: "Mint & provenance",
     songid: "Song identification",
     replay: "Replay & benchmarks"
@@ -399,6 +400,31 @@ defmodule Sinestesia.Config do
       values: "positive integer",
       doc:
         "How many lyric lines SPECULATIVE_LOOKAHEAD is allowed to pre-render ahead of the singer (chained sequentially — i2i needs the previous frame, so this can never parallelize). 1 (default) is Phase 1's original one-line lookahead, exactly. Above 1, the pipeline races further ahead in a background cache whenever there's a head start (e.g. lyrics loaded during an instrumental intro); every frame is still revealed only on STT confirmation. Deeper values mean more frames are generated well before they're sung — read this alongside how the mint certificate / any marketing describes \"how live\" the show is."
+    },
+
+    # ── Song library ────────────────────────────────────────────────────────
+    %{
+      key: "SONGS_DIR",
+      group: :library,
+      default: "../songs",
+      doc:
+        "Where Sinestesia.SongLibrary stores/reads known songs (one JSON file per song). Default is relative to the backend's working directory, same convention as tests/sessions/ for replay."
+    },
+    %{
+      key: "SONG_AUTO_IDENTIFY",
+      group: :library,
+      default: nil,
+      values: "1 | true | on",
+      doc:
+        "When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream (same eager-bootstrap/look-ahead machinery as loading it by hand). A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in."
+    },
+    %{
+      key: "SONG_IDENTIFY_THRESHOLD",
+      group: :library,
+      default: "0.7",
+      values: "0.0-1.0",
+      doc:
+        "Word-overlap similarity a few sung words need against a library song's opening line to auto-identify it. Higher than LYRIC_MATCH_THRESHOLD by default — a short fragment matched against MANY candidate songs is inherently more ambiguous than matching one already-known song's next line."
     },
 
     # ── Mint ────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import { Scene } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
 import { LyricsControl } from "./lyrics";
+import { SongLibraryControl } from "./song_library";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
@@ -435,6 +436,26 @@ async function start() {
       if (socket) socket.sendLyrics(text);
       else console.log("[mock] would send lyrics:", text.length, "chars");
     }, savedLyrics);
+  }
+
+  // Song library — known songs, URL import, setlists (PROTOCOL.md "Song
+  // library"). Hidden under ?clean=1, same as the other operator controls.
+  if (!CLEAN) {
+    const library = new SongLibraryControl(
+      () => socket?.sendListSongs(),
+      (id) => socket?.sendLoadSong(id),
+      (url) => socket?.sendImportSong(url),
+      (title, artist) => socket?.sendSaveSong({ title, artist: artist || undefined }),
+      (ids) => socket?.sendLoadSetlist(ids),
+    );
+
+    if (socket) {
+      socket.onSongs = (songs) => library.setSongs(songs);
+      socket.onSongLoaded = (m) => library.setCurrentSong(m);
+      socket.onSongIdentified = (m) => library.setCurrentSong(m);
+      socket.onSongSaved = (m) => library.setSaved(m);
+      socket.onSongError = (message) => library.setError(message);
+    }
   }
 
   if (socket) socket.connect();

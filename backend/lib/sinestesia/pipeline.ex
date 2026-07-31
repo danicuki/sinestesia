@@ -118,6 +118,28 @@ defmodule Sinestesia.Pipeline do
   # list of lines or one blob with newlines; an empty payload clears the script.
   def set_lyrics(pid, lines), do: GenServer.cast(pid, {:set_lyrics, lines})
 
+  # Push the current Sinestesia.SongLibrary catalog to the socket.
+  def list_songs(pid), do: GenServer.cast(pid, :list_songs)
+
+  # Load a known song from the library by id — same effect as pasting its
+  # lyrics, plus tracking current_song_id and (if the song has one) its
+  # pinned style.
+  def load_song(pid, id), do: GenServer.cast(pid, {:load_song, id})
+
+  # Fetch lyrics from a URL (letras.mus.br/.com.br, cifraclub.com.br), save
+  # them to the library, and load them. Off the hot path — the fetch runs in
+  # a Task so a slow/unreachable site never blocks the pipeline.
+  def import_song(pid, url, opts \\ %{}), do: GenServer.cast(pid, {:import_song, url, opts})
+
+  # Save the currently loaded (or explicitly given) lyrics into the library —
+  # the "add this song" flow for something sung that wasn't already known.
+  def save_song(pid, attrs), do: GenServer.cast(pid, {:save_song, attrs})
+
+  # An ordered list of library song ids for a show. Loading a setlist loads
+  # its FIRST song immediately (same eager-bootstrap head start as `load_song`
+  # alone); end_song/reset_song auto-advance to the next id while one is active.
+  def load_setlist(pid, ids), do: GenServer.cast(pid, {:load_setlist, ids})
+
   ## Callbacks
 
   @impl true
@@ -201,6 +223,17 @@ defmodule Sinestesia.Pipeline do
        script_active?: false,
        script_cursor: -1,
        speculation: nil,
+       # Set when the current script came from Sinestesia.SongLibrary (loaded
+       # explicitly via `load_song`, auto-identified, or advanced to from a
+       # setlist) — nil for a raw paste. Lets the frontend show "identified as
+       # X" and is where a future timing-capture/"save this song" flow would
+       # hang the recorded session off of.
+       current_song_id: nil,
+       # An ordered list of library song ids for a show (`load_setlist`).
+       # `setlist_index` is which one is CURRENT; end_song/reset_song advance
+       # it and load the next id while a setlist is active (`setlist != []`).
+       setlist: [],
+       setlist_index: 0,
        # Deep look-ahead (LOOKAHEAD_DEPTH > 1): a SEPARATE background chain from
        # `speculation` above. Rendering is inherently sequential (i2i needs the
        # previous frame), so this is one chain, not fan-out: `prerender` is the
@@ -303,7 +336,105 @@ defmodule Sinestesia.Pipeline do
   # position and any look-ahead in flight and re-acquires from wherever the
   # singing currently is.
   def handle_cast({:set_lyrics, raw}, state) do
-    {:noreply, load_lyrics(state, raw, "[lyrics]")}
+    {:noreply, load_lyrics(state, raw, "[lyrics]") |> Map.put(:current_song_id, nil)}
+  end
+
+  def handle_cast(:list_songs, state) do
+    push(state.socket, %{type: "songs", songs: Sinestesia.SongLibrary.list()})
+    {:noreply, state}
+  end
+
+  def handle_cast({:load_song, id}, state) do
+    case Sinestesia.SongLibrary.get(id) do
+      nil ->
+        push(state.socket, %{type: "song_error", message: "unknown song #{inspect(id)}"})
+        {:noreply, state}
+
+      song ->
+        Logger.info("[song-library] loading #{song.title}#{artist_suffix(song.artist)}")
+
+        # A song can pin the visual style it was designed/rendered with. Apply
+        # it BEFORE load_lyrics: apply_style/3 resets director_conversation,
+        # and load_lyrics's maybe_speculate_bootstrap/1 immediately spawns a
+        # Director call against whatever conversation exists at that moment —
+        # applying style after would mean the eager render (and whatever
+        # conversation it hands back on reveal) reflects the OLD style.
+        {:noreply, state} =
+          if song.style, do: apply_style(state, song.style, false), else: {:noreply, state}
+
+        state =
+          state
+          |> load_lyrics(song.lyrics_text, "[song] #{song.title}")
+          |> Map.put(:current_song_id, song.id)
+
+        push(state.socket, %{
+          type: "song_loaded",
+          id: song.id,
+          title: song.title,
+          artist: song.artist
+        })
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_cast({:import_song, url, opts}, state) do
+    parent = self()
+    sid = state.session_id
+
+    Task.start(fn ->
+      result = Sinestesia.LyricsImport.import(url)
+      send(parent, {:song_imported, result, url, opts, sid})
+    end)
+
+    {:noreply, state}
+  end
+
+  def handle_cast({:save_song, attrs}, state) do
+    lyrics_text =
+      cond do
+        is_binary(Map.get(attrs, "lyrics_text")) and Map.get(attrs, "lyrics_text") != "" ->
+          Map.get(attrs, "lyrics_text")
+
+        state.script != [] ->
+          Enum.join(state.script, "\n")
+
+        true ->
+          Enum.join(state.lyrics, "\n")
+      end
+
+    save_attrs = %{
+      id: presence(Map.get(attrs, "id")),
+      title: Map.get(attrs, "title"),
+      artist: presence(Map.get(attrs, "artist")),
+      style: presence(Map.get(attrs, "style")) || state.style,
+      source_url: presence(Map.get(attrs, "source_url")),
+      lyrics_text: lyrics_text
+    }
+
+    case Sinestesia.SongLibrary.save(save_attrs) do
+      {:ok, song} ->
+        Logger.info("[song-library] saved #{song.title}#{artist_suffix(song.artist)}")
+
+        push(state.socket, %{
+          type: "song_saved",
+          id: song.id,
+          title: song.title,
+          artist: song.artist
+        })
+
+        {:noreply, %{state | current_song_id: song.id}}
+
+      {:error, reason} ->
+        push(state.socket, %{type: "song_error", message: "could not save: #{inspect(reason)}"})
+        {:noreply, state}
+    end
+  end
+
+  def handle_cast({:load_setlist, ids}, state) when is_list(ids) do
+    Logger.info("[setlist] loaded #{length(ids)} song(s)")
+    state = %{state | setlist: ids, setlist_index: 0}
+    {:noreply, load_setlist_song(state, 0)}
   end
 
   # Reset all song-scoped state but KEEP open STT connections + socket.
@@ -330,7 +461,10 @@ defmodule Sinestesia.Pipeline do
         push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
     end
 
-    {:noreply, state |> reset_song_state() |> maybe_speculate_bootstrap()}
+    # A completed song is exactly when a setlist should move on; a plain
+    # `reset_song` (soundcheck/false start, no mint) replays the SAME entry
+    # instead — see that handler above.
+    {:noreply, state |> reset_song_state() |> advance_setlist_or_rearm()}
   end
 
   # Mint the finished painting: store on Walrus + mint the master on Sui via the
@@ -469,6 +603,7 @@ defmodule Sinestesia.Pipeline do
     })
 
     state = update_text_state(state, provider, text, is_final, latency)
+    state = maybe_auto_identify(state, is_final)
 
     # Predictive look-ahead: a confirmed line tells us where the singer actually
     # is. Advance the script cursor and, if we already rendered this line ahead
@@ -490,6 +625,59 @@ defmodule Sinestesia.Pipeline do
   # can both be exercised headlessly. Same effect as the operator sending `lyrics`.
   def handle_info({:replay_lyrics, raw}, state) do
     {:noreply, load_lyrics(state, raw, "[lyrics] replay")}
+  end
+
+  def handle_info({:song_imported, _result, _url, _opts, sid}, %{session_id: cur} = state)
+      when sid != cur do
+    {:noreply, state}
+  end
+
+  def handle_info({:song_imported, {:ok, imported}, url, opts, _sid}, state) do
+    save_attrs = %{
+      title: presence(Map.get(opts, "title")) || imported.title || "Untitled",
+      artist: presence(Map.get(opts, "artist")) || imported.artist,
+      source_url: url,
+      lyrics_text: imported.lyrics_text
+    }
+
+    case Sinestesia.SongLibrary.save(save_attrs) do
+      {:ok, song} ->
+        Logger.info(
+          "[song-library] imported #{song.title}#{artist_suffix(song.artist)} from #{url}"
+        )
+
+        push(state.socket, %{
+          type: "song_saved",
+          id: song.id,
+          title: song.title,
+          artist: song.artist
+        })
+
+        state =
+          if Map.get(opts, "load", true) do
+            state
+            |> load_lyrics(song.lyrics_text, "[song] #{song.title}")
+            |> Map.put(:current_song_id, song.id)
+          else
+            state
+          end
+
+        {:noreply, state}
+
+      {:error, reason} ->
+        push(state.socket, %{
+          type: "song_error",
+          message: "could not save imported song: #{inspect(reason)}"
+        })
+
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:song_imported, {:error, reason}, url, _opts, _sid}, state) do
+    Logger.warning("[song-library] import failed for #{url}: #{inspect(reason)}")
+    push(state.socket, %{type: "song_error", message: "import failed: #{inspect(reason)}"})
+    {:noreply, state}
   end
 
   # Forwarded so the headless replay task (and optionally the front) knows the
@@ -2372,6 +2560,112 @@ defmodule Sinestesia.Pipeline do
     })
     |> maybe_speculate_bootstrap()
   end
+
+  # After a completed song: move to the next setlist entry if one is active,
+  # otherwise just re-arm the eager bootstrap for whatever lyrics are already
+  # loaded (a single loaded song, or none).
+  defp advance_setlist_or_rearm(state) do
+    if state.setlist == [] do
+      maybe_speculate_bootstrap(state)
+    else
+      load_setlist_song(state, state.setlist_index + 1)
+    end
+  end
+
+  # Load the setlist entry at `index`. Skips (with a log line, never a crash)
+  # any id that no longer resolves in the library — the show must go on. Past
+  # the end of the setlist, leaves whatever lyrics/canvas state as-is rather
+  # than clearing them out from under an operator who's still using the app.
+  defp load_setlist_song(state, index) do
+    case Enum.at(state.setlist, index) do
+      nil ->
+        Logger.info("[setlist] no song at ##{index + 1} — setlist finished")
+        %{state | setlist_index: index}
+
+      id ->
+        case Sinestesia.SongLibrary.get(id) do
+          nil ->
+            Logger.warning("[setlist] song #{inspect(id)} not found in the library, skipping")
+            load_setlist_song(state, index + 1)
+
+          song ->
+            Logger.info(
+              "[setlist] loading ##{index + 1}/#{length(state.setlist)}: #{song.title}#{artist_suffix(song.artist)}"
+            )
+
+            {:noreply, state} =
+              if song.style, do: apply_style(state, song.style, false), else: {:noreply, state}
+
+            state =
+              state
+              |> load_lyrics(song.lyrics_text, "[setlist] #{song.title}")
+              |> Map.put(:current_song_id, song.id)
+              |> Map.put(:setlist_index, index)
+
+            push(state.socket, %{
+              type: "song_loaded",
+              id: song.id,
+              title: song.title,
+              artist: song.artist,
+              setlist_index: index
+            })
+
+            state
+        end
+    end
+  end
+
+  # When no lyrics/setlist are loaded, try to recognize the song from just a
+  # few sung words — matched against every song's OPENING line in
+  # Sinestesia.SongLibrary — and load it mid-stream (same eager-bootstrap
+  # machinery as loading it by hand; catch_up_position_from_accumulated/1,
+  # triggered from the reveal path, positions the cursor from whatever's
+  # already been sung). Only ever attempts once per song: the moment it
+  # succeeds, script_active? becomes true and the guard clause below blocks
+  # further attempts. A wrong guess is not worse than not guessing — it just
+  # costs a discarded speculative render once the singer's real words diverge,
+  # the same graceful fallback the rest of the look-ahead machinery relies on.
+  defp maybe_auto_identify(%{script_active?: true} = state, _is_final), do: state
+  defp maybe_auto_identify(state, false), do: state
+
+  defp maybe_auto_identify(state, true) do
+    if auto_identify_enabled?() do
+      case state.lyrics |> Enum.join(" ") do
+        "" ->
+          state
+
+        sung_so_far ->
+          case Sinestesia.SongLibrary.identify(sung_so_far) do
+            {:match, song} ->
+              Logger.info(
+                "[song-library] auto-identified: #{song.title}#{artist_suffix(song.artist)}"
+              )
+
+              push(state.socket, %{
+                type: "song_identified",
+                id: song.id,
+                title: song.title,
+                artist: song.artist
+              })
+
+              state
+              |> load_lyrics(song.lyrics_text, "[song-library]")
+              |> Map.put(:current_song_id, song.id)
+
+            :no_match ->
+              state
+          end
+      end
+    else
+      state
+    end
+  end
+
+  defp auto_identify_enabled?,
+    do: System.get_env("SONG_AUTO_IDENTIFY") in ["1", "true", "on", "yes"]
+
+  defp artist_suffix(nil), do: ""
+  defp artist_suffix(artist), do: " (#{artist})"
 
   defp lookahead_enabled?,
     do: System.get_env("SPECULATIVE_LOOKAHEAD") in ["1", "true", "on", "yes"]

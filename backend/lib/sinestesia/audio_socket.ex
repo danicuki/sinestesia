@@ -68,6 +68,29 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.set_lyrics(pid, raw)
         {:ok, state}
 
+      # Song library: list known songs, load one by id, import lyrics from a
+      # URL (letras.mus.br/.com.br, cifraclub.com.br), save the current/given
+      # lyrics as a new (or updated) song, or load a whole setlist.
+      {:ok, %{"type" => "list_songs"}} when not is_nil(pid) ->
+        Sinestesia.Pipeline.list_songs(pid)
+        {:ok, state}
+
+      {:ok, %{"type" => "load_song", "id" => id}} when not is_nil(pid) ->
+        Sinestesia.Pipeline.load_song(pid, id)
+        {:ok, state}
+
+      {:ok, %{"type" => "import_song", "url" => url} = msg} when not is_nil(pid) ->
+        Sinestesia.Pipeline.import_song(pid, url, Map.drop(msg, ["type", "url"]))
+        {:ok, state}
+
+      {:ok, %{"type" => "save_song"} = msg} when not is_nil(pid) ->
+        Sinestesia.Pipeline.save_song(pid, Map.drop(msg, ["type"]))
+        {:ok, state}
+
+      {:ok, %{"type" => "load_setlist", "ids" => ids}} when not is_nil(pid) and is_list(ids) ->
+        Sinestesia.Pipeline.load_setlist(pid, ids)
+        {:ok, state}
+
       {:ok, %{"type" => "camera"} = msg} when not is_nil(pid) ->
         Sinestesia.Pipeline.set_camera(pid, Map.drop(msg, ["type"]))
         {:ok, state}

@@ -184,6 +184,84 @@ sung yet); `tempo_bpm` is `null` until the audio-side estimator has enough
 consistent onsets to be confident (see `fast_features` above) — the tempo is a
 **best-effort, singing-only estimate**, not a claim of musical fact.
 
+### Song library (persistent catalog, `Sinestesia.SongLibrary`) *(added 2026-08-01)*
+
+Loading lyrics by hand (above) works for one song at a time. The library turns
+that into a reusable catalog: paste (or import) a song's lyrics once, then load
+it by id — or a whole show's setlist — on any future session.
+
+**`list_songs`** — request the catalog. Server replies with `songs`:
+
+```json
+{ "type": "list_songs" }
+{ "type": "songs", "songs": [{ "id": "aquarela", "title": "Aquarela do Brasil", "artist": "Toquinho" }] }
+```
+
+**`load_song`** — load a known song by id (same effect as pasting its lyrics,
+plus its pinned `style` if it has one, applied *before* the lyrics load so the
+eager bootstrap renders in the right style from the first frame):
+
+```json
+{ "type": "load_song", "id": "aquarela" }
+```
+
+Replies `song_loaded` (`{ "type": "song_loaded", "id", "title", "artist" }`) or
+`song_error` (`{ "type": "song_error", "message" }`) if the id isn't known.
+
+**`import_song`** — fetch lyrics from a URL (`letras.mus.br`/`letras.com.br`, or
+`cifraclub.com.br`), save them to the library, and load them:
+
+```json
+{ "type": "import_song", "url": "https://www.letras.mus.br/toquinho/aquarela/" }
+```
+
+Runs off the hot path (a slow/unreachable site never blocks the pipeline).
+Optional `title`/`artist` override what was scraped; `"load": false` saves
+without loading it immediately (e.g. bulk-importing a setlist ahead of a show).
+Replies `song_saved` on success or `song_error` on a fetch/parse failure —
+Cifra Club's chord-interleaved markup is inherently more fragile to parse than
+letras.mus.br's plain lyric page, so a failure there is more likely; the
+operator can always fall back to pasting text directly via `lyrics`.
+
+**`save_song`** — persist the currently loaded (or explicitly given) lyrics as
+a new or updated library entry — the "this song wasn't known, save it" flow:
+
+```json
+{ "type": "save_song", "title": "Aquarela", "artist": "Toquinho" }
+```
+
+`lyrics_text` is optional — defaults to the currently loaded script, or (if
+none was loaded) the accumulated confirmed transcript of what was actually
+sung. `id` defaults to a slug of `title`. Replies `song_saved` or `song_error`.
+
+**`load_setlist`** — an ordered list of library ids for a whole show:
+
+```json
+{ "type": "load_setlist", "ids": ["aquarela", "aguas-de-marco", "garota-de-ipanema"] }
+```
+
+Loads the FIRST song immediately (same eager-bootstrap head start as loading
+one song by hand). `end_song` (a completed performance) auto-advances to the
+next entry, pushing `song_loaded` again with a `setlist_index`; a plain `reset`
+(discard, no mint) replays the SAME entry instead of advancing — a false start
+shouldn't skip a song. Advancing past the last entry leaves the last song's
+state as-is rather than clearing the canvas out from under the operator.
+
+**`song_identified`** (server → client, opt-in via `SONG_AUTO_IDENTIFY`) — when
+no lyrics/setlist are loaded, the backend can recognize a known song from just
+its first few sung words (matched against every library song's opening line)
+and load it mid-stream automatically:
+
+```json
+{ "type": "song_identified", "id": "aquarela", "title": "Aquarela do Brasil", "artist": "Toquinho" }
+```
+
+Followed by the normal `song_loaded`. A short sung fragment is inherently more
+ambiguous than matching within an already-known song, so this defaults to a
+higher similarity threshold (`SONG_IDENTIFY_THRESHOLD`) than ordinary look-
+ahead matching, and a wrong guess costs nothing worse than a discarded
+speculative render — never a wrong frame shown, never worse than not guessing.
+
 ### `camera` (operator-driven virtual camera) *(added 2026-06-10)*
 
 A persistent camera **velocity** applied by the image pipeline to every

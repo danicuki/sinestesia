@@ -100,14 +100,14 @@ defmodule Sinestesia.ConfigTest do
   end
 
   describe "provider capabilities" do
-    # The bug this prevents: google has no i2i and no inpaint, so with
-    # RENDER_MODE=i2i + COMPOSE_MODE=inpaint the previous frame and the
-    # placement were silently discarded, and a `NEW: a yellow sun | POS: top`
-    # delta — meaningful only to an inpainter — became the entire prompt for an
-    # independent render. Every frame came out an isolated object on an
-    # unrelated canvas.
+    # The bug this prevents (seen live on google, back when it was Imagen and
+    # had no i2i): with RENDER_MODE=i2i + COMPOSE_MODE=inpaint the previous
+    # frame and the placement were silently discarded, and a `NEW: a yellow
+    # sun | POS: top` delta — meaningful only to an inpainter — became the
+    # entire prompt for an independent render. Every frame came out an
+    # isolated object on an unrelated canvas.
     test "i2i is downgraded to t2i on providers that have no image-to-image" do
-      for provider <- ~w(google pollinations) do
+      for provider <- ~w(pollinations) do
         # IMAGE_MODE is pinned: left ambient, this test would report a different
         # set of conflicts depending on what the developer's .env happens to say.
         with_envs(
@@ -123,7 +123,7 @@ defmodule Sinestesia.ConfigTest do
     end
 
     test "i2i is honoured on providers that have it" do
-      for provider <- ~w(fal cloudflare local_sdxl) do
+      for provider <- ~w(fal cloudflare local_sdxl google) do
         with_envs(%{"IMAGE_PROVIDER" => provider, "RENDER_MODE" => "i2i"}, fn ->
           assert Sinestesia.ImageGen.render_mode() == :i2i
         end)

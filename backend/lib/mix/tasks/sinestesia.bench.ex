@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   ## Image stage
 
       mix sinestesia.bench image
-      mix sinestesia.bench image --providers fal,google,ramen,cloudflare,local
+      mix sinestesia.bench image --providers fal,google,cloudflare,local
       mix sinestesia.bench image --modes t2i,i2i --runs 5 --warmup
 
   Image generation comes in two flavours and the task benchmarks both:
@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Sinestesia.Bench do
     | name         | t2i | i2i | notes                                          |
     |--------------|-----|-----|------------------------------------------------|
     | `fal`        |  ✓  |  ✓  | Flux Schnell (t2i) / Flux dev (i2i), paid      |
-    | `google`     |  ✓  |  —  | Imagen 4 Fast — text-to-image only             |
+    | `google`     |  ✓  |  ✓  | Gemini flash-lite image (:generateContent)     |
     | `cloudflare` |  ✓  |  ✓  | Workers AI (Flux schnell / SD 1.5), credits    |
     | `local`      |  ✓  |  ✓  | local SDXL Turbo sidecar (port 8003), free     |
 
@@ -57,8 +57,8 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   Per-image USD prices live in `@pricing` at the top of this module. They are
   **estimates** — fal bills per megapixel, Cloudflare draws from startup
   credits (counted as $0), local is your own electricity ($0). Edit the map to
-  match your actual rates; the early-access ramen price is unknown, so update
-  it once you know.
+  match your actual rates; the Gemini image price is a placeholder, so update
+  it once public pricing is confirmed.
 
   Requires the relevant keys in `.env` (FAL_API_KEY, GOOGLE_API_KEY,
   CLOUDFLARE_*) and, for `local`, the SDXL sidecar running on port 8003.
@@ -74,9 +74,9 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   #   fal        per megapixel, billed ROUNDED UP to the next whole MP, so a
   #              0.59 MP frame bills as 1 MP. schnell $0.003/MP, dev i2i
   #              $0.03/MP. (fal.ai/docs/.../pricing)
-  #   google     Imagen 4 Fast, flat $0.02/image (ai.google.dev/pricing).
-  #              NOTE: Imagen 4 is deprecated, shutting down 2026-08-17 — the
-  #              `ramen` model (gemini-3.1-flash-lite-image) is the migration.
+  #   google     gemini-3.1-flash-lite-image via :generateContent — placeholder
+  #              until public pricing is confirmed. (Imagen 4, the previous
+  #              google path, was removed: deprecated, shut down 2026-08-17.)
   #   cloudflare NOT free — billed in neurons ($0.011 / 1,000 neurons; first
   #              10,000 neurons/day free). Your runs read $0 only because they
   #              fit the free daily allotment / your credits. These SDXL models
@@ -87,25 +87,22 @@ defmodule Mix.Tasks.Sinestesia.Bench do
     "fal:t2i" => 0.003,
     "fal:i2i" => 0.03,
     "google:t2i" => 0.02,
-    # ramen = gemini-3.1-flash-lite-image; placeholder until public pricing is confirmed.
-    "ramen:t2i" => 0.02,
-    "ramen:i2i" => 0.02,
+    "google:i2i" => 0.02,
     "cloudflare:t2i" => 0.0008,
     "cloudflare:i2i" => 0.0008,
     "local:t2i" => 0.0,
     "local:i2i" => 0.0
   }
 
-  @all_providers ~w(fal google ramen cloudflare local)
+  @all_providers ~w(fal google cloudflare local)
   @all_modes ~w(t2i i2i)
 
   @default_prompt "a sweeping watercolor landscape at golden hour, distant mountains, a winding river, loose expressive brushwork"
 
-  # Which (provider, mode) pairs are even attemptable. Google Imagen is t2i-only.
+  # Which (provider, mode) pairs are even attemptable.
   @supported %{
     "fal" => ~w(t2i i2i),
-    "google" => ~w(t2i),
-    "ramen" => ~w(t2i i2i),
+    "google" => ~w(t2i i2i),
     "cloudflare" => ~w(t2i i2i),
     "local" => ~w(t2i i2i)
   }
@@ -222,12 +219,10 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   defp candidate_fun("fal", "t2i", prompt, _seed), do: fn -> ImageGen.Fal.generate(prompt) end
   defp candidate_fun("fal", "i2i", prompt, seed), do: fn -> ImageGen.FalImg2Img.generate(prompt, seed) end
 
-  defp candidate_fun("google", "t2i", prompt, _seed), do: fn -> ImageGen.Google.generate(prompt) end
-
-  # The "instant ramen" model is a Gemini :generateContent image model, so it
-  # does both t2i and i2i through the same call (seed passed as image_url).
-  defp candidate_fun("ramen", "t2i", prompt, _seed), do: fn -> ImageGen.GeminiImage.generate(prompt) end
-  defp candidate_fun("ramen", "i2i", prompt, seed), do: fn -> ImageGen.GeminiImage.generate(prompt, image_url: seed) end
+  # Gemini image models are :generateContent, so t2i and i2i are the same call
+  # (the seed goes in as image_url).
+  defp candidate_fun("google", "t2i", prompt, _seed), do: fn -> ImageGen.GeminiImage.generate(prompt) end
+  defp candidate_fun("google", "i2i", prompt, seed), do: fn -> ImageGen.GeminiImage.generate(prompt, image_url: seed) end
 
   defp candidate_fun("cloudflare", "t2i", prompt, _seed), do: fn -> ImageGen.Cloudflare.text2img(prompt) end
   defp candidate_fun("cloudflare", "i2i", prompt, seed), do: fn -> ImageGen.Cloudflare.img2img(prompt, seed) end

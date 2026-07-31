@@ -277,8 +277,9 @@ defmodule Sinestesia.Config do
     %{
       key: "GOOGLE_IMAGE_MODEL",
       group: :image,
-      default: "imagen-4.0-fast-generate-001",
-      doc: "Imagen model for IMAGE_PROVIDER=google."
+      default: "gemini-3.1-flash-lite-image",
+      doc:
+        "Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed."
     },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────
@@ -634,8 +635,8 @@ defmodule Sinestesia.Config do
   Combinations that were asked for but can't be delivered, and what we did.
 
   The three image switches are independent, but not every combination exists —
-  Imagen has no image-to-image endpoint, only fal and the local sidecar can
-  inpaint. Those requests used to be honoured in silence: the previous frame
+  Pollinations has no image-to-image endpoint, only fal and the local sidecar
+  can inpaint. Those requests used to be honoured in silence: the previous frame
   and the placement were discarded, and story mode's `NEW: <element>` deltas
   became the entire prompt for an independent render, so the song came out as
   unrelated objects on unrelated canvases with the style re-invented each time.

@@ -43,8 +43,8 @@ their own code and are documented by hand in `CONFIGURATION.md` sections 2–3.
   legacy spellings are still parsed from `.env` so nobody's setup breaks, but
   nothing emits them.
 - **Capabilities, not just switches** — `IMAGE_PROVIDER`, `RENDER_MODE` and
-  `COMPOSE_MODE` are independent switches over a grid with holes in it: Imagen
-  and Pollinations have no image-to-image, only fal and the local sidecar can
+  `COMPOSE_MODE` are independent switches over a grid with holes in it:
+  Pollinations has no image-to-image, only fal and the local sidecar can
   inpaint. The table lives in `ImageGen.capabilities/1`; `render_mode/0` and
   `Director.compose?/0` resolve requests against it, and
   `Config.conflicts/0` reports what was downgraded. Adding a provider means

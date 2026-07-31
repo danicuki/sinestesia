@@ -166,8 +166,8 @@ defmodule Sinestesia.Director do
   meaningless to anything else: with no mask and no input image it becomes the
   *whole* prompt for an independent render, so the song turns into a series of
   isolated objects — a sun, a hand, an umbrella — none of them sharing a canvas.
-  Imagen and Pollinations can't inpaint, so they get the scene-list prompt
-  instead, which is the form that carries the accumulated scene and the style.
+  Google, Cloudflare and Pollinations can't inpaint, so they get the
+  scene-list prompt instead, which carries the accumulated scene and the style.
   """
   def compose? do
     mode() == :story and System.get_env("COMPOSE_MODE", "inpaint") != "global" and

@@ -6,7 +6,7 @@ defmodule Sinestesia.ImageGen do
 
     "fal"           → fal.ai Flux Schnell (t2i) / Flux dev (i2i)  (fast, paid)
     "cloudflare"    → Workers AI: SDXL-Lightning t2i + SD-1.5 i2i (cheap)
-    "google"        → Google Imagen 4 Fast                        (Gemini credits)
+    "google"        → Gemini native image gen (t2i + i2i)         (Gemini credits)
     "pollinations"  → Pollinations.ai (Flux)                      (free, no auth)
     "local_sdxl"    → local SDXL Turbo sidecar                    (free, see local-sdxl/)
 
@@ -38,7 +38,7 @@ defmodule Sinestesia.ImageGen do
   What each provider can actually do.
 
   `IMAGE_PROVIDER`, `RENDER_MODE` and `COMPOSE_MODE` are three independent
-  switches, but not every combination exists. Imagen and Pollinations have no
+  switches, but not every combination exists. Pollinations has no
   image-to-image endpoint at all; only fal and the local sidecar can inpaint a
   masked region. Asking for something a provider can't do used to be accepted
   in silence: the previous frame and the placement were simply dropped on the
@@ -56,7 +56,7 @@ defmodule Sinestesia.ImageGen do
     fal: %{t2i: true, i2i: true, inpaint: true},
     cloudflare: %{t2i: true, i2i: true, inpaint: false},
     local_sdxl: %{t2i: true, i2i: true, inpaint: true},
-    google: %{t2i: true, i2i: false, inpaint: false},
+    google: %{t2i: true, i2i: true, inpaint: false},
     pollinations: %{t2i: true, i2i: false, inpaint: false}
   }
 
@@ -141,7 +141,7 @@ defmodule Sinestesia.ImageGen do
   defp t2i(prompt) do
     case provider() do
       :cloudflare -> Sinestesia.ImageGen.Cloudflare.text2img(prompt)
-      :google -> Sinestesia.ImageGen.Google.generate(prompt)
+      :google -> Sinestesia.ImageGen.GeminiImage.generate(prompt)
       :pollinations -> Sinestesia.ImageGen.Pollinations.generate(prompt)
       :local_sdxl -> Sinestesia.ImageGen.LocalSdxl.generate(prompt, nil)
       # fal (img2img-only) renders via Flux Schnell.
@@ -186,11 +186,17 @@ defmodule Sinestesia.ImageGen do
       {:cloudflare, _} ->
         Sinestesia.ImageGen.Cloudflare.text2img(bootstrap_composition(prompt))
 
-      # Providers with no image-to-image endpoint. `render_mode/0` resolves
-      # them to :t2i, so this is unreachable — kept as a belt-and-braces route
+      {:google, url} when is_binary(url) and url != "" ->
+        Sinestesia.ImageGen.GeminiImage.generate(prompt, image_url: url)
+
+      {:google, _} ->
+        Sinestesia.ImageGen.GeminiImage.generate(bootstrap_composition(prompt))
+
+      # Pollinations has no image-to-image endpoint. `render_mode/0` resolves
+      # it to :t2i, so this is unreachable — kept as a belt-and-braces route
       # to the text-to-image path rather than a silent discard of the previous
       # frame, which is the bug the capability table exists to prevent.
-      {p, _} when p in [:google, :pollinations] ->
+      {:pollinations, _} ->
         t2i(prompt)
     end
   end

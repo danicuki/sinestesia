@@ -1,19 +1,22 @@
 defmodule Sinestesia.ImageGen.GeminiImage do
   @moduledoc """
-  Google Gemini native image generation via the `:generateContent` endpoint —
-  used for the early-access "instant ramen" model (`models/instant-ramen`).
+  Google image generation for `IMAGE_PROVIDER=google`: Gemini native image
+  models via the `:generateContent` endpoint.
 
-  This is a DIFFERENT API from Imagen (`Sinestesia.ImageGen.Google`, which uses
-  `:predict`). Gemini image models take a multimodal `contents` payload and
-  return image bytes inline, which means the same call does both:
+  This replaced the Imagen client (`:predict` endpoint) — Imagen 4 is
+  deprecated (shutting down 2026-08-17) and had no image-to-image. Gemini image
+  models take a multimodal `contents` payload and return image bytes inline,
+  which means the same call does both:
 
     * text-to-image  — `generate(prompt)`
     * image-to-image — `generate(prompt, image_url: data_or_http_url)` (the seed
       is sent as an inline image part alongside the prompt)
 
-  Returns `data:image/...;base64,...`. Model id comes from `opts[:model]` then the default. The "instant ramen" codename shipped as
-  `gemini-3.1-flash-lite-image` (the lite, fast variant — not the heavier
-  `gemini-3.1-flash-image`). A leading `models/` prefix is stripped.
+  Returns `data:image/...;base64,...`. Model id comes from `opts[:model]`, then
+  the `GOOGLE_IMAGE_MODEL` env var, then the default. A leading `models/`
+  prefix is stripped. The model must be a Gemini `*-image` model — pointing
+  this at an Imagen id fails with a 404, since Imagen only ever lived on
+  `:predict`.
   """
   require Logger
 
@@ -24,8 +27,11 @@ defmodule Sinestesia.ImageGen.GeminiImage do
     cfg = Application.fetch_env!(:sinestesia, :config)
 
     model =
-      (opts[:model] || @default_model)
+      (opts[:model] || System.get_env("GOOGLE_IMAGE_MODEL") || @default_model)
       |> normalize_model()
+
+    route = if opts[:image_url] in [nil, ""], do: "t2i", else: "i2i"
+    Sinestesia.ImageGen.note_route(route, model, nil)
 
     case Keyword.get(cfg, :google_api_key) do
       nil ->

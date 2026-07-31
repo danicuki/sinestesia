@@ -58,24 +58,24 @@ actually do:
 | `fal` | ✓ | ✓ | ✓ |
 | `local_sdxl` | ✓ | ✓ | ✓ |
 | `cloudflare` | ✓ | ✓ | — |
-| `google` (Imagen) | ✓ | — | — |
+| `google` (Gemini image) | ✓ | ✓ | — |
 | `pollinations` | ✓ | — | — |
 
 Asking for something a provider can't do is **resolved, and reported at boot**
 under a `NOT AS REQUESTED` heading — it is never silently ignored:
 
 ```
-  image     google · t2i (RENDER_MODE=i2i not supported here)
+  image     pollinations · t2i (RENDER_MODE=i2i not supported here)
   scene     story mode, window 5, whole-scene prompts
 ├─ NOT AS REQUESTED
-  ! RENDER_MODE=i2i, but google has no image-to-image endpoint — running t2i.
-  ! COMPOSE_MODE=inpaint, but google cannot inpaint — using whole-scene prompts.
+  ! RENDER_MODE=i2i, but pollinations has no image-to-image endpoint — running t2i.
+  ! COMPOSE_MODE=inpaint, but pollinations cannot inpaint — using whole-scene prompts.
 ```
 
 This matters more than it looks. `COMPOSE_MODE=inpaint` makes the Director
 answer with a *delta* — `NEW: a bright yellow sun | POS: top` — which only means
 anything to a provider that can paint into a masked region of an existing
-canvas. Sent to Imagen it becomes the entire prompt for an independent render,
+canvas. Sent to a t2i-only provider it becomes the entire prompt for an independent render,
 so the song comes out as a series of isolated objects on unrelated canvases,
 with the style re-interpreted every frame and nothing accumulating. That was
 happening silently. Now the Director is asked for a whole-scene prompt instead,
@@ -146,7 +146,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `IMAGE_MODE` | `story` | `story \| classic` | story accumulates scene elements across the song; classic redraws each line independently. |
 | `COMPOSE_MODE` | `inpaint` | `inpaint \| global` | In story mode, whether new elements are inpainted into a region or the whole frame is re-composed. |
 | `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
-| `GOOGLE_IMAGE_MODEL` | `imagen-4.0-fast-generate-001` | — | Imagen model for IMAGE_PROVIDER=google. |
+| `GOOGLE_IMAGE_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed. |
 
 ### Cloudflare Workers AI
 

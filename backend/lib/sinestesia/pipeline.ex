@@ -2780,25 +2780,9 @@ defmodule Sinestesia.Pipeline do
   defp match_and_advance(state, text) do
     case follower_match(state, text) do
       {:match, idx} when idx > state.script_cursor ->
+        old_cursor = state.script_cursor
         state = update_position(state, idx)
-
-        case state.speculation do
-          # We rendered this exact line ahead of time and it's ready — reveal now.
-          %{index: ^idx, status: :ready} ->
-            {reveal_speculation(state), :handled}
-
-          # Rendered but still in flight — confirm it; spec_image_done reveals it.
-          %{index: ^idx} = spec ->
-            {%{state | speculation: %{spec | confirmed: true}}, :handled}
-
-          # We predicted a different line (singer jumped): drop it and let the
-          # reactive Director draw the line she actually sang.
-          %{} ->
-            {discard_speculation(state), :fallthrough}
-
-          nil ->
-            {state, :fallthrough}
-        end
+        reconcile_after_jump(state, old_cursor, idx)
 
       # Matched the current or an earlier line (a repeat, or STT re-segmenting the
       # same line): already on screen, nothing new to draw. Position/section are
@@ -2837,6 +2821,86 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  # A single confirmed utterance can cover MULTIPLE short script lines at
+  # once — lines are now as short as a single phrase (see HANDOFF gotcha
+  # #37), and STT's own VAD segmentation often commits several of them
+  # together in one breath. `follower_match/2` already reports the FURTHEST
+  # line the utterance covers, but the held speculation only ever predicts
+  # ONE line ahead at a time, and the deep-lookahead cache
+  # (`state.prerendered`) may separately hold a few more.
+  #
+  # Found live (2026-07-31): treating "the follower's index isn't an EXACT
+  # match" as "wrong prediction, discard it" — the only behavior before this
+  # fix — threw away correctly pre-rendered frames for every line except the
+  # last one covered by a multi-line utterance, and paid for a slower
+  # reactive render for content that was already sitting ready. Instead: scan
+  # every candidate already in flight or cached for this jump's range
+  # `(old_cursor, idx]` and reveal/confirm whichever is CLOSEST to idx (the
+  # most "caught up") — only fall back to discarding everything when NOTHING
+  # in that range was already being worked on.
+  defp reconcile_after_jump(state, old_cursor, idx) do
+    case best_candidate(state, old_cursor, idx) do
+      {:active, %{status: :ready} = spec} ->
+        {reveal_speculation(%{state | speculation: spec}), :handled}
+
+      {:active, spec} ->
+        {%{state | speculation: %{spec | confirmed: true}}, :handled}
+
+      {:cached, cached_idx, frame} ->
+        Logger.debug(
+          "[spec] utterance jumped to line #{idx}; revealing cached line #{cached_idx}"
+        )
+
+        # Anything else cached at or below idx is now stale too — the jump
+        # already passed it, and only one frame can ever be revealed (img2img
+        # chains sequentially from whichever canvas is shown).
+        pruned = state.prerendered |> Enum.reject(fn {i, _} -> i <= idx end) |> Map.new()
+        {reveal_speculation(%{state | speculation: frame, prerendered: pruned}), :handled}
+
+      :none ->
+        {discard_speculation(state), :fallthrough}
+    end
+  end
+
+  defp best_candidate(state, old_cursor, idx) do
+    in_range? = &(&1 > old_cursor and &1 <= idx)
+
+    cached_idx =
+      state.prerendered |> Map.keys() |> Enum.filter(in_range?) |> Enum.max(fn -> nil end)
+
+    active_idx =
+      case state.speculation do
+        %{index: i} when is_integer(i) -> if in_range?.(i), do: i, else: nil
+        _ -> nil
+      end
+
+    cond do
+      cached_idx != nil and (active_idx == nil or cached_idx >= active_idx) ->
+        {:cached, cached_idx, state.prerendered[cached_idx]}
+
+      active_idx != nil ->
+        {:active, state.speculation}
+
+      true ->
+        :none
+    end
+  end
+
+  # NOTE: tried swapping this to furthest_match/4 (coverage-based, prefers the
+  # FURTHEST qualifying candidate) while chasing the multi-line-utterance
+  # issue reconcile_after_jump/3 fixes below — reverted. match/4's own sort is
+  # `{-score, forward_distance}`: the HIGHEST-scoring candidate always wins,
+  # nearest only breaks an exact tie, so it already reaches the furthest line
+  # a multi-line utterance genuinely covers (verified: the live case that
+  # motivated this actually already picked the correct further index this
+  # way). furthest_match/4's asymmetric coverage measure, though, is far too
+  # lenient for today's SHORT script lines: two of three generic words
+  # ("line", "one"/"two") is enough to spuriously clear the default 0.6
+  # threshold against a repeated chorus line that isn't being sung at all —
+  # caught by pipeline_structure_test.exs's repeated-chorus fixture jumping
+  # straight from line 0 to line 2 on the FIRST confirmed line. match/4 is
+  # unmodified and already correct for this; only the reconciliation of
+  # whatever it reports needed fixing (see reconcile_after_jump/3).
   defp follower_match(state, text) do
     Sinestesia.PerformanceFollower.match(text, state.script, state.script_cursor,
       window: lyric_window(),

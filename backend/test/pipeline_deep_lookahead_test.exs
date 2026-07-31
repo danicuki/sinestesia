@@ -248,6 +248,60 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     refute Map.has_key?(state.prerendered, 1)
   end
 
+  test "an utterance that jumps past the held speculation reveals a CACHED further line instead of discarding it",
+       %{pid: pid} do
+    # Seeded directly via :sys.replace_state (not the land_spec_* helpers):
+    # this test only cares about the CONFIRMATION-time reconciliation logic,
+    # not how the speculation/cache got built — driving it through real
+    # director/image spawns would race a real background Task for no benefit
+    # here (see the moduledoc note on this in pipeline_bootstrap_test.exs).
+    System.put_env("LOOKAHEAD_DEPTH", "3")
+    seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
+
+    frame = fn index, url ->
+      %{
+        index: index,
+        line: Enum.at(@script, index),
+        status: :ready,
+        confirmed: false,
+        pid: nil,
+        new_conv: nil,
+        step: nil,
+        state_delta: nil,
+        frame_msg: %{type: "image", url: url},
+        frame_url: url,
+        frame_route: nil,
+        receipt: nil
+      }
+    end
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | script_cursor: 0,
+          last_image_url: "https://example.test/1.jpg",
+          speculation: frame.(1, "https://example.test/2.jpg"),
+          prerendered: %{2 => frame.(2, "https://example.test/3.jpg")}
+      }
+    end)
+
+    # Caught live (2026-07-31): STT's own VAD segmentation bundled TWO short
+    # lines into one utterance, so the confirmed text matches "line three"
+    # (index 2) directly — skipping right past the still-held, already-
+    # rendered "line two" (index 1). Before this fix, ANY non-exact match
+    # discarded the held speculation outright and fell back to a slower
+    # reactive render — throwing away a perfectly good, already-rendered
+    # frame for content that was, in fact, already covered by the jump.
+    sing(pid, "line three")
+
+    state = :sys.get_state(pid)
+    assert state.script_cursor == 2
+    # The CACHED line 2 frame was revealed — not discarded, not re-rendered.
+    assert state.last_image_url == "https://example.test/3.jpg"
+    refute Map.has_key?(state.prerendered, 2)
+  end
+
   test "off-script singing discards the speculation AND the whole prerender chain",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")

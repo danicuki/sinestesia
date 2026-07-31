@@ -817,6 +817,8 @@ defmodule Sinestesia.Pipeline do
       "[image:#{out.label}] +#{out.image_ms}ms (morph #{out.morph_ms}ms, queue #{out.queue_ms}ms) (total #{out.total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{out.dir_queue_ms} + image #{out.image_ms} + morph #{out.morph_ms} + imgq #{out.queue_ms})"
     )
 
+    log_reveal("[image] revealed (reactive)", Map.get(timings, :lyric), prompt)
+
     push(state.socket, out.msg)
 
     # On-chain settlement finishes after the answer is already on screen, so the
@@ -3107,7 +3109,12 @@ defmodule Sinestesia.Pipeline do
   defp reveal_bootstrap_speculation(%{bootstrap_speculation: bs} = state) do
     push(state.socket, bs.frame_msg)
     resolve_verification(bs.receipt, state.socket)
-    Logger.info("[bootstrap-spec] revealed the opening frame, pre-rendered from pasted lyrics")
+
+    log_reveal(
+      "[bootstrap-spec] revealed the opening frame, pre-rendered from pasted lyrics",
+      (bs.step && bs.step.lyric) || bs.text,
+      bs.step && bs.step.prompt
+    )
 
     delta = bs.state_delta || %{}
 
@@ -3414,7 +3421,12 @@ defmodule Sinestesia.Pipeline do
   defp reveal_speculation(%{speculation: spec} = state) do
     push(state.socket, spec.frame_msg)
     resolve_verification(spec.receipt, state.socket)
-    Logger.info("[spec] revealed line #{spec.index} on confirmation")
+
+    log_reveal(
+      "[spec] revealed line #{spec.index} on confirmation",
+      (spec.step && spec.step.lyric) || spec.line,
+      spec.step && spec.step.prompt
+    )
 
     delta = spec.state_delta || %{}
 
@@ -3552,4 +3564,16 @@ defmodule Sinestesia.Pipeline do
 
   defp push(socket, msg), do: send(socket, {:push_json, msg})
   defp now_ms, do: System.system_time(:millisecond)
+
+  # Requested by the founder while diagnosing "the image doesn't match what
+  # I'm singing" live: every path that actually shows a frame (reactive,
+  # ordinary look-ahead, eager bootstrap) logs the SUNG lyric alongside the
+  # DRAWN prompt at the exact moment of reveal, so a sound-desk log can be
+  # read side by side with "what was just sung" and show precisely which
+  # frame answered which line — instead of having to infer it from index
+  # numbers scattered across several earlier log lines (director spawn,
+  # image ready, confirmation).
+  defp log_reveal(tag, lyric, prompt) do
+    Logger.info("#{tag} — sung: #{inspect(lyric)} | drawn: #{inspect(prompt)}")
+  end
 end

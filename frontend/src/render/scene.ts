@@ -16,10 +16,21 @@ import type { ExpressiveFeatures } from "../socket";
 // the screen is then perpetually mid-transition, never frozen. Progression is
 // linear (not eased) so the new strokes draw in evenly across the whole window
 // instead of popping in the middle. These bound the adaptive value.
-const TRANSITION_DEFAULT_MS = 3000; // first image, before any cadence is known
-const TRANSITION_MIN_MS = 2000;
+const TRANSITION_DEFAULT_MS = 1500; // first image, before any cadence is known
+const TRANSITION_MIN_MS = 1000;
 const TRANSITION_MAX_MS = 7000;
 const TRANSITION_OVERSHOOT = 1.2; // run ~20% past the measured cadence
+// ?fade=<ms> pins the morph duration instead of adapting it to the backend
+// cadence — tunable at the URL bar mid-soundcheck, no rebuild. The trade-off is
+// the freeze the adaptive default exists to avoid: a 1500ms morph that finishes
+// 3s before the next image leaves the canvas holding still for those 3s.
+const FIXED_FADE_MS = (() => {
+  const raw = new URLSearchParams(location.search).get("fade");
+  const ms = Number(raw);
+  return raw !== null && Number.isFinite(ms) && ms >= 100 && ms <= 20000
+    ? ms
+    : null;
+})();
 // New song (reset): a quick, clean cut to the placeholder — we don't morph
 // between unrelated songs. (The dev sample player drives its own timeline.)
 const RESET_MS = 700;
@@ -156,6 +167,7 @@ export class Scene {
   // still running when the next image lands. Falls back to the default until we
   // have seen at least one gap.
   private adaptiveDur(): number {
+    if (FIXED_FADE_MS !== null) return FIXED_FADE_MS;
     if (this.gapEma <= 0) return TRANSITION_DEFAULT_MS;
     return THREE.MathUtils.clamp(
       this.gapEma * TRANSITION_OVERSHOOT,

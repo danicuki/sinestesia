@@ -201,6 +201,18 @@ defmodule Sinestesia.Pipeline do
        script_active?: false,
        script_cursor: -1,
        speculation: nil,
+       # Deep look-ahead (LOOKAHEAD_DEPTH > 1): a SEPARATE background chain from
+       # `speculation` above. Rendering is inherently sequential (i2i needs the
+       # previous frame), so this is one chain, not fan-out: `prerender` is the
+       # one background render currently in flight (same shape as `speculation`
+       # but its result lands in `prerendered`, never revealed directly);
+       # `prerendered` is a cache, keyed by script line index, of frames rendered
+       # further ahead than the active `speculation` slot. `speculate_next/1`
+       # checks this cache before spawning a fresh render — see
+       # maybe_deepen_lookahead/1. At LOOKAHEAD_DEPTH=1 (default) this whole
+       # mechanism never activates; the pipeline behaves exactly as Phase 1/2.
+       prerender: nil,
+       prerendered: %{},
        # Musical structure (MUSICAL_STRUCTURE): verse/chorus/bridge/outro derived
        # from the pasted lyrics (blank lines = stanza breaks). `current_section`
        # is the section id covering `script_cursor`, updated alongside it — see
@@ -374,6 +386,8 @@ defmodule Sinestesia.Pipeline do
         # but drop the position and any in-flight look-ahead — new performance.
         script_cursor: -1,
         speculation: nil,
+        prerender: nil,
+        prerendered: %{},
         current_section: nil
     }
   end
@@ -740,11 +754,15 @@ defmodule Sinestesia.Pipeline do
         state = %{state | speculation: spec2, pending_pids: drop_dead(state.pending_pids)}
 
         if spec.confirmed do
-          # The singer already reached this line while it was rendering — reveal now.
+          # The singer already reached this line while it was rendering — reveal
+          # now. reveal_speculation -> maybe_speculate -> speculate_next already
+          # tries to deepen the chain further, so no separate call needed here.
           {:noreply, reveal_speculation(state)}
         else
           Logger.debug("[spec] line #{index} ready, holding for confirmation")
-          {:noreply, state}
+          # The active speculation just became a valid frontier (it has a
+          # frame_url now) — see if LOOKAHEAD_DEPTH allows racing one line deeper.
+          {:noreply, maybe_deepen_lookahead(state)}
         end
 
       _ ->
@@ -761,6 +779,172 @@ defmodule Sinestesia.Pipeline do
       %{index: ^index} -> {:noreply, discard_speculation(state)}
       _ -> {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
     end
+  end
+
+  # ── Deep look-ahead (LOOKAHEAD_DEPTH > 1): background prerender chain ──────
+  # Separate from the speculation slot above. Results never reveal directly —
+  # they land in `state.prerendered`, and `speculate_next/1` promotes them into
+  # the (already-tested) speculation slot when the singer's confirmed position
+  # reaches them. See maybe_deepen_lookahead/1 for how the chain advances.
+
+  def handle_info(
+        {:prerender_director_done, _r, _s, _c, _m, sid, _i, _seed, _delta},
+        %{session_id: cur} = state
+      )
+      when sid != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info(
+        {:prerender_director_done, {:ok, raw, new_conversation}, _started_at, _call_ms, model,
+         _sid, index, seed_url, seed_delta},
+        state
+      ) do
+    case state.prerender do
+      %{index: ^index, status: :director} = pr ->
+        # Compose against a VIEW of state with the frontier's accumulated
+        # placement/style bookkeeping overlaid — the confirmed state.recent_placements
+        # etc. are behind the frontier by however deep this chain already runs.
+        view = Map.merge(state, seed_delta || %{})
+        {prompt, extra, view2} = compose_image_request(raw, view)
+        receipt = Sinestesia.Verifiability.last()
+
+        timings = %{
+          stt_ms: nil,
+          stt_provider: nil,
+          director_ms: 0,
+          director_queue_ms: 0,
+          lyric: pr.line,
+          verification: receipt
+        }
+
+        step = %{
+          ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+          lyric: pr.line,
+          prompt: raw,
+          model: model,
+          verification: receipt
+        }
+
+        pid =
+          spawn_prerender_image(
+            prompt,
+            timings,
+            seed_url,
+            state.session_id,
+            state.camera,
+            extra,
+            index
+          )
+
+        pr2 = %{
+          pr
+          | status: :image,
+            pid: pid,
+            new_conv: new_conversation,
+            step: step,
+            receipt: receipt,
+            state_delta: %{
+              recent_placements: view2.recent_placements,
+              frames_since_style: view2.frames_since_style
+            }
+        }
+
+        {:noreply,
+         %{state | prerender: pr2, pending_pids: MapSet.put(drop_dead(state.pending_pids), pid)}}
+
+      _ ->
+        # Chain was discarded (off-script) while this was in flight.
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info(
+        {:prerender_director_done, {:error, reason}, _started_at, _call_ms, _model, _sid, index,
+         _seed_url, _seed_delta},
+        state
+      ) do
+    case state.prerender do
+      %{index: ^index} ->
+        Logger.debug("[prerender] director error (#{inspect(reason)}); pausing deep look-ahead")
+        # Only the CHAIN stops here — anything already cached in `prerendered`
+        # stays valid and will still be promoted when the singer reaches it.
+        {:noreply, recover_from_prerender_failure(state, index)}
+
+      _ ->
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info({:prerender_image_done, _r, _t, sid, _i}, %{session_id: cur} = state)
+      when sid != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info(
+        {:prerender_image_done, {:ok, url, frames, prompt}, timings, _sid, index},
+        state
+      ) do
+    case state.prerender do
+      %{index: ^index, status: :image} = pr ->
+        out = image_out(url, frames, prompt, timings)
+        ready = %{pr | status: :ready, frame_msg: out.msg, frame_url: url, frame_route: out.route}
+        state = %{state | prerender: nil, pending_pids: drop_dead(state.pending_pids)}
+
+        case state.speculation do
+          # speculate_next/1 was already WAITING on exactly this line (it found
+          # the chain mid-render and installed a placeholder instead of racing
+          # a duplicate) — promote straight into the active slot, carrying over
+          # whatever `confirmed` the placeholder had already picked up.
+          %{index: ^index, status: :pending_prerender, confirmed: confirmed?} ->
+            promoted = Map.put(ready, :confirmed, confirmed?)
+            state = %{state | speculation: promoted}
+
+            if confirmed? do
+              Logger.info("[prerender] line #{index} ready — already confirmed, revealing")
+              {:noreply, reveal_speculation(state)}
+            else
+              Logger.debug("[prerender] line #{index} ready, promoted to the active slot")
+              {:noreply, maybe_deepen_lookahead(state)}
+            end
+
+          _ ->
+            state = %{state | prerendered: Map.put(state.prerendered, index, ready)}
+            Logger.debug("[prerender] line #{index} ready, cached for later reveal")
+            {:noreply, maybe_deepen_lookahead(state)}
+        end
+
+      _ ->
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info({:prerender_image_done, {:error, reason}, timings, _sid, index}, state) do
+    Logger.warning(
+      "[prerender] image FAILED #{route_of(timings)} (#{inspect(reason)}); pausing deep look-ahead"
+    )
+
+    case state.prerender do
+      %{index: ^index} -> {:noreply, recover_from_prerender_failure(state, index)}
+      _ -> {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  # Stop the chain and, if speculate_next/1 was waiting on exactly the line
+  # that just failed (a `:pending_prerender` placeholder), un-stick it so the
+  # NEXT trigger retries the ordinary way instead of waiting forever for a
+  # promotion that will never come. Frames already in `prerendered` are
+  # untouched — a failure further down the chain doesn't invalidate them.
+  defp recover_from_prerender_failure(state, index) do
+    state = %{state | prerender: nil, pending_pids: drop_dead(state.pending_pids)}
+
+    state =
+      case state.speculation do
+        %{index: ^index, status: :pending_prerender} -> %{state | speculation: nil}
+        _ -> state
+      end
+
+    maybe_speculate(state)
   end
 
   defp route_of(timings) do
@@ -2005,6 +2189,13 @@ defmodule Sinestesia.Pipeline do
 
   defp structure_enabled?, do: System.get_env("MUSICAL_STRUCTURE") in ["1", "true", "on", "yes"]
 
+  defp lookahead_depth do
+    case Integer.parse(System.get_env("LOOKAHEAD_DEPTH", "1")) do
+      {n, _} when n >= 1 -> n
+      _ -> 1
+    end
+  end
+
   defp lyric_window do
     case Integer.parse(System.get_env("LYRIC_WINDOW", "3")) do
       {n, _} when n >= 1 -> n
@@ -2153,16 +2344,167 @@ defmodule Sinestesia.Pipeline do
   defp speculate_next(state) do
     next = state.script_cursor + 1
 
-    case Enum.at(state.script, next) do
-      line when is_binary(line) and line != "" ->
-        pid = spawn_spec_director(state, line, next)
-        Logger.debug("[spec] look-ahead render for line #{next}: #{inspect(line)}")
+    cond do
+      # LOOKAHEAD_DEPTH > 1 already FINISHED rendering this line in the
+      # background — promote it straight to the active slot, no render needed.
+      Map.has_key?(state.prerendered, next) ->
+        {cached, rest} = Map.pop(state.prerendered, next)
+        Logger.debug("[spec] promoting pre-rendered line #{next} from the deep-lookahead cache")
+        maybe_deepen_lookahead(%{state | speculation: cached, prerendered: rest})
 
-        spec = %{
-          index: next,
+      # The deep-lookahead chain is ALREADY rendering exactly this line, just
+      # not finished yet. Don't spawn a competing duplicate render — install a
+      # placeholder so match_and_advance/2 knows "in flight elsewhere, wait for
+      # it" (identical to how it already waits on an ordinary in-flight
+      # speculation). See prerender_image_done's success clause for the promotion.
+      match?(%{index: ^next}, state.prerender) ->
+        Logger.debug(
+          "[spec] line #{next} already rendering via the deep-lookahead chain; waiting"
+        )
+
+        placeholder = pending_prerender_placeholder(next, state.prerender.line)
+        %{state | speculation: placeholder}
+
+      true ->
+        case Enum.at(state.script, next) do
+          line when is_binary(line) and line != "" ->
+            pid = spawn_spec_director(state, line, next)
+            Logger.debug("[spec] look-ahead render for line #{next}: #{inspect(line)}")
+
+            spec = %{
+              index: next,
+              line: line,
+              status: :director,
+              confirmed: false,
+              pid: pid,
+              new_conv: nil,
+              step: nil,
+              state_delta: nil,
+              frame_msg: nil,
+              frame_url: nil,
+              frame_route: nil,
+              receipt: nil
+            }
+
+            state = %{
+              state
+              | speculation: spec,
+                pending_pids: MapSet.put(state.pending_pids, pid)
+            }
+
+            maybe_deepen_lookahead(state)
+
+          _ ->
+            # End of the pasted lyrics — nothing left to look ahead to.
+            state
+        end
+    end
+  end
+
+  # A "wait for it" marker in the speculation slot: no pid of its own (the deep
+  # look-ahead chain owns the real render), so match_and_advance/2's ordinary
+  # `%{index: ^idx} = spec -> mark confirmed` clause needs no special case, and
+  # discard_speculation/1's `is_pid(pid)` guard is a safe no-op if this ever
+  # needs discarding directly (in practice prerender_director/image_done's
+  # error clauses handle that — see the comment there).
+  defp pending_prerender_placeholder(index, line) do
+    %{
+      index: index,
+      line: line,
+      status: :pending_prerender,
+      confirmed: false,
+      pid: nil,
+      new_conv: nil,
+      step: nil,
+      state_delta: nil,
+      frame_msg: nil,
+      frame_url: nil,
+      frame_route: nil,
+      receipt: nil
+    }
+  end
+
+  # Try to push the background prerender chain one line deeper, if
+  # LOOKAHEAD_DEPTH allows it and there's a known frontier to seed from. A
+  # no-op at the default depth of 1 — this function is never reached with
+  # anything left to do, since `lookahead_extent/1` (1, for the active
+  # speculation slot alone) already meets a depth of 1.
+  defp maybe_deepen_lookahead(state) do
+    cond do
+      lookahead_depth() <= 1 ->
+        state
+
+      not lookahead_enabled?() ->
+        state
+
+      not state.script_active? ->
+        state
+
+      not is_nil(state.prerender) ->
+        state
+
+      lookahead_extent(state) >= lookahead_depth() ->
+        state
+
+      true ->
+        case lookahead_frontier(state) do
+          # Nothing ready yet to seed the next render from — the active
+          # speculation (or the last prerender) hasn't produced an image yet.
+          # Whichever finishes will call this again.
+          nil ->
+            state
+
+          {frontier_index, frontier_url, frontier_conv, frontier_delta} ->
+            start_prerender(
+              state,
+              frontier_index + 1,
+              frontier_url,
+              frontier_conv,
+              frontier_delta
+            )
+        end
+    end
+  end
+
+  # How many lines beyond the confirmed cursor are already spoken for: the
+  # active speculation slot (any status), a prerender in flight, and whatever
+  # is already cached. LOOKAHEAD_DEPTH is a ceiling on this total, not a target
+  # to force — the chain only advances opportunistically as renders finish.
+  defp lookahead_extent(state) do
+    if(state.speculation, do: 1, else: 0) +
+      if(state.prerender, do: 1, else: 0) +
+      map_size(state.prerendered)
+  end
+
+  # The furthest point the pipeline has a FINISHED image for — the seed the
+  # next prerender must chain from (i2i needs the actual previous frame, and
+  # the conversation/placement bookkeeping that produced it). Prefers the
+  # deepest cached prerender; falls back to the active speculation only once
+  # IT has an image (status :ready) — before that there's nothing to seed from.
+  defp lookahead_frontier(state) do
+    case state.prerendered |> Map.keys() |> Enum.max(fn -> nil end) do
+      idx when is_integer(idx) ->
+        f = state.prerendered[idx]
+        {f.index, f.frame_url, f.new_conv, f.state_delta}
+
+      nil ->
+        case state.speculation do
+          %{status: :ready} = s -> {s.index, s.frame_url, s.new_conv, s.state_delta}
+          _ -> nil
+        end
+    end
+  end
+
+  defp start_prerender(state, index, seed_url, seed_conv, seed_delta) do
+    case Enum.at(state.script, index) do
+      line when is_binary(line) and line != "" ->
+        pid = spawn_prerender_director(state, line, index, seed_conv, seed_url, seed_delta)
+        Logger.debug("[prerender] deep look-ahead render for line #{index}: #{inspect(line)}")
+
+        pr = %{
+          index: index,
           line: line,
           status: :director,
-          confirmed: false,
           pid: pid,
           new_conv: nil,
           step: nil,
@@ -2173,12 +2515,48 @@ defmodule Sinestesia.Pipeline do
           receipt: nil
         }
 
-        %{state | speculation: spec, pending_pids: MapSet.put(state.pending_pids, pid)}
+        %{state | prerender: pr, pending_pids: MapSet.put(state.pending_pids, pid)}
 
       _ ->
-        # End of the pasted lyrics — nothing left to look ahead to.
+        # End of the pasted lyrics — nothing deeper to prerender.
         state
     end
+  end
+
+  # Mirrors spawn_spec_director/3, but takes the seed conversation/URL/delta
+  # EXPLICITLY rather than reading them off `state` — `state.director_conversation`
+  # and `state.last_image_url` only reflect the CONFIRMED position, which is
+  # behind wherever this chain's frontier has already reached.
+  defp spawn_prerender_director(state, line, index, conversation, seed_url, seed_delta) do
+    parent = self()
+    started_at = now_ms()
+    sid = state.session_id
+    full = line <> melody_hint(state) <> lookahead_section_hint(state.structure, index)
+
+    Logger.debug(
+      "[prerender] director spawning for line #{index} (current line: #{inspect(full)})"
+    )
+
+    {:ok, pid} =
+      Task.start(fn ->
+        call_started = now_ms()
+        result = Sinestesia.Director.next_prompt(conversation, full)
+        call_ms = now_ms() - call_started
+
+        send(
+          parent,
+          {:prerender_director_done, result, started_at, call_ms,
+           Sinestesia.Director.last_model(), sid, index, seed_url, seed_delta}
+        )
+      end)
+
+    pid
+  end
+
+  defp spawn_prerender_image(prompt, timings, prev_url, sid, camera, extra, index) do
+    do_spawn_image(prompt, timings, prev_url, camera, extra, fn result, t ->
+      {:prerender_image_done, result, t, sid, index}
+    end)
   end
 
   defp spawn_spec_director(state, line, index) do
@@ -2247,9 +2625,29 @@ defmodule Sinestesia.Pipeline do
       | speculation: nil,
         pending_pids: state.pending_pids |> Enum.reject(&(&1 == pid)) |> MapSet.new()
     }
+    |> discard_prerender()
   end
 
-  defp discard_speculation(state), do: %{state | speculation: nil}
+  defp discard_speculation(state), do: discard_prerender(%{state | speculation: nil})
+
+  # The moment the active speculation is discarded (off-script singing, an
+  # error), any deeper pre-rendered future is invalid too — it all chains off
+  # the same img2img seed the discarded speculation was going to produce, and
+  # off-script singing means that seed will never happen. Same honesty
+  # principle as the single-slot discard: don't reveal, don't keep, a
+  # mis-predicted future.
+  defp discard_prerender(%{prerender: %{pid: pid}} = state) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+
+    %{
+      state
+      | prerender: nil,
+        prerendered: %{},
+        pending_pids: state.pending_pids |> Enum.reject(&(&1 == pid)) |> MapSet.new()
+    }
+  end
+
+  defp discard_prerender(state), do: %{state | prerender: nil, prerendered: %{}}
 
   # Build the outbound `image` message and the derived latency numbers from a
   # finished render. Shared by the reactive :image_done handler and the

@@ -392,6 +392,14 @@ defmodule Sinestesia.Config do
       doc:
         "Detect verse/chorus/bridge/outro from the pasted lyrics' blank-line stanzas, track which section the confirmed singing is in, and append a short structural hint to the Director's line (e.g. \"chorus returns\") so a returning chorus can echo its established imagery via the Director's own conversation memory. Independent of SPECULATIVE_LOOKAHEAD — works whenever lyrics are loaded."
     },
+    %{
+      key: "LOOKAHEAD_DEPTH",
+      group: :lookahead,
+      default: "1",
+      values: "positive integer",
+      doc:
+        "How many lyric lines SPECULATIVE_LOOKAHEAD is allowed to pre-render ahead of the singer (chained sequentially — i2i needs the previous frame, so this can never parallelize). 1 (default) is Phase 1's original one-line lookahead, exactly. Above 1, the pipeline races further ahead in a background cache whenever there's a head start (e.g. lyrics loaded during an instrumental intro); every frame is still revealed only on STT confirmation. Deeper values mean more frames are generated well before they're sung — read this alongside how the mint certificate / any marketing describes \"how live\" the show is."
+    },
 
     # ── Mint ────────────────────────────────────────────────────────────────
     %{

@@ -114,6 +114,10 @@ defmodule Sinestesia.Pipeline do
   # Ordering matters (mint must see the finished song), so it's one cast.
   def end_song(pid, opts \\ %{}), do: GenServer.cast(pid, {:end_song, opts})
 
+  # Load (or clear) the song's lyrics for predictive look-ahead. `lines` may be a
+  # list of lines or one blob with newlines; an empty payload clears the script.
+  def set_lyrics(pid, lines), do: GenServer.cast(pid, {:set_lyrics, lines})
+
   ## Callbacks
 
   @impl true
@@ -187,7 +191,16 @@ defmodule Sinestesia.Pipeline do
        session_id: 0,
        # PIDs of every in-flight Task (director / image / curator). Killed
        # on reset so we stop paying fal.ai / running Gemma for old-song work.
-       pending_pids: MapSet.new()
+       pending_pids: MapSet.new(),
+       # Predictive look-ahead (SPECULATIVE_LOOKAHEAD): the song's lyrics pasted
+       # by the operator, so we can render the NEXT line ahead of the singer.
+       # `script_cursor` is the index of the last CONFIRMED (actually sung) line,
+       # -1 before the song starts. `speculation` holds the one look-ahead frame
+       # being rendered/held for `script_cursor + 1`; see maybe_speculate/1.
+       script: [],
+       script_active?: false,
+       script_cursor: -1,
+       speculation: nil
      }}
   end
 
@@ -221,6 +234,21 @@ defmodule Sinestesia.Pipeline do
     camera = sanitize_camera(raw)
     Logger.info("[camera] #{inspect(camera)}")
     {:noreply, %{state | camera: camera}}
+  end
+
+  # Operator pasted (or cleared) the song's lyrics. Reloading mid-song drops the
+  # position and any look-ahead in flight and re-acquires from wherever the
+  # singing currently is.
+  def handle_cast({:set_lyrics, raw}, state) do
+    script = Sinestesia.PerformanceFollower.normalize(raw)
+    active? = script != []
+
+    Logger.info(
+      if(active?, do: "[lyrics] loaded #{length(script)} line(s)", else: "[lyrics] cleared")
+    )
+
+    state = discard_speculation(state)
+    {:noreply, %{state | script: script, script_active?: active?, script_cursor: -1}}
   end
 
   # Reset all song-scoped state but KEEP open STT connections + socket.
@@ -313,7 +341,12 @@ defmodule Sinestesia.Pipeline do
         melody: %{},
         camera: neutral_camera(),
         session_id: new_session,
-        pending_pids: MapSet.new()
+        pending_pids: MapSet.new(),
+        # Keep the pasted lyrics across a reset (rehearsing the same song is
+        # common, and a stale script simply degrades to reactive), but drop the
+        # position and any in-flight look-ahead — this is a new performance.
+        script_cursor: -1,
+        speculation: nil
     }
   end
 
@@ -373,12 +406,30 @@ defmodule Sinestesia.Pipeline do
     })
 
     state = update_text_state(state, provider, text, is_final, latency)
-    {:noreply, maybe_trigger(state)}
+
+    # Predictive look-ahead: a confirmed line tells us where the singer actually
+    # is. Advance the script cursor and, if we already rendered this line ahead
+    # of time, reveal it now. `:handled` means the look-ahead path fully serviced
+    # this line; otherwise fall through to the reactive Director.
+    case advance_script(state, text, is_final) do
+      {state, :handled} -> {:noreply, state}
+      {state, :fallthrough} -> {:noreply, maybe_trigger(state)}
+    end
   end
 
   # Replay sessions can carry the style they were recorded with.
   def handle_info({:replay_style, style}, state) do
     apply_style(state, style, _from_curator? = false)
+  end
+
+  # Replay sessions can carry the song's lyrics, so predictive look-ahead can be
+  # exercised headlessly. Same effect as the operator sending a `lyrics` message.
+  def handle_info({:replay_lyrics, lines}, state) do
+    script = Sinestesia.PerformanceFollower.normalize(lines)
+    active? = script != []
+    Logger.info("[lyrics] replay loaded #{length(script)} line(s)")
+    state = discard_speculation(state)
+    {:noreply, %{state | script: script, script_active?: active?, script_cursor: -1}}
   end
 
   # Forwarded so the headless replay task (and optionally the front) knows the
@@ -512,81 +563,33 @@ defmodule Sinestesia.Pipeline do
   end
 
   def handle_info({:image_done, {:ok, url, frames, prompt}, timings, _sid}, state) do
-    # Provider round-trip (measured in the task) vs. mailbox wait, kept apart so
-    # a backed-up pipeline doesn't read as a slow image provider.
-    call_ms = Map.get(timings, :image_call_ms) || now_ms() - timings.image_started_at
-    queue_ms = max(now_ms() - timings.image_started_at - call_ms, 0)
-    dir_queue_ms = Map.get(timings, :director_queue_ms, 0)
-    # The local morph (t2i + LOCAL_MORPH) runs after the cloud call inside the
-    # same task, so subtract it out — otherwise its seconds are attributed to the
-    # image provider and make a fast provider look slow.
-    morph_ms = Map.get(timings, :morph_ms, 0)
-    image_ms = max(call_ms - morph_ms, 0)
-    route = Map.get(timings, :image_route)
-
-    # "cloudflare" alone can't distinguish a 6-step Lightning frame from a
-    # 20-step SD-1.5 i2i frame — show the route so the numbers are readable.
-    # Same label the failure path prints, so a slow frame and a failed frame
-    # describe themselves the same way.
-    label = route_of(timings)
-
-    # Wall-clock the audience actually waits: every hop plus the queueing.
-    total =
-      (timings.stt_ms || 0) + timings.director_ms + dir_queue_ms + image_ms + morph_ms +
-        queue_ms
+    out = image_out(url, frames, prompt, timings)
 
     Logger.info(
-      "[image:#{label}] +#{image_ms}ms (morph #{morph_ms}ms, queue #{queue_ms}ms) (total #{total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{dir_queue_ms} + image #{image_ms} + morph #{morph_ms} + imgq #{queue_ms})"
+      "[image:#{out.label}] +#{out.image_ms}ms (morph #{out.morph_ms}ms, queue #{out.queue_ms}ms) (total #{out.total}ms = stt #{timings.stt_ms || 0} + director #{timings.director_ms} + dirq #{out.dir_queue_ms} + image #{out.image_ms} + morph #{out.morph_ms} + imgq #{out.queue_ms})"
     )
 
-    msg = %{
-      type: "image",
-      url: url,
-      prompt: prompt,
-      lyric: Map.get(timings, :lyric),
-      ts: now_ms(),
-      timings: %{
-        stt_ms: timings.stt_ms,
-        stt_provider: timings.stt_provider,
-        director_ms: timings.director_ms,
-        image_ms: image_ms,
-        # Local SDXL morph run after the cloud image (t2i + LOCAL_MORPH), broken
-        # out so it isn't mistaken for image-provider latency.
-        morph_ms: morph_ms,
-        # Time spent waiting in the pipeline's mailbox rather than on a provider.
-        # Non-zero here means we're the bottleneck, not the model.
-        queue_ms: dir_queue_ms + queue_ms,
-        total_ms: total,
-        image_provider: label,
-        image_model: route && route.model
-      }
-    }
-
-    # Only attached when the provider produced a morph sequence (local SDXL);
-    # absent otherwise so non-sidecar providers keep the old message shape.
-    msg = if frames == [], do: msg, else: Map.put(msg, :frames, frames)
-
-    # 0G verifiable-inference receipt, present only when the Director ran on 0G.
-    receipt = Map.get(timings, :verification)
-    msg = if receipt, do: Map.put(msg, :verification, receipt), else: msg
-
-    push(state.socket, msg)
+    push(state.socket, out.msg)
 
     # On-chain settlement finishes after the answer is already on screen, so the
     # receipt above goes out as "pending". Chase the settled result and push it,
     # otherwise the badge sits on "verification pending" for the whole show.
-    resolve_verification(receipt, state.socket)
+    resolve_verification(out.receipt, state.socket)
 
-    {:noreply,
-     %{
-       state
-       | generating?: false,
-         last_image_url: url,
-         last_image_route: route || state.last_image_route,
-         frame_urls: state.frame_urls ++ [url],
-         style_stamped?: true,
-         pending_pids: drop_dead(state.pending_pids)
-     }}
+    new_state =
+      %{
+        state
+        | generating?: false,
+          last_image_url: url,
+          last_image_route: out.route || state.last_image_route,
+          frame_urls: state.frame_urls ++ [url],
+          style_stamped?: true,
+          pending_pids: drop_dead(state.pending_pids)
+      }
+
+    # Canvas just advanced — if lyrics are loaded, start rendering the next line
+    # ahead of the singer.
+    {:noreply, maybe_speculate(new_state)}
   end
 
   def handle_info({:image_done, {:error, reason}, timings, _sid}, state) do
@@ -604,6 +607,121 @@ defmodule Sinestesia.Pipeline do
     """)
 
     {:noreply, %{state | generating?: false, pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  # ── Predictive look-ahead: speculative Director / image ────────────────────
+  # A speculative cycle renders the NEXT (predicted) line while the singer is
+  # still on the current one, then HOLDS the frame. It is revealed by
+  # reveal_speculation/1 only once STT confirms the line was actually sung, so
+  # the audience never sees the future and the frame stays honestly "live".
+
+  def handle_info({:spec_director_done, _r, _s, _c, _m, sid, _i}, %{session_id: cur} = state)
+      when sid != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:spec_director_done, result, started_at, call_ms, model, _sid, index}, state) do
+    case state.speculation do
+      %{index: ^index, status: :director} = spec ->
+        case result do
+          {:ok, raw, new_conversation} ->
+            # Build the image request against a COPY of the state: the placement
+            # / style-refresh bookkeeping it mutates is captured as a delta and
+            # only applied if this speculation is confirmed (see reveal). If it's
+            # discarded, none of it ever happened.
+            {prompt, extra, state2} = compose_image_request(raw, state)
+            queue_ms = max(now_ms() - started_at - call_ms, 0)
+            receipt = Sinestesia.Verifiability.last()
+
+            timings = %{
+              stt_ms: state.last_stt_ms,
+              stt_provider: state.last_stt_provider,
+              director_ms: call_ms,
+              director_queue_ms: queue_ms,
+              lyric: spec.line,
+              verification: receipt
+            }
+
+            step = %{
+              ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+              lyric: spec.line,
+              prompt: raw,
+              model: model,
+              verification: receipt
+            }
+
+            pid =
+              spawn_spec_image(
+                prompt,
+                timings,
+                state.last_image_url,
+                state.session_id,
+                state.camera,
+                extra,
+                index
+              )
+
+            spec2 = %{
+              spec
+              | status: :image,
+                pid: pid,
+                new_conv: new_conversation,
+                step: step,
+                receipt: receipt,
+                state_delta: %{
+                  recent_placements: state2.recent_placements,
+                  frames_since_style: state2.frames_since_style
+                }
+            }
+
+            {:noreply,
+             %{state | speculation: spec2, pending_pids: MapSet.put(drop_dead(state.pending_pids), pid)}}
+
+          {:error, reason} ->
+            # Drop the look-ahead; the confirming STT line already set
+            # since_last_director, so the reactive path renders it on the next tick.
+            Logger.debug("[spec] director error (#{inspect(reason)}); dropping look-ahead")
+            {:noreply, discard_speculation(state)}
+        end
+
+      _ ->
+        # Speculation was discarded or replaced while this was in flight.
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info({:spec_image_done, _r, _t, sid, _i}, %{session_id: cur} = state)
+      when sid != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:spec_image_done, {:ok, url, frames, prompt}, timings, _sid, index}, state) do
+    case state.speculation do
+      %{index: ^index, status: :image} = spec ->
+        out = image_out(url, frames, prompt, timings)
+        spec2 = %{spec | status: :ready, frame_msg: out.msg, frame_url: url, frame_route: out.route}
+        state = %{state | speculation: spec2, pending_pids: drop_dead(state.pending_pids)}
+
+        if spec.confirmed do
+          # The singer already reached this line while it was rendering — reveal now.
+          {:noreply, reveal_speculation(state)}
+        else
+          Logger.debug("[spec] line #{index} ready, holding for confirmation")
+          {:noreply, state}
+        end
+
+      _ ->
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info({:spec_image_done, {:error, reason}, timings, _sid, index}, state) do
+    Logger.warning("[spec] image FAILED #{route_of(timings)} (#{inspect(reason)}); dropping look-ahead")
+
+    case state.speculation do
+      %{index: ^index} -> {:noreply, discard_speculation(state)}
+      _ -> {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
   end
 
   defp route_of(timings) do
@@ -1131,6 +1249,10 @@ defmodule Sinestesia.Pipeline do
   @min_director_words 2
 
   defp maybe_trigger(%{generating?: true} = state), do: state
+  # A look-ahead frame is in flight or held for the next line. Reactive triggers
+  # are blocked so we never run two Director cycles at once; the speculation is
+  # revealed (on STT confirmation) or discarded (off-script) before this unblocks.
+  defp maybe_trigger(%{speculation: s} = state) when not is_nil(s), do: state
   defp maybe_trigger(%{since_last_director: false} = state), do: state
 
   defp maybe_trigger(state) do
@@ -1657,7 +1779,23 @@ defmodule Sinestesia.Pipeline do
 
   defp last_n_words(_, _), do: ""
 
-  defp spawn_image(prompt, timings, prev_url, sid, camera, extra \\ []) do
+  defp spawn_image(prompt, timings, prev_url, sid, camera, extra) do
+    do_spawn_image(prompt, timings, prev_url, camera, extra, fn result, t ->
+      {:image_done, result, t, sid}
+    end)
+  end
+
+  # Speculative sibling of spawn_image/6: same render, but the reply is tagged
+  # {:spec_image_done, …, index} so the parent holds it instead of pushing it.
+  defp spawn_spec_image(prompt, timings, prev_url, sid, camera, extra, index) do
+    do_spawn_image(prompt, timings, prev_url, camera, extra, fn result, t ->
+      {:spec_image_done, result, t, sid, index}
+    end)
+  end
+
+  # The shared image-render task. `make_msg.(result, timings)` builds the reply
+  # so the reactive and speculative paths differ only in how the frame comes back.
+  defp do_spawn_image(prompt, timings, prev_url, camera, extra, make_msg) do
     parent = self()
     timings = Map.put(timings, :image_started_at, now_ms())
 
@@ -1697,7 +1835,7 @@ defmodule Sinestesia.Pipeline do
           |> Map.put(:image_input, describe_input(opts[:image_url]))
           |> Map.put(:prompt_chars, String.length(prompt))
 
-        send(parent, {:image_done, result, timings, sid})
+        send(parent, make_msg.(result, timings))
       end)
 
     pid
@@ -1762,6 +1900,255 @@ defmodule Sinestesia.Pipeline do
       _ ->
         poll_verification(receipt, chat_id, socket, attempts - 1)
     end
+  end
+
+  # ── Predictive look-ahead helpers ──────────────────────────────────────────
+
+  defp lookahead_enabled?, do: System.get_env("SPECULATIVE_LOOKAHEAD") in ["1", "true", "on", "yes"]
+
+  defp lyric_window do
+    case Integer.parse(System.get_env("LYRIC_WINDOW", "3")) do
+      {n, _} when n >= 1 -> n
+      _ -> 3
+    end
+  end
+
+  defp lyric_threshold do
+    case Float.parse(System.get_env("LYRIC_MATCH_THRESHOLD", "0.6")) do
+      {t, _} when t > 0 and t <= 1 -> t
+      _ -> 0.6
+    end
+  end
+
+  # Advance the script cursor from a confirmed sung line, and decide whether the
+  # look-ahead path serviced this line (`:handled`) or the reactive Director
+  # still needs to run (`:fallthrough`). Only finals carry a confirmed line.
+  defp advance_script(state, _text, false), do: {state, :fallthrough}
+
+  defp advance_script(%{script_active?: true} = state, text, true) do
+    if lookahead_enabled?(), do: match_and_advance(state, text), else: {state, :fallthrough}
+  end
+
+  defp advance_script(state, _text, true), do: {state, :fallthrough}
+
+  defp match_and_advance(state, text) do
+    match =
+      Sinestesia.PerformanceFollower.match(text, state.script, state.script_cursor,
+        window: lyric_window(),
+        threshold: lyric_threshold()
+      )
+
+    case match do
+      {:match, idx} when idx > state.script_cursor ->
+        state = %{state | script_cursor: idx}
+
+        case state.speculation do
+          # We rendered this exact line ahead of time and it's ready — reveal now.
+          %{index: ^idx, status: :ready} ->
+            {reveal_speculation(state), :handled}
+
+          # Rendered but still in flight — confirm it; spec_image_done reveals it.
+          %{index: ^idx} = spec ->
+            {%{state | speculation: %{spec | confirmed: true}}, :handled}
+
+          # We predicted a different line (singer jumped): drop it and let the
+          # reactive Director draw the line she actually sang.
+          %{} ->
+            {discard_speculation(state), :fallthrough}
+
+          nil ->
+            {state, :fallthrough}
+        end
+
+      # Matched the current or an earlier line (a repeat, or STT re-segmenting the
+      # same line): already on screen, nothing new to draw.
+      {:match, _idx} ->
+        {%{state | since_last_director: false}, :handled}
+
+      # Off-script (improv, or a line the pasted lyrics don't contain): drop any
+      # look-ahead and fall back to reactive rendering from what she actually sang.
+      :no_match ->
+        {discard_speculation(state), :fallthrough}
+    end
+  end
+
+  # If lyrics are loaded and the canvas is ready, render the predicted next line
+  # ahead of the singer. At most one look-ahead cycle exists at a time (the
+  # speculation slot), which also keeps a single Director call in flight.
+  defp maybe_speculate(state) do
+    cond do
+      not lookahead_enabled?() -> state
+      not state.script_active? -> state
+      # The opening frame is always reactive; there's no canvas to seed from yet.
+      not state.bootstrap_done? -> state
+      not is_binary(state.last_image_url) -> state
+      state.generating? -> state
+      not is_nil(state.speculation) -> state
+      true -> speculate_next(state)
+    end
+  end
+
+  defp speculate_next(state) do
+    next = state.script_cursor + 1
+
+    case Enum.at(state.script, next) do
+      line when is_binary(line) and line != "" ->
+        pid = spawn_spec_director(state, line, next)
+        Logger.debug("[spec] look-ahead render for line #{next}: #{inspect(line)}")
+
+        spec = %{
+          index: next,
+          line: line,
+          status: :director,
+          confirmed: false,
+          pid: pid,
+          new_conv: nil,
+          step: nil,
+          state_delta: nil,
+          frame_msg: nil,
+          frame_url: nil,
+          frame_route: nil,
+          receipt: nil
+        }
+
+        %{state | speculation: spec, pending_pids: MapSet.put(state.pending_pids, pid)}
+
+      _ ->
+        # End of the pasted lyrics — nothing left to look ahead to.
+        state
+    end
+  end
+
+  defp spawn_spec_director(state, line, index) do
+    parent = self()
+    started_at = now_ms()
+    conversation = state.director_conversation
+    sid = state.session_id
+    full = line <> melody_hint(state)
+
+    {:ok, pid} =
+      Task.start(fn ->
+        call_started = now_ms()
+        result = Sinestesia.Director.next_prompt(conversation, full)
+        call_ms = now_ms() - call_started
+
+        send(
+          parent,
+          {:spec_director_done, result, started_at, call_ms, Sinestesia.Director.last_model(), sid,
+           index}
+        )
+      end)
+
+    pid
+  end
+
+  # Reveal a held look-ahead frame and ADOPT its consequences: the same state
+  # transitions the reactive :image_done path makes, plus the Director
+  # conversation and placement/style bookkeeping the speculation computed but
+  # deferred until now. Then look ahead to the next line.
+  defp reveal_speculation(%{speculation: spec} = state) do
+    push(state.socket, spec.frame_msg)
+    resolve_verification(spec.receipt, state.socket)
+    Logger.info("[spec] revealed line #{spec.index} on confirmation")
+
+    delta = spec.state_delta || %{}
+
+    state = %{
+      state
+      | speculation: nil,
+        generating?: false,
+        last_image_url: spec.frame_url,
+        last_image_route: spec.frame_route || state.last_image_route,
+        frame_urls: state.frame_urls ++ [spec.frame_url],
+        director_conversation: spec.new_conv || state.director_conversation,
+        performance_steps: [spec.step | state.performance_steps],
+        style_stamped?: true,
+        bootstrap_done?: true,
+        recent_placements: Map.get(delta, :recent_placements, state.recent_placements),
+        frames_since_style: Map.get(delta, :frames_since_style, state.frames_since_style),
+        since_last_director: false,
+        pending_pids: drop_dead(state.pending_pids)
+    }
+
+    maybe_speculate(state)
+  end
+
+  # Throw away the current look-ahead: kill its in-flight task and forget the
+  # (never-adopted) frame. The conversation and canvas are untouched, so a
+  # mis-prediction costs only a wasted render.
+  defp discard_speculation(%{speculation: %{pid: pid}} = state) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+
+    %{
+      state
+      | speculation: nil,
+        pending_pids: state.pending_pids |> Enum.reject(&(&1 == pid)) |> MapSet.new()
+    }
+  end
+
+  defp discard_speculation(state), do: %{state | speculation: nil}
+
+  # Build the outbound `image` message and the derived latency numbers from a
+  # finished render. Shared by the reactive :image_done handler and the
+  # speculative one so both frames describe themselves identically.
+  defp image_out(url, frames, prompt, timings) do
+    # Provider round-trip (measured in the task) vs. mailbox wait, kept apart so
+    # a backed-up pipeline doesn't read as a slow image provider.
+    call_ms = Map.get(timings, :image_call_ms) || now_ms() - timings.image_started_at
+    queue_ms = max(now_ms() - timings.image_started_at - call_ms, 0)
+    dir_queue_ms = Map.get(timings, :director_queue_ms, 0)
+    # The local morph (t2i + LOCAL_MORPH) runs after the cloud call inside the
+    # same task, so subtract it out — otherwise its seconds are attributed to the
+    # image provider and make a fast provider look slow.
+    morph_ms = Map.get(timings, :morph_ms, 0)
+    image_ms = max(call_ms - morph_ms, 0)
+    route = Map.get(timings, :image_route)
+    # "cloudflare" alone can't distinguish a 6-step Lightning frame from a
+    # 20-step SD-1.5 i2i frame — show the route so the numbers are readable.
+    label = route_of(timings)
+
+    # Wall-clock the audience actually waits: every hop plus the queueing.
+    total =
+      (timings.stt_ms || 0) + timings.director_ms + dir_queue_ms + image_ms + morph_ms + queue_ms
+
+    msg = %{
+      type: "image",
+      url: url,
+      prompt: prompt,
+      lyric: Map.get(timings, :lyric),
+      ts: now_ms(),
+      timings: %{
+        stt_ms: timings.stt_ms,
+        stt_provider: timings.stt_provider,
+        director_ms: timings.director_ms,
+        image_ms: image_ms,
+        morph_ms: morph_ms,
+        queue_ms: dir_queue_ms + queue_ms,
+        total_ms: total,
+        image_provider: label,
+        image_model: route && route.model
+      }
+    }
+
+    # Only attached when the provider produced a morph sequence (local SDXL);
+    # absent otherwise so non-sidecar providers keep the old message shape.
+    msg = if frames == [], do: msg, else: Map.put(msg, :frames, frames)
+
+    # 0G verifiable-inference receipt, present only when the Director ran on 0G.
+    receipt = Map.get(timings, :verification)
+    msg = if receipt, do: Map.put(msg, :verification, receipt), else: msg
+
+    %{
+      msg: msg,
+      route: route,
+      receipt: receipt,
+      image_ms: image_ms,
+      morph_ms: morph_ms,
+      queue_ms: queue_ms,
+      dir_queue_ms: dir_queue_ms,
+      total: total,
+      label: label
+    }
   end
 
   defp push(socket, msg), do: send(socket, {:push_json, msg})

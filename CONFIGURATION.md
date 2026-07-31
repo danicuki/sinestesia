@@ -175,6 +175,14 @@ rehearsal, where finding out now beats finding out on stage.
 | `STYLE_REFRESH_EVERY` | `4` | — | Re-stamp the style phrase into the prompt every N frames, so it doesn't drift away. |
 | `COMPOSE_ATMOS_STRENGTH` | `0.4` | `0.0-1.0` | Weight of the atmosphere/mood pass when composing a frame. |
 
+### Predictive look-ahead
+
+| Variable | Default | Accepts | Description |
+| --- | --- | --- | --- |
+| `SPECULATIVE_LOOKAHEAD` | _unset_ | `1 \| true \| on` | When the operator has pasted the song's lyrics (the `lyrics` WS message), render the predicted NEXT line ahead of time and hold it, revealing it only when STT confirms that line was sung. Off = today's reactive behaviour. |
+| `LYRIC_MATCH_THRESHOLD` | `0.6` | `0.0-1.0` | Word-overlap similarity a sung line needs to be considered a match for a pasted lyric line. Lower tolerates looser singing; too low misfires on the wrong line. |
+| `LYRIC_WINDOW` | `3` | — | How many lyric lines ahead of the current position the follower will look, so a skipped line is still found. |
+
 ### Mint & provenance
 
 | Variable | Default | Accepts | Description |

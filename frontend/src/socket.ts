@@ -273,6 +273,14 @@ export class Socket {
     this.ws!.send(JSON.stringify({ type: "style", style }));
   }
 
+  // Load (or clear) the song's lyrics for predictive look-ahead. The backend
+  // renders each line ahead of the singer and reveals it on STT confirmation
+  // (requires SPECULATIVE_LOOKAHEAD on the backend). Empty array clears.
+  sendLyrics(lines: string[]) {
+    if (!this.ready) return;
+    this.ws!.send(JSON.stringify({ type: "lyrics", lines }));
+  }
+
   // New song: reset all song-scoped backend state without dropping the WS.
   // Backend replies with a `style` echo carrying source "reset".
   sendReset() {

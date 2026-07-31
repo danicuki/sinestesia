@@ -55,6 +55,12 @@ defmodule Sinestesia.AudioSocket do
         Sinestesia.Pipeline.set_style(pid, style)
         {:ok, state}
 
+      # Operator pasted the song's lyrics for predictive look-ahead. `lines` is
+      # an array of lyric lines (or a single string with newlines); empty clears.
+      {:ok, %{"type" => "lyrics", "lines" => lines}} when not is_nil(pid) ->
+        Sinestesia.Pipeline.set_lyrics(pid, lines)
+        {:ok, state}
+
       {:ok, %{"type" => "camera"} = msg} when not is_nil(pid) ->
         Sinestesia.Pipeline.set_camera(pid, Map.drop(msg, ["type"]))
         {:ok, state}

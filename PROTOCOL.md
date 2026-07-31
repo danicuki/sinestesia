@@ -132,6 +132,25 @@ The style may also be set automatically by the backend's **StyleCurator** after
 the first ~5 final lyrics. When that happens, the echoed `style` message
 carries `"source": "curator"` instead of `"source": "user"`.
 
+### `lyrics` (song lyrics for predictive look-ahead)
+
+Loads (or clears) the pasted lyrics of the song about to be sung, so the backend
+can render each line **ahead** of the singer and reveal it the moment STT
+confirms the line was sung — hiding the render lag. `lines` is an array of lyric
+lines (a single string with newlines is also accepted); an empty array clears.
+
+```json
+{ "type": "lyrics", "lines": ["Numa folha qualquer eu desenho um sol amarelo", "É fácil fazer um castelo"] }
+```
+
+There is **no echo** — loading lyrics is advisory. It only has an effect when the
+backend has `SPECULATIVE_LOOKAHEAD` enabled; otherwise it is stored and ignored.
+Even enabled, it can never break a show: if no lyrics are loaded, or the singing
+diverges from them (improvisation, a skipped verse), the backend falls back to
+its normal reactive rendering with no desync. Lyrics persist across a `reset`
+(rehearsing the same song), but the position is re-acquired from scratch. Send
+`{ "type": "lyrics", "lines": [] }` to clear them for a different song.
+
 ### `camera` (operator-driven virtual camera) *(added 2026-06-10)*
 
 A persistent camera **velocity** applied by the image pipeline to every

@@ -25,7 +25,7 @@ under-built (see "Open priorities" below).
 ## Stack
 
 - **Backend**: Elixir 1.17 / OTP 26, Bandit + Plug + WebSockAdapter (no Phoenix), Mint.WebSocket for outbound, Req for HTTP.
-- **Frontend**: Vite + TypeScript + Three.js + Essentia.js. **A SEPARATE Claude/Codex agent maintains the frontend** — coordinate via PROTOCOL.md and explicit briefings (do not edit `frontend/` from the backend agent without telling the user).
+- **Frontend**: Vite + TypeScript + Three.js + Essentia.js. Maintained directly in this repo alongside the backend (the old split where a separate agent owned `frontend/` is history). `PROTOCOL.md` is still the FE↔BE contract — update it in the same change as any new message.
 - **Director (LLM)**: Gemma 4 12B (MLX quantized) via local Ollama. Fallback chain → Gemini 2.5 Flash → Claude Haiku 4.5 (latter two via API if env keys set).
 - **Image gen**: fal.ai Flux. Two modes — see "Story mode" below.
 - **STT**: ElevenLabs Scribe v2 Realtime (default) or Deepgram Nova-3 or both. Toggle with `STT_PROVIDER`.
@@ -110,6 +110,10 @@ PROTOCOL.md               # ★ Single source of truth for FE↔BE protocol
 17. **Director output must be validated, not trusted** → The Director LLM occasionally refuses or asks for clarification ("please provide the first line of the song") instead of emitting a scene. The backend rejects any output that doesn't begin with the canonical scene-opening phrase, so the multi-turn conversation never gets poisoned and meta-commentary never reaches the image model. See `director.ex`.
 
 
+18. **Predictive look-ahead is a single-slot speculation, not true parallelism** → With `SPECULATIVE_LOOKAHEAD` on and lyrics loaded (`lyrics` WS message, or a session's `lyrics` field in replay), the pipeline renders the *predicted next line* ahead of the singer and HOLDS the frame, revealing it only when STT confirms that line (`PerformanceFollower.match`). There is at most ONE speculation in flight (`state.speculation`), and `maybe_trigger` is blocked whenever it is non-nil — so there is never more than one Director call running at once, same as before. The whole feature is a no-op when the flag is off or no lyrics are loaded: `advance_script` and `maybe_speculate` return early, `speculation` stays nil, and the reactive path is byte-for-byte unchanged. This is why it's safe to ship default-off. See `pipeline.ex` → `maybe_speculate`, `advance_script`, `reveal_speculation`, `discard_speculation`.
+
+19. **A speculation must NOT mutate shared state until it is confirmed** → A speculative Director call runs on a COPY of `director_conversation`; its returned conversation is adopted only in `reveal_speculation`. Likewise `compose_image_request` mutates placement/style bookkeeping (`recent_placements`, `frames_since_style`) — for a speculation those deltas are stashed in `speculation.state_delta` and applied only on reveal, so a mis-predicted (discarded) line leaves no trace: no poisoned conversation, no consumed style-refresh counter, only a wasted (cheap) render. Off-script singing, a skipped verse, or a Director/image error all funnel through `discard_speculation`, which kills the in-flight task and clears the slot, and the reactive path then draws the line she actually sang. Frames are still generated *during* the show and revealed on the real voice, so the mint's "made live" claim stays true.
+
 ## Disabled / dead code
 
 - **`Sinestesia.StyleCurator`** — auto-picks a style from a 6-entry hard-coded sketch palette after 5 final lyrics. **Disabled** because it kept overwriting the operator's typed style mid-song. Code lives in `style_curator.ex` and `pipeline.ex` (`spawn_curator`, `maybe_curate_style`). To re-enable: add `|> maybe_curate_style()` back to the `is_final ->` branch in `update_text_state`.
@@ -127,8 +131,7 @@ PROTOCOL.md               # ★ Single source of truth for FE↔BE protocol
 - Don't reset Gemma's conversation mid-song unless you also reset `last_image_url` (img2img would chain across topical breaks otherwise).
 - Don't increase Director output length without bumping `num_predict` — silent truncation makes Flux miss the style.
 - Don't run `Task.start` results back into Pipeline state without checking `sid` first.
-- Don't edit `frontend/` files — that's another agent's territory. Briefing instead.
-- Don't push PROTOCOL.md changes without telling the user — the frontend agent re-syncs from it.
+- Don't change a `frontend/`↔`backend/` message shape without updating `PROTOCOL.md` in the same change — it's the single source of truth for the contract.
 
 ## How to verify a change end-to-end
 

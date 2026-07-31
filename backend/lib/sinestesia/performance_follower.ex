@@ -1,0 +1,108 @@
+defmodule Sinestesia.PerformanceFollower do
+  @moduledoc """
+  Locates where a live performance is inside a *known* script.
+
+  The operator pastes the song's lyrics before it is sung (see the `lyrics` WS
+  message). As each line is actually sung, STT hands us the confirmed text; this
+  module matches that text against the pasted lines and reports which line was
+  reached, so the pipeline can advance a cursor and reveal the frame it
+  speculatively rendered for that line.
+
+  Phase 1 follows the *lyrics* only. The interface is deliberately shaped to
+  later fuse musical-structure (verse/chorus/bridge) and tempo signals behind
+  the same `match/4` call without the pipeline caring how the position is found.
+
+  ## Matching
+
+  Singing is mostly sequential, so we only consider a small window around the
+  current cursor: one line back (a repeated line / STT re-segmentation) through
+  `:window` lines ahead (a skipped line). Similarity is the **overlap
+  coefficient** on accent-folded word sets — `|A∩B| / min(|A|,|B|)` — which is
+  robust to the two things STT does to lyrics: it drops/adds a few words, and it
+  segments on its own boundaries (so a sung fragment is a subset of a script
+  line, or vice versa), both of which keep the coefficient high. The best
+  candidate above `:threshold` wins; ties break toward the nearest line *ahead*
+  of the cursor, biasing forward progress.
+  """
+
+  @default_window 3
+  @default_threshold 0.6
+
+  @doc """
+  Match a confirmed sung line against the script.
+
+  `cursor` is the index of the last confirmed line (`-1` before the song
+  starts). Returns `{:match, index}` for the best line at or ahead of the
+  cursor whose similarity clears the threshold, or `:no_match` when the singer
+  is off-script (an improvisation, or a line the pasted lyrics don't contain).
+
+  Options: `:window` (lines to look ahead, default #{@default_window}),
+  `:threshold` (0.0–1.0, default #{@default_threshold}).
+  """
+  @spec match(String.t(), [String.t()], integer(), keyword()) ::
+          {:match, non_neg_integer()} | :no_match
+  def match(sung, script, cursor, opts \\ [])
+      when is_binary(sung) and is_list(script) and is_integer(cursor) do
+    window = Keyword.get(opts, :window, @default_window)
+    threshold = Keyword.get(opts, :threshold, @default_threshold)
+    sung_set = tokens(sung)
+    n = length(script)
+
+    if MapSet.size(sung_set) == 0 or n == 0 do
+      :no_match
+    else
+      lo = max(cursor - 1, 0)
+      hi = min(cursor + window, n - 1)
+
+      lo..hi
+      |> Enum.filter(&(&1 >= 0 and &1 < n))
+      |> Enum.map(fn i -> {i, similarity(sung_set, tokens(Enum.at(script, i)))} end)
+      |> Enum.filter(fn {_i, s} -> s >= threshold end)
+      |> Enum.sort_by(fn {i, s} -> {-s, forward_distance(i, cursor)} end)
+      |> case do
+        [{i, _s} | _] -> {:match, i}
+        [] -> :no_match
+      end
+    end
+  end
+
+  @doc "Normalize a raw lyrics payload (a list of lines, or one blob with newlines) into trimmed, non-empty lines."
+  @spec normalize(term()) :: [String.t()]
+  def normalize(text) when is_binary(text), do: text |> String.split(~r/\r?\n/) |> clean_lines()
+  def normalize(lines) when is_list(lines), do: lines |> Enum.map(&to_string/1) |> clean_lines()
+  def normalize(_), do: []
+
+  defp clean_lines(lines) do
+    lines |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+  end
+
+  # Overlap coefficient: 1.0 when one set is a subset of the other (the common
+  # STT case where a sung fragment is part of a longer script line, or a merged
+  # sung line contains a short one). Falls off as the two share fewer words.
+  defp similarity(a, b) do
+    denom = min(MapSet.size(a), MapSet.size(b))
+    if denom == 0, do: 0.0, else: MapSet.size(MapSet.intersection(a, b)) / denom
+  end
+
+  # Prefer the nearest line ahead of the cursor; treat at/behind as far away so
+  # a forward candidate of equal similarity always wins.
+  defp forward_distance(i, cursor) when i > cursor, do: i - cursor
+  defp forward_distance(i, cursor), do: 1_000 + (cursor - i)
+
+  # Lowercase, fold accents (STT and the pasted lyrics disagree on diacritics),
+  # drop punctuation, split to a word set.
+  defp tokens(text) do
+    text
+    |> String.downcase()
+    |> fold_accents()
+    |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ")
+    |> String.split(~r/\s+/, trim: true)
+    |> MapSet.new()
+  end
+
+  defp fold_accents(text) do
+    text
+    |> :unicode.characters_to_nfd_binary()
+    |> String.replace(~r/[\x{0300}-\x{036f}]/u, "")
+  end
+end

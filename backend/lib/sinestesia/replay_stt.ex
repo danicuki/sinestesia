@@ -70,6 +70,12 @@ defmodule Sinestesia.ReplaySTT do
       send(state.parent, {:replay_style, state.session.style})
     end
 
+    # A recorded session may carry the song's lyrics, so predictive look-ahead
+    # (SPECULATIVE_LOOKAHEAD) can be exercised headlessly against a real session.
+    if state.session.lyrics do
+      send(state.parent, {:replay_lyrics, state.session.lyrics})
+    end
+
     schedule(state, 0)
     {:noreply, %{state | started_at: now_ms()}}
   end
@@ -137,6 +143,7 @@ defmodule Sinestesia.ReplaySTT do
        %{
          name: Map.get(json, "name", Path.basename(file, ".json")),
          style: Map.get(json, "style"),
+         lyrics: Map.get(json, "lyrics"),
          events: parsed,
          duration_ms: List.last(parsed).at_ms
        }}

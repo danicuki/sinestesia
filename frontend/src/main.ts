@@ -9,6 +9,7 @@ import { Socket } from "./socket";
 import { Scene } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
+import { LyricsControl } from "./lyrics";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
@@ -23,6 +24,7 @@ const DEMO = params.get("demo"); // sample sequence slug (or "" for the default)
 
 const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
+const LYRICS_KEY = "sinestesia.lyrics"; // last-pasted lyrics, persisted across reloads
 
 const debug = DEBUG ? new DebugOverlay() : null;
 
@@ -401,6 +403,18 @@ async function start() {
           localStorage.setItem(STYLE_KEY, accepted);
         }
       };
+  }
+
+  // Lyrics control — paste the song's words for predictive look-ahead. Hidden
+  // under ?clean=1. Prefilled with the persisted lyrics; loading persists them
+  // and pushes to the backend (a no-op unless SPECULATIVE_LOOKAHEAD is on).
+  if (!CLEAN) {
+    const savedLyrics = localStorage.getItem(LYRICS_KEY) ?? "";
+    new LyricsControl((lines) => {
+      localStorage.setItem(LYRICS_KEY, lines.join("\n"));
+      if (socket) socket.sendLyrics(lines);
+      else console.log("[mock] would send lyrics:", lines.length, "lines");
+    }, savedLyrics);
   }
 
   if (socket) socket.connect();

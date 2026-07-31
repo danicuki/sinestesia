@@ -216,6 +216,39 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     assert %{index: 1} = state.prerender
   end
 
+  test "the primed buffer survives the first confirmed line instead of being wiped and re-rendered",
+       %{pid: pid} do
+    # Live regression (HANDOFF #44): the opening line confirmed while the eager
+    # bootstrap was still held took best_candidate/4's :none branch — the
+    # speculation slot is empty by design in that state, and cached frames for
+    # LATER scenes can't fall inside the jump's range — and :none discarded the
+    # whole prerender cache. The log showed line 3 cached at 18:23:15 and then
+    # re-rendered from scratch at 18:23:32, wasting the head start.
+    System.put_env("LOOKAHEAD_DEPTH", "3")
+    state = seed_pending_bootstrap(pid)
+
+    :sys.replace_state(pid, fn s ->
+      %{s | prerendered: %{1 => seeded_frame(1, "https://example.test/cached1.jpg")}}
+    end)
+
+    send(
+      pid,
+      {:bootstrap_spec_image_done, {:ok, "https://example.test/opening.jpg", [], "opening prompt"},
+       base_timings(), state.session_id, state.bootstrap_generation}
+    )
+
+    # The opening line lands while the bootstrap is still holding its frame.
+    sing(pid, "line one")
+
+    state = :sys.get_state(pid)
+
+    # The bootstrap reveals on this line, and speculate_next/1 promotes the
+    # cached frame straight into the active slot — status :ready, no render.
+    # Had the cache been wiped, this would be a freshly spawned :director.
+    assert %{index: 1, status: :ready, frame_url: "https://example.test/cached1.jpg"} =
+             state.speculation
+  end
+
   test "a held bootstrap counts toward LOOKAHEAD_DEPTH, so the buffer is depth frames, not depth+1",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "2")

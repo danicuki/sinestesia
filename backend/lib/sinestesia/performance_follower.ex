@@ -117,6 +117,23 @@ defmodule Sinestesia.PerformanceFollower do
     end
   end
 
+  @doc """
+  Does this one confirmed utterance already cover `line`?
+
+  Same asymmetric measure `furthest_match/4` uses (what fraction of the
+  CANDIDATE line's words appear in the sung text), asked about a single known
+  line instead of scanned over a window. Used to tell "the singer is partway
+  through a multi-line scene" apart from "the singer sang the whole scene in
+  one breath" — `match/4` reports only the single best-scoring line, which for
+  a two-line scene sung in one go is usually the FIRST of the two, not the
+  last. See HANDOFF.md gotcha #44.
+  """
+  @spec covers?(String.t(), String.t(), keyword()) :: boolean()
+  def covers?(sung, line, opts \\ []) when is_binary(sung) and is_binary(line) do
+    threshold = Keyword.get(opts, :threshold, @default_threshold)
+    coverage(tokens(sung), tokens(line)) >= threshold
+  end
+
   @doc "Normalize a raw lyrics payload (a list of lines, or one blob with newlines) into trimmed, non-empty lines."
   @spec normalize(term()) :: [String.t()]
   def normalize(text) when is_binary(text), do: text |> String.split(~r/\r?\n/) |> clean_lines()

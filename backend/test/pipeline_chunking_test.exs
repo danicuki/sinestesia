@@ -315,32 +315,41 @@ defmodule Sinestesia.PipelineChunkingTest do
       assert %{index: 3} = state.speculation
     end
 
-    test "a jump PAST the chunk's own end_line (never matching it exactly) still reveals it, not discards it",
+    test "a whole multi-line chunk sung in ONE breath reveals immediately, on that same utterance",
          %{pid: pid} do
       seed_chunk_speculation(pid)
 
       # A clean utterance covering BOTH of the chunk's lines scores each of
       # them a perfect 1.0 (the utterance IS their exact concatenation), and
-      # match/4 breaks an exact-score tie toward the NEAREST candidate — so
-      # this lands on line 1, not the chunk's own end_line (2). That's fine:
-      # chunk_in_progress?/2 recognizes line 1 is still inside the held
-      # chunk's own range and leaves it held rather than discarding it.
+      # match/4 breaks an exact-score tie toward the NEAREST candidate — so it
+      # reports line 1, not the chunk's own end_line (2).
+      #
+      # Before HANDOFF #44 that was read as "still partway through the chunk"
+      # and the finished frame was held indefinitely, waiting for a later
+      # utterance that may never come. Found live on Aquarela: the singer sang
+      # "E se faço chover com dois riscos / Tenho um guarda-chuva" in one
+      # breath, stopped, and the umbrella picture — already rendered and
+      # sitting in memory — was simply never shown.
       sing(pid, "line two line three")
+
+      state = :sys.get_state(pid)
+
+      # Revealed on THIS utterance, and the cursor is at the chunk's real end
+      # so the next look-ahead doesn't re-target a scene already performed.
+      assert state.last_image_url == "https://example.test/chunk.jpg"
+      assert state.script_cursor == 2
+    end
+
+    test "covering only the chunk's OPENING line still waits — that's a real mid-scene pause",
+         %{pid: pid} do
+      seed_chunk_speculation(pid)
+
+      sing(pid, "line two")
 
       state = :sys.get_state(pid)
       assert state.script_cursor == 1
       assert %{index: 2, status: :ready} = state.speculation
-
-      # The singer moves on to the NEXT chunk's content, jumping straight
-      # past index 2 without ever matching it exactly. HANDOFF gotcha #38's
-      # reconciliation still catches this: index 2 falls inside
-      # (old_cursor, idx], so it's revealed instead of thrown away as a
-      # "wrong guess."
-      sing(pid, "line four")
-
-      state = :sys.get_state(pid)
-      assert state.script_cursor == 3
-      assert state.last_image_url == "https://example.test/chunk.jpg"
+      refute state.last_image_url == "https://example.test/chunk.jpg"
     end
   end
 end

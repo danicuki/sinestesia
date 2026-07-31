@@ -2900,7 +2900,7 @@ defmodule Sinestesia.Pipeline do
       {:match, idx} when idx > state.script_cursor ->
         old_cursor = state.script_cursor
         state = update_position(state, idx)
-        reconcile_after_jump(state, old_cursor, idx)
+        reconcile_after_jump(state, old_cursor, idx, text)
 
       # Matched the current or an earlier line (a repeat, or STT re-segmenting the
       # same line): already on screen, nothing new to draw. Position/section are
@@ -2956,8 +2956,23 @@ defmodule Sinestesia.Pipeline do
   # `(old_cursor, idx]` and reveal/confirm whichever is CLOSEST to idx (the
   # most "caught up") — only fall back to discarding everything when NOTHING
   # in that range was already being worked on.
-  defp reconcile_after_jump(state, old_cursor, idx) do
-    case best_candidate(state, old_cursor, idx) do
+  defp reconcile_after_jump(state, old_cursor, idx, text) do
+    case best_candidate(state, old_cursor, idx, text) do
+      # The whole multi-line chunk was sung in ONE breath: match/4 reported
+      # only its best-scoring line (usually the chunk's FIRST), but the
+      # utterance demonstrably covers the chunk's last line too, so the scene
+      # is finished, not in progress. Advance the cursor to the chunk's real
+      # end before revealing, or the next look-ahead re-targets a scene that
+      # has already been performed. See HANDOFF #44.
+      {:chunk_done, %{status: :ready} = spec, end_line} ->
+        Logger.debug("[spec] utterance covered the whole scene ending at line #{end_line}")
+        state = update_position(state, end_line)
+        {reveal_speculation(%{state | speculation: spec}), :handled}
+
+      {:chunk_done, spec, end_line} ->
+        state = update_position(state, end_line)
+        {%{state | speculation: %{spec | confirmed: true}}, :handled}
+
       {:active, %{status: :ready} = spec} ->
         {reveal_speculation(%{state | speculation: spec}), :handled}
 
@@ -2985,11 +3000,25 @@ defmodule Sinestesia.Pipeline do
         {state, :handled}
 
       :none ->
-        {discard_speculation(state), :fallthrough}
+        # A still-held eager bootstrap owns the opening, so the speculation
+        # slot is EMPTY by design and nothing in the deep cache can fall in
+        # this jump's range yet — those frames are for scenes after the
+        # opening, not mis-predictions. Discarding here threw away a correctly
+        # primed buffer on the very first confirmed line and re-rendered the
+        # same scene from scratch (seen live: line 3 cached at 18:23:15, then
+        # "[spec] director spawning for line 3" again at 18:23:32). Fall
+        # through so the bootstrap's own reveal gate still runs, but keep the
+        # buffer. Genuinely off-script singing is a different path entirely —
+        # match_and_advance/2's :no_match branch, which still discards both.
+        if state.bootstrap_speculation do
+          {state, :fallthrough}
+        else
+          {discard_speculation(state), :fallthrough}
+        end
     end
   end
 
-  defp best_candidate(state, old_cursor, idx) do
+  defp best_candidate(state, old_cursor, idx, text) do
     in_range? = &(&1 > old_cursor and &1 <= idx)
 
     cached_idx =
@@ -3008,26 +3037,49 @@ defmodule Sinestesia.Pipeline do
       active_idx != nil ->
         {:active, state.speculation}
 
-      chunk_in_progress?(state, idx) ->
-        :in_progress
-
       true ->
-        :none
+        case chunk_position(state, idx, text) do
+          {:done, end_line} -> {:chunk_done, state.speculation, end_line}
+          :in_progress -> :in_progress
+          :outside -> :none
+        end
     end
   end
 
-  # Is `idx` inside the SAME chunk the held speculation is already targeting
-  # (its end_line), just not through the end of it yet? Looks the chunk up by
-  # its end_line rather than storing start_line redundantly on every
-  # speculation/prerender record.
-  defp chunk_in_progress?(%{speculation: %{index: end_line}} = state, idx) do
-    case Enum.find(state.chunks, &(&1.end_line == end_line)) do
-      %{start_line: start_line} -> idx >= start_line and idx < end_line
-      nil -> false
+  # Where is this utterance relative to the chunk the held speculation targets
+  # (looked up by its end_line rather than storing start_line redundantly on
+  # every speculation/prerender record)?
+  #
+  #   :outside     — not this chunk's business at all.
+  #   {:done, e}   — the utterance covers the chunk's LAST line, so the scene
+  #                  is finished even though match/4 anchored on an earlier
+  #                  line of it. Found live: singing "E com cinco ou seis
+  #                  retas é fácil fazer um castelo" in one breath scores
+  #                  higher against line 2 ("E com cinco ou seis retas", 4 of
+  #                  6 words) than against line 3 ("É fácil fazer um castelo",
+  #                  3 of 5), so match/4 reports 2 — and treating that as
+  #                  "still mid-scene" held a finished castle frame until the
+  #                  NEXT utterance jumped past and discarded it. The picture
+  #                  for a line the singer actually sang never appeared.
+  #   :in_progress — genuinely partway through: the opening line(s) landed but
+  #                  the closing one hasn't been sung yet.
+  defp chunk_position(%{speculation: %{index: end_line}} = state, idx, text) do
+    with %{start_line: start_line} <- Enum.find(state.chunks, &(&1.end_line == end_line)),
+         true <- idx >= start_line and idx < end_line do
+      last_line = Enum.at(state.script, end_line)
+
+      if is_binary(last_line) and
+           Sinestesia.PerformanceFollower.covers?(text, last_line, threshold: lyric_threshold()) do
+        {:done, end_line}
+      else
+        :in_progress
+      end
+    else
+      _ -> :outside
     end
   end
 
-  defp chunk_in_progress?(_state, _idx), do: false
+  defp chunk_position(_state, _idx, _text), do: :outside
 
   # NOTE: tried swapping this to furthest_match/4 (coverage-based, prefers the
   # FURTHEST qualifying candidate) while chasing the multi-line-utterance

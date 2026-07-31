@@ -110,8 +110,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
 
   test "LOOKAHEAD_DEPTH=1 (default): the bootstrap reveal arms one speculation, never a prerender",
        %{pid: pid} do
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -133,8 +137,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "LOOKAHEAD_DEPTH=3: the chain deepens automatically as each render lands, up to the cap",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -195,8 +203,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "LOOKAHEAD_DEPTH=3: confirming a line promotes the cache instead of re-rendering",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -239,8 +251,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "off-script singing discards the speculation AND the whole prerender chain",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -276,8 +292,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "confirming a line the prerender chain is STILL rendering waits instead of duplicating it",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -333,8 +353,12 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
 
   test "reloading lyrics clears any in-flight prerender chain", %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
+    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
+    # eager-bootstrap Director call (a separate feature, its own test file) and
+    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
+    Sinestesia.Pipeline.set_lyrics(pid, @script)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)

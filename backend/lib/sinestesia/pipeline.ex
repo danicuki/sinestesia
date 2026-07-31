@@ -213,6 +213,22 @@ defmodule Sinestesia.Pipeline do
        # mechanism never activates; the pipeline behaves exactly as Phase 1/2.
        prerender: nil,
        prerendered: %{},
+       # Eager bootstrap (SPECULATIVE_LOOKAHEAD): the reactive bootstrap gate
+       # normally waits for @bootstrap_min_words of REAL singing before it will
+       # render the opening frame — but if the operator has already pasted the
+       # whole song, there's no reason to wait: this renders the opening from
+       # the SCRIPT's own first words the moment lyrics load, and holds it
+       # until real singing actually reaches the same word threshold. See
+       # maybe_speculate_bootstrap/1, reveal_bootstrap_speculation/1.
+       bootstrap_speculation: nil,
+       # A lyrics reload mid-song discards + re-arms the eager bootstrap WITHOUT
+       # bumping session_id (that's reserved for a whole new performance) —
+       # so a stale result from the discarded attempt could otherwise slip
+       # through if Process.exit(:kill) loses the race against an
+       # already-in-flight `send` from the old Task. Bumped every time a fresh
+       # eager-bootstrap render actually starts; carried in its messages and
+       # checked alongside session_id, same belt-and-suspenders pattern.
+       bootstrap_generation: 0,
        # Musical structure (MUSICAL_STRUCTURE): verse/chorus/bridge/outro derived
        # from the pasted lyrics (blank lines = stanza breaks). `current_section`
        # is the section id covering `script_cursor`, updated alongside it — see
@@ -293,7 +309,11 @@ defmodule Sinestesia.Pipeline do
   # Reset all song-scoped state but KEEP open STT connections + socket.
   # Use when a new song starts mid-session — avoids reconnect roundtrip.
   # In-flight tasks from the previous song are invalidated via session_id.
-  def handle_cast(:reset_song, state), do: {:noreply, reset_song_state(state)}
+  def handle_cast(:reset_song, state) do
+    # Lyrics (if loaded) persist across a reset — start the NEXT song's opening
+    # render immediately too, same as if they'd just been pasted fresh.
+    {:noreply, state |> reset_song_state() |> maybe_speculate_bootstrap()}
+  end
 
   # Song over: mint what was just painted AND start the next song in one step.
   # The mint task takes its own snapshot of the song, so resetting immediately
@@ -310,7 +330,7 @@ defmodule Sinestesia.Pipeline do
         push(state.socket, %{type: "mint_status", status: "minting", ts: now_ms()})
     end
 
-    {:noreply, reset_song_state(state)}
+    {:noreply, state |> reset_song_state() |> maybe_speculate_bootstrap()}
   end
 
   # Mint the finished painting: store on Walrus + mint the master on Sui via the
@@ -388,6 +408,7 @@ defmodule Sinestesia.Pipeline do
         speculation: nil,
         prerender: nil,
         prerendered: %{},
+        bootstrap_speculation: nil,
         current_section: nil
     }
   end
@@ -779,6 +800,144 @@ defmodule Sinestesia.Pipeline do
       %{index: ^index} -> {:noreply, discard_speculation(state)}
       _ -> {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
     end
+  end
+
+  # ── Eager bootstrap: pre-render the opening from pasted lyrics ─────────────
+  # See maybe_speculate_bootstrap/1. Held in `state.bootstrap_speculation`
+  # (never `speculation` — that slot means "canvas exists, looking ahead one
+  # line"; this one means "no canvas yet, but the whole song is known").
+
+  # `gen` guards against a subtler race than `sid` alone can: a lyrics reload
+  # mid-song discards + re-arms this WITHOUT bumping session_id (that's
+  # reserved for a whole new performance) — so if Process.exit(:kill) loses
+  # the race against an already-in-flight `send` from the discarded attempt,
+  # `sid == cur` would still match. `gen` catches that case.
+  def handle_info(
+        {:bootstrap_spec_director_done, _r, _s, _c, _m, sid, gen},
+        %{session_id: cur, bootstrap_generation: curgen} = state
+      )
+      when sid != cur or gen != curgen do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info(
+        {:bootstrap_spec_director_done, {:ok, raw, new_conversation}, _started_at, _call_ms,
+         model, _sid, _gen},
+        state
+      ) do
+    case state.bootstrap_speculation do
+      %{status: :director} = bs ->
+        {prompt, extra, state2} = compose_image_request(raw, state)
+        receipt = Sinestesia.Verifiability.last()
+
+        timings = %{
+          stt_ms: nil,
+          stt_provider: nil,
+          director_ms: 0,
+          director_queue_ms: 0,
+          lyric: bs.text,
+          verification: receipt
+        }
+
+        step = %{
+          ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+          lyric: bs.text,
+          prompt: raw,
+          model: model,
+          verification: receipt
+        }
+
+        pid =
+          spawn_bootstrap_image(
+            prompt,
+            timings,
+            state.session_id,
+            state.bootstrap_generation,
+            state2.camera,
+            extra
+          )
+
+        bs2 = %{
+          bs
+          | status: :image,
+            pid: pid,
+            new_conv: new_conversation,
+            step: step,
+            receipt: receipt,
+            state_delta: %{
+              recent_placements: state2.recent_placements,
+              frames_since_style: state2.frames_since_style
+            }
+        }
+
+        {:noreply,
+         %{
+           state
+           | bootstrap_speculation: bs2,
+             pending_pids: MapSet.put(drop_dead(state.pending_pids), pid)
+         }}
+
+      _ ->
+        # Discarded (lyrics reloaded) while this was in flight.
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info(
+        {:bootstrap_spec_director_done, {:error, reason}, _started_at, _call_ms, _model, _sid,
+         _gen},
+        state
+      ) do
+    Logger.debug(
+      "[bootstrap-spec] director error (#{inspect(reason)}); falling back to the reactive bootstrap"
+    )
+
+    {:noreply, %{state | bootstrap_speculation: nil, pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info(
+        {:bootstrap_spec_image_done, _r, _t, sid, gen},
+        %{session_id: cur, bootstrap_generation: curgen} = state
+      )
+      when sid != cur or gen != curgen do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info(
+        {:bootstrap_spec_image_done, {:ok, url, frames, prompt}, timings, _sid, _gen},
+        state
+      ) do
+    case state.bootstrap_speculation do
+      %{status: :image} = bs ->
+        out = image_out(url, frames, prompt, timings)
+        ready = %{bs | status: :ready, frame_msg: out.msg, frame_url: url, frame_route: out.route}
+
+        state = %{
+          state
+          | bootstrap_speculation: ready,
+            pending_pids: drop_dead(state.pending_pids)
+        }
+
+        if ready.confirmed do
+          # Real singing already reached the threshold while this was still
+          # rendering — reveal now.
+          {:noreply, reveal_bootstrap_speculation(state)}
+        else
+          Logger.debug("[bootstrap-spec] opening frame ready, holding for enough real singing")
+          {:noreply, state}
+        end
+
+      _ ->
+        {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+    end
+  end
+
+  def handle_info({:bootstrap_spec_image_done, {:error, reason}, timings, _sid, _gen}, state) do
+    Logger.warning(
+      "[bootstrap-spec] image FAILED #{route_of(timings)} (#{inspect(reason)}); falling back to the reactive bootstrap"
+    )
+
+    {:noreply, %{state | bootstrap_speculation: nil, pending_pids: drop_dead(state.pending_pids)}}
   end
 
   # ── Deep look-ahead (LOOKAHEAD_DEPTH > 1): background prerender chain ──────
@@ -1484,8 +1643,25 @@ defmodule Sinestesia.Pipeline do
 
     cond do
       bootstrap? and accumulated_word_count(state) < @bootstrap_min_words ->
-        # Wait until enough has been sung to seed a rich opening drawing.
+        # Wait until enough has been sung to seed a rich opening drawing. If an
+        # eager bootstrap (SPECULATIVE_LOOKAHEAD, rendered from pasted lyrics
+        # the moment they loaded) is already in flight, this is exactly the
+        # wait it needs too — it'll typically be ready well before real
+        # singing reaches the threshold.
         state
+
+      bootstrap? and match?(%{status: :ready}, state.bootstrap_speculation) ->
+        # Real singing just reached the threshold, and the eager bootstrap is
+        # already rendered — use it instead of firing a second, redundant
+        # Director call for the same opening.
+        reveal_bootstrap_speculation(state)
+
+      bootstrap? and not is_nil(state.bootstrap_speculation) ->
+        # Reached the threshold, but the eager render isn't done yet. Mark it
+        # wanted and wait — its own completion handler reveals it. Must NOT
+        # fall through to firing the reactive bootstrap below, or the opening
+        # gets rendered twice.
+        %{state | bootstrap_speculation: Map.put(state.bootstrap_speculation, :confirmed, true)}
 
       now - state.last_director_at < director_min_interval_ms() ->
         state
@@ -2175,6 +2351,7 @@ defmodule Sinestesia.Pipeline do
 
     state
     |> discard_speculation()
+    |> discard_bootstrap_speculation()
     |> Map.merge(%{
       script: script,
       script_active?: active?,
@@ -2182,6 +2359,7 @@ defmodule Sinestesia.Pipeline do
       structure: structure,
       current_section: nil
     })
+    |> maybe_speculate_bootstrap()
   end
 
   defp lookahead_enabled?,
@@ -2325,6 +2503,168 @@ defmodule Sinestesia.Pipeline do
     }
   end
 
+  # ── Eager bootstrap: pre-render the opening from the pasted lyrics ─────────
+  # Ordinarily the FIRST frame is always reactive — @bootstrap_min_words of
+  # REAL singing has to accumulate before it fires (see maybe_trigger), because
+  # generating it from too little content lets a poor opening dominate the
+  # whole song via i2i. But if the whole song is already pasted, there is no
+  # reason to wait for real singing to reach that word count: this renders the
+  # opening from the SCRIPT's own first words (same word-count target, same
+  # t2i shape) the moment lyrics load, and holds it exactly like an ordinary
+  # speculation — revealed only once REAL singing independently reaches the
+  # threshold. Runs once per song; `bootstrap_done?` (set on reveal) prevents
+  # re-entry, same invariant the reactive path already relies on.
+  defp maybe_speculate_bootstrap(state) do
+    cond do
+      not lookahead_enabled?() ->
+        state
+
+      not state.script_active? ->
+        state
+
+      state.bootstrap_done? ->
+        state
+
+      not is_nil(state.bootstrap_speculation) ->
+        state
+
+      state.generating? ->
+        state
+
+      true ->
+        text = bootstrap_text_from_script(state.script)
+
+        if text == "" do
+          state
+        else
+          gen = state.bootstrap_generation + 1
+          pid = spawn_bootstrap_director(state, text, gen)
+
+          Logger.debug(
+            "[bootstrap-spec] pre-rendering the opening from pasted lyrics: #{inspect(text)}"
+          )
+
+          bspec = %{
+            status: :director,
+            confirmed: false,
+            pid: pid,
+            new_conv: nil,
+            step: nil,
+            state_delta: nil,
+            frame_msg: nil,
+            frame_url: nil,
+            frame_route: nil,
+            receipt: nil,
+            text: text
+          }
+
+          %{
+            state
+            | bootstrap_speculation: bspec,
+              bootstrap_generation: gen,
+              pending_pids: MapSet.put(state.pending_pids, pid)
+          }
+        end
+    end
+  end
+
+  # The script's own opening words, matching the reactive bootstrap's word
+  # target — we already have the whole song, so there's no need to wait for
+  # real accumulation the way the reactive path does.
+  defp bootstrap_text_from_script(script) do
+    script
+    |> Enum.join(" ")
+    |> String.split(~r/\s+/, trim: true)
+    |> Enum.take(@bootstrap_window_words)
+    |> Enum.join(" ")
+  end
+
+  defp spawn_bootstrap_director(state, text, gen) do
+    parent = self()
+    started_at = now_ms()
+    conversation = state.director_conversation
+    sid = state.session_id
+    line = text <> melody_hint(state)
+
+    {:ok, pid} =
+      Task.start(fn ->
+        call_started = now_ms()
+        result = Sinestesia.Director.next_prompt(conversation, line)
+        call_ms = now_ms() - call_started
+
+        send(
+          parent,
+          {:bootstrap_spec_director_done, result, started_at, call_ms,
+           Sinestesia.Director.last_model(), sid, gen}
+        )
+      end)
+
+    pid
+  end
+
+  # No seed URL — same t2i shape as the reactive bootstrap (there is no
+  # previous frame yet).
+  defp spawn_bootstrap_image(prompt, timings, sid, gen, camera, extra) do
+    do_spawn_image(prompt, timings, nil, camera, extra, fn result, t ->
+      {:bootstrap_spec_image_done, result, t, sid, gen}
+    end)
+  end
+
+  # Adopt the held eager-bootstrap frame exactly like the reactive bootstrap
+  # completing would: mark bootstrap_done?, set the canvas, adopt the
+  # conversation and provenance step. Then, since this render was built from
+  # the SCRIPT rather than confirmed STT, catch the cursor up to wherever real
+  # singing has actually gotten (furthest_match/4 — see PerformanceFollower)
+  # before letting ordinary per-line look-ahead continue.
+  defp reveal_bootstrap_speculation(%{bootstrap_speculation: bs} = state) do
+    push(state.socket, bs.frame_msg)
+    resolve_verification(bs.receipt, state.socket)
+    Logger.info("[bootstrap-spec] revealed the opening frame, pre-rendered from pasted lyrics")
+
+    delta = bs.state_delta || %{}
+
+    state = %{
+      state
+      | bootstrap_speculation: nil,
+        generating?: false,
+        last_image_url: bs.frame_url,
+        last_image_route: bs.frame_route || state.last_image_route,
+        frame_urls: state.frame_urls ++ [bs.frame_url],
+        director_conversation: bs.new_conv || state.director_conversation,
+        performance_steps: [bs.step | state.performance_steps],
+        style_stamped?: true,
+        bootstrap_done?: true,
+        recent_placements: Map.get(delta, :recent_placements, state.recent_placements),
+        frames_since_style: Map.get(delta, :frames_since_style, state.frames_since_style),
+        since_last_director: false,
+        pending_pids: drop_dead(state.pending_pids)
+    }
+
+    state
+    |> catch_up_position_from_accumulated()
+    |> maybe_speculate()
+  end
+
+  # A generous window: the eager bootstrap can span several short lines before
+  # reaching @bootstrap_min_words, all covered by the SAME accumulated block —
+  # unlike the ordinary per-line follower window (tuned for one line at a time).
+  @bootstrap_catchup_window 12
+
+  defp catch_up_position_from_accumulated(state) do
+    sung_so_far = state.lyrics |> Enum.join(" ")
+
+    case Sinestesia.PerformanceFollower.furthest_match(
+           sung_so_far,
+           state.script,
+           state.script_cursor,
+           window: @bootstrap_catchup_window,
+           threshold: lyric_threshold()
+         ) do
+      {:match, idx} when idx > state.script_cursor -> update_position(state, idx)
+      _ -> state
+    end
+  end
+
   # If lyrics are loaded and the canvas is ready, render the predicted next line
   # ahead of the singer. At most one look-ahead cycle exists at a time (the
   # speculation slot), which also keeps a single Director call in flight.
@@ -2332,7 +2672,8 @@ defmodule Sinestesia.Pipeline do
     cond do
       not lookahead_enabled?() -> state
       not state.script_active? -> state
-      # The opening frame is always reactive; there's no canvas to seed from yet.
+      # The opening frame is USUALLY reactive (see maybe_trigger's bootstrap
+      # branch) unless the eager bootstrap above already revealed one.
       not state.bootstrap_done? -> state
       not is_binary(state.last_image_url) -> state
       state.generating? -> state
@@ -2648,6 +2989,20 @@ defmodule Sinestesia.Pipeline do
   end
 
   defp discard_prerender(state), do: %{state | prerender: nil, prerendered: %{}}
+
+  # Kill an in-flight eager bootstrap render (e.g. lyrics reloaded mid-render —
+  # the old one was built from stale lyrics) without touching anything else.
+  defp discard_bootstrap_speculation(%{bootstrap_speculation: %{pid: pid}} = state) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+
+    %{
+      state
+      | bootstrap_speculation: nil,
+        pending_pids: state.pending_pids |> Enum.reject(&(&1 == pid)) |> MapSet.new()
+    }
+  end
+
+  defp discard_bootstrap_speculation(state), do: %{state | bootstrap_speculation: nil}
 
   # Build the outbound `image` message and the derived latency numbers from a
   # finished render. Shared by the reactive :image_done handler and the

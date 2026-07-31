@@ -139,6 +139,10 @@ defmodule Sinestesia.PipelineStructureTest do
        %{pid: pid} do
     System.put_env("MUSICAL_STRUCTURE", "on")
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+    # bootstrap_done?: true so set_lyrics doesn't ALSO spawn a real eager-
+    # bootstrap Director call (a separate feature, its own test file) — this
+    # test is only about structure/position tracking.
+    :sys.replace_state(pid, fn state -> %{state | bootstrap_done?: true} end)
     Sinestesia.Pipeline.set_lyrics(pid, @song)
 
     sing(pid, "verse line one")

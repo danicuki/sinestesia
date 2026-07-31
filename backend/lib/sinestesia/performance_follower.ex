@@ -66,6 +66,45 @@ defmodule Sinestesia.PerformanceFollower do
     end
   end
 
+  @doc """
+  Bulk catch-up, for after an eager pre-render: given EVERYTHING sung so far
+  (not just the latest line), find the FURTHEST script line within the window
+  that's plausibly been covered.
+
+  This is a different question from `match/4`. `match/4` answers "which nearby
+  candidate does this one just-sung line best match" and prefers the NEAREST
+  line ahead of the cursor. Here the accumulated text may already contain
+  several lines' worth of words, and preferring the nearest candidate would
+  under-report how far the singer has actually gotten — so this scans forward
+  from the cursor and takes the LAST line whose words are covered, not the
+  first. Used once, right when an eagerly pre-rendered opening frame reveals,
+  to position the cursor for ordinary per-line look-ahead to continue from.
+  """
+  @spec furthest_match(String.t(), [String.t()], integer(), keyword()) ::
+          {:match, non_neg_integer()} | :no_match
+  def furthest_match(sung_so_far, script, cursor, opts \\ [])
+      when is_binary(sung_so_far) and is_list(script) and is_integer(cursor) do
+    window = Keyword.get(opts, :window, @default_window)
+    threshold = Keyword.get(opts, :threshold, @default_threshold)
+    sung_set = tokens(sung_so_far)
+    n = length(script)
+
+    if MapSet.size(sung_set) == 0 or n == 0 do
+      :no_match
+    else
+      lo = max(cursor + 1, 0)
+      hi = min(cursor + window, n - 1)
+
+      lo..hi
+      |> Enum.filter(&(&1 >= 0 and &1 < n))
+      |> Enum.filter(fn i -> coverage(sung_set, tokens(Enum.at(script, i))) >= threshold end)
+      |> case do
+        [] -> :no_match
+        indices -> {:match, Enum.max(indices)}
+      end
+    end
+  end
+
   @doc "Normalize a raw lyrics payload (a list of lines, or one blob with newlines) into trimmed, non-empty lines."
   @spec normalize(term()) :: [String.t()]
   def normalize(text) when is_binary(text), do: text |> String.split(~r/\r?\n/) |> clean_lines()
@@ -88,6 +127,16 @@ defmodule Sinestesia.PerformanceFollower do
   # a forward candidate of equal similarity always wins.
   defp forward_distance(i, cursor) when i > cursor, do: i - cursor
   defp forward_distance(i, cursor), do: 1_000 + (cursor - i)
+
+  # What fraction of the CANDIDATE line's words appear in the accumulated sung
+  # text. Deliberately asymmetric (unlike similarity/2's overlap coefficient,
+  # which takes min() of the two sizes): the accumulated blob is expected to be
+  # much bigger than any single candidate line, so what matters is whether the
+  # WHOLE line is covered, not how the two sizes compare.
+  defp coverage(sung_set, line_set) do
+    denom = MapSet.size(line_set)
+    if denom == 0, do: 0.0, else: MapSet.size(MapSet.intersection(sung_set, line_set)) / denom
+  end
 
   # Lowercase, fold accents (STT and the pasted lyrics disagree on diacritics),
   # drop punctuation, split to a word set.

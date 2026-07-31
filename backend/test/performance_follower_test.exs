@@ -65,6 +65,48 @@ defmodule Sinestesia.PerformanceFollowerTest do
     end
   end
 
+  describe "furthest_match/4 — bulk catch-up after an eager bootstrap" do
+    test "with several lines' worth of accumulated text, returns the FURTHEST covered line" do
+      accumulated =
+        "Numa folha qualquer eu desenho um sol amarelo. " <>
+          "E com cinco ou seis retas é fácil fazer um castelo. " <>
+          "Corro o lápis em torno da mão e me dou uma luva."
+
+      assert {:match, 2} = Follower.furthest_match(accumulated, @script, -1)
+    end
+
+    test "differs from match/4, which would prefer the NEAREST line instead" do
+      accumulated =
+        "Numa folha qualquer eu desenho um sol amarelo. " <>
+          "E com cinco ou seis retas é fácil fazer um castelo."
+
+      assert {:match, 1} = Follower.furthest_match(accumulated, @script, -1)
+      # match/4 on the same blob would anchor on whichever nearby line scores
+      # highest overlap, not necessarily the furthest one — the two functions
+      # answer different questions on purpose.
+      assert {:match, idx} = Follower.match(accumulated, @script, -1)
+      assert idx <= 1
+    end
+
+    test "only the first line covered: catches up to exactly that line" do
+      accumulated = "Numa folha qualquer eu desenho um sol amarelo."
+      assert {:match, 0} = Follower.furthest_match(accumulated, @script, -1)
+    end
+
+    test "nothing recognizable yet: no match" do
+      assert :no_match = Follower.furthest_match("", @script, -1)
+      assert :no_match = Follower.furthest_match("completely unrelated words", @script, -1)
+    end
+
+    test "respects the window — a line beyond it is not considered even if covered" do
+      long_script = @script ++ Enum.map(1..10, &"filler line number #{&1}")
+      accumulated = Enum.join(long_script, ". ")
+      # default window is 3, starting at cursor+1 = 0, so index 9 is out of reach
+      assert {:match, idx} = Follower.furthest_match(accumulated, long_script, -1)
+      assert idx <= 2
+    end
+  end
+
   describe "normalize/1" do
     test "splits a blob on newlines and drops blanks" do
       assert ["a", "b"] = Follower.normalize("a\n\n  b  \n")

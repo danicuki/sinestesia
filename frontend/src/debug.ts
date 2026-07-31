@@ -263,7 +263,7 @@ export class DebugOverlay {
         (t.morph_ms && t.morph_ms > 0
           ? span(" | ", COL.dim) + span(`MRP ${t.morph_ms}`, COL.img)
           : "") +
-        span("  drawn ahead of the voice", COL.dim) +
+        span("  drawn ahead", COL.dim) +
         " " +
         this.provider(t.image_provider)
       );

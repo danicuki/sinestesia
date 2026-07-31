@@ -79,9 +79,12 @@ export class DebugOverlay {
     //
     // Grouped by what they answer, so the eye knows where to look: how the
     // voice SOUNDS, what it SAID, and how the run is PERFORMING.
+    // Equal thirds. `run` used to be "0 0 auto", so it sized to its widest
+    // history row and took whatever it wanted — which, with a full model id on
+    // every line, was most of the strip, crushing the other two.
     const sound = column("1 1 0");
     const words = column("1 1 0");
-    const run = column("0 0 auto");
+    const run = column("1 1 0");
 
     this.elAudio = this.section(sound, "rail 1 — movement");
     this.elExpressive = this.section(sound, "rail 3 — expression");
@@ -261,8 +264,23 @@ export class DebugOverlay {
       span(" | ", COL.dim) +
       span(`TOT ${t.total_ms}ms`, COL.tot, true) +
       " " +
-      span(`(${t.image_provider})`, COL.prov)
+      this.provider(t.image_provider)
     );
+  }
+
+  // "cloudflare t2i 6st @cf/bytedance/stable-diffusion-xl-lightning" is most of
+  // a line on its own, and repeated down five history rows it forced the whole
+  // column wide enough to squeeze the transcript and the rails out of the way.
+  // The route (provider + mode + steps) is what's read at a glance; the exact
+  // model id matters only when something looks wrong, so it moves to the
+  // tooltip and leaves a "…" to say there is more.
+  private provider(raw: string | undefined): string {
+    const full = raw ?? "?";
+    const at = full.indexOf("@");
+    if (at < 0) return span(`(${escapeHtml(full)})`, COL.prov);
+
+    const head = full.slice(0, at).trim();
+    return `<span style="color:${COL.prov}" title="${escapeHtml(full)}">(${escapeHtml(head)} …)</span>`;
   }
 
   private renderHistory() {

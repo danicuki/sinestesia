@@ -21,12 +21,20 @@ defmodule Sinestesia.LyricsChunker do
   same shape as `Sinestesia.SongId`): the caller renders/reveals off the
   per-line fallback the instant lyrics load and only upgrades to the smarter
   chunking if/when this resolves before it matters.
+
+  Deliberately a LITE model, unlike `Sinestesia.SongId`: naming a performed
+  song needs real-world knowledge; splitting lyrics that are already fully in
+  hand is pure text structuring and needs none. A non-lite model measured
+  live spent its whole per-attempt timeout "thinking" before answering, so
+  the call never once finished before falling back — silently defeating the
+  entire feature. Kept as an env-overridable default rather than a hardcode
+  in case a future model generation changes this tradeoff.
   """
   require Logger
 
   @type chunk :: %{start_line: non_neg_integer(), end_line: non_neg_integer(), text: String.t()}
 
-  defp timeout_ms, do: String.to_integer(System.get_env("LYRICS_CHUNK_TIMEOUT_MS", "8000"))
+  defp timeout_ms, do: String.to_integer(System.get_env("LYRICS_CHUNK_TIMEOUT_MS", "15000"))
 
   @attempts 2
 
@@ -133,7 +141,7 @@ defmodule Sinestesia.LyricsChunker do
 
     case Keyword.get(cfg, :google_api_key) do
       key when is_binary(key) and key != "" ->
-        model = System.get_env("LYRICS_CHUNK_GEMINI_MODEL", "gemini-3.6-flash")
+        model = System.get_env("LYRICS_CHUNK_GEMINI_MODEL", "gemini-3.1-flash-lite")
 
         url =
           "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"

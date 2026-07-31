@@ -404,9 +404,9 @@ defmodule Sinestesia.Config do
     %{
       key: "LYRICS_CHUNK_GEMINI_MODEL",
       group: :lookahead,
-      default: "gemini-3.6-flash",
+      default: "gemini-3.1-flash-lite",
       doc:
-        "Model asked to split a loaded song's full lyrics into visually coherent scene units (see Sinestesia.LyricsChunker), replacing the old fixed-word/fixed-line guess with a real per-song read of the whole text. Runs once per song, off the critical path — never blocks a render."
+        "Model asked to split a loaded song's full lyrics into visually coherent scene units (see Sinestesia.LyricsChunker), replacing the old fixed-word/fixed-line guess with a real per-song read of the whole text. Unlike SONGID_GEMINI_MODEL, this task needs no real-world knowledge — just fast structural reading of text it's already given — so it defaults to the same lite tier as GEMINI_MODEL. A non-lite model measured live spending the whole timeout budget on 'thinking' before answering, so every chunking call fell back to one-line-per-chunk every time — the exact thinness this feature exists to fix. Runs once per song, off the critical path — never blocks a render."
     },
     %{
       key: "LYRICS_CHUNK_ANTHROPIC_MODEL",
@@ -417,9 +417,9 @@ defmodule Sinestesia.Config do
     %{
       key: "LYRICS_CHUNK_TIMEOUT_MS",
       group: :lookahead,
-      default: "8000",
+      default: "15000",
       doc:
-        "Per-attempt budget for lyrics chunking. Short relative to SONGID_TIMEOUT_MS: unlike song identification (off the hot path entirely, in the mint task), this sits between loading lyrics and the eager bootstrap being allowed to render — on any failure or timeout it falls back to one chunk per line, the same behavior as before this feature existed."
+        "Per-attempt budget for lyrics chunking. Runs fully off the critical path — the eager bootstrap always renders off the one-line-per-chunk fallback the instant lyrics load and only upgrades later if this resolves in time — so a generous budget costs nothing but a later upgrade; too short just means the smarter split never gets a chance to land before it matters."
     },
 
     # ── Song library ────────────────────────────────────────────────────────

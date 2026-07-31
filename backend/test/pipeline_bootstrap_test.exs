@@ -328,10 +328,8 @@ defmodule Sinestesia.PipelineBootstrapTest do
     refute Process.alive?(first_pid)
   end
 
-  test "a real first stanza sets the reveal target — SHORT stanza reveals after just its own lines",
+  test "the eager bootstrap targets the song's first LINE, never a whole stanza or a word count",
        %{pid: pid} do
-    # A one-line first stanza (blank-line separated from the rest) — the
-    # target should be line 0 alone, NOT an arbitrary word count.
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")
 
     raw = """
@@ -365,7 +363,7 @@ defmodule Sinestesia.PipelineBootstrapTest do
     assert state.last_image_url == "https://example.test/opening.jpg"
   end
 
-  test "a LONGER real first stanza reveals once ENOUGH words accumulate, capped at @bootstrap_min_words — not necessarily the whole stanza",
+  test "a LONGER real first stanza still only targets its OWN first line, not the rest of it",
        %{pid: pid} do
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")
 
@@ -380,12 +378,13 @@ defmodule Sinestesia.PipelineBootstrapTest do
     Sinestesia.Pipeline.set_lyrics(pid, raw)
     state = :sys.get_state(pid)
 
-    # Line 0 alone is 8 words (under @bootstrap_min_words = 15); lines 0+1
-    # together are 18, already past it — the target stops there, NOT at line
-    # 2, even though the real stanza has 3 lines. Found live (2026-07-31):
-    # waiting for an entire real verse can run far longer than this — see the
-    # dedicated 8-line test below, modeled on Aquarela's actual first verse.
-    assert %{target_index: 1} = state.bootstrap_speculation
+    # A real 3-line stanza — but the target is STILL just line 0, regardless
+    # of how many lines the natural stanza actually has. Two earlier attempts
+    # (see HANDOFF gotchas #29, #36) both still hard-coded some threshold
+    # (first a fixed word count, then a fixed word count capped per stanza)
+    # and both turned out to still be waiting too long on a real song — a
+    # "stanza" is a formatting artifact, not the coherent unit that matters.
+    assert %{target_index: 0} = state.bootstrap_speculation
 
     sid = state.session_id
     gen = state.bootstrap_generation
@@ -396,25 +395,22 @@ defmodule Sinestesia.PipelineBootstrapTest do
 
     land_bootstrap_spec_image(pid, sid, gen, "https://example.test/opening.jpg")
 
-    # Only the first line confirmed (8 words) — must NOT reveal yet.
+    # The FIRST line alone (8 words) is already enough to reveal — no need to
+    # wait for the stanza's other two lines at all.
     sing(pid, "Numa folha qualquer eu desenho um sol amarelo")
-    refute :sys.get_state(pid).bootstrap_done?
-
-    # Second line confirmed too (18 words total, past the cap) — now it may
-    # reveal, WITHOUT waiting for the stanza's third line.
-    sing(pid, "E com cinco ou seis retas é fácil fazer um castelo")
     assert :sys.get_state(pid).bootstrap_done? == true
   end
 
-  test "a genuinely long stanza (Aquarela's real 8-line first verse) caps the wait instead of holding for all 8 lines",
+  test "a genuinely long stanza (Aquarela's real 8-line first verse) only waits for its first line",
        %{pid: pid} do
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")
 
     # Modeled directly on the live report: Aquarela's real first verse has no
     # internal blank-line break, so MusicalStructure.analyze/1 groups all 8
     # short lines into ONE stanza. Before this fix, the eager bootstrap held
-    # the opening frame until every one of these 8 lines was confirmed sung —
-    # 30+ seconds of continuous singing before anything appeared on stage.
+    # the opening frame until MULTIPLE of these 8 lines were confirmed sung
+    # (first all 8, then a word-count-capped subset) — several tens of
+    # seconds of continuous singing before anything appeared on stage.
     raw = """
     Numa folha qualquer
     Eu desenho um sol amarelo
@@ -431,9 +427,10 @@ defmodule Sinestesia.PipelineBootstrapTest do
     Sinestesia.Pipeline.set_lyrics(pid, raw)
     state = :sys.get_state(pid)
 
-    # Cumulative words: 3, 8, 14, 19 — crosses @bootstrap_min_words (15) at
-    # line 3 ("É fácil fazer um castelo"), the 4th of 8 lines, not the 8th.
-    assert %{target_index: 3} = state.bootstrap_speculation
+    # Only 3 words ("Numa folha qualquer") — genuinely tiny, but it is the
+    # song's REAL opening fragment, not a truncated STT guess, and it's the
+    # one unit that needs no per-song tuning to identify.
+    assert %{target_index: 0, text: "Numa folha qualquer"} = state.bootstrap_speculation
   end
 
   test "reset_song (new song) re-arms the eager bootstrap when lyrics persist", %{pid: pid} do

@@ -2965,9 +2965,20 @@ defmodule Sinestesia.Pipeline do
   # The eager bootstrap's content AND the line it needs real singing to reach
   # before revealing. Prefers the song's own first STANZA (state.structure,
   # already computed from the pasted lyrics' blank-line breaks) — a musically
-  # coherent unit, whatever its natural length is for THIS song. Falls back to
-  # a small fixed window when there's no real stanza info to trust: a script
-  # with only ONE structure section is the tell — MusicalStructure.analyze/1
+  # coherent unit — but CAPPED at @bootstrap_min_words: found live (2026-07-31)
+  # that a real first verse can run much longer than the short 1-2 line
+  # example that originally motivated "wait for the whole natural unit"
+  # (gotcha #29) — Aquarela's actual first verse is 8 lines with no internal
+  # blank-line break, so waiting for ALL of it held the opening frame for
+  # 30+ seconds of continuous singing, reintroducing almost exactly the
+  # perceived-lag problem this whole feature exists to kill. Still reveals at
+  # a real LINE boundary (never mid-sentence) — it just stops at the FIRST
+  # line where accumulated words already clear @bootstrap_min_words, instead
+  # of insisting on the stanza's full length. A short stanza (the common case
+  # this was tuned around) is unaffected: it still waits for all of its own
+  # lines, since they never reach the cap before the stanza itself ends. Falls
+  # back to a small fixed window when there's no real stanza info to trust: a
+  # script with only ONE structure section is the tell — MusicalStructure.analyze/1
   # always collapses a flat list (no blank lines given) into a single section
   # spanning the WHOLE script, so trusting "the first section" there would
   # mean waiting for the entire song, exactly the arbitrary-wait problem this
@@ -2975,12 +2986,36 @@ defmodule Sinestesia.Pipeline do
   defp bootstrap_content_and_target(state) do
     case state.structure.sections do
       [first | _] when length(state.structure.sections) > 1 ->
-        {Enum.join(first.lines, " "), first.line_end}
+        stanza_target(first)
 
       _ ->
         capped = Enum.take(state.script, @bootstrap_fallback_lines)
         {Enum.join(capped, " "), max(length(capped) - 1, 0)}
     end
+  end
+
+  # Walk the stanza's own physical lines in order, stopping at the FIRST one
+  # where cumulative words reach @bootstrap_min_words — or the stanza's last
+  # line, whichever comes first. Returns the text through that point and its
+  # absolute script index (line_start + offset).
+  defp stanza_target(%{lines: lines, line_start: line_start}) do
+    last_index = length(lines) - 1
+
+    {offset, taken, _words} =
+      lines
+      |> Enum.with_index()
+      |> Enum.reduce_while({0, [], 0}, fn {line, idx}, {_offset, taken, words} ->
+        words = words + word_count(line)
+        taken = [line | taken]
+
+        if words >= @bootstrap_min_words or idx == last_index do
+          {:halt, {idx, taken, words}}
+        else
+          {:cont, {idx, taken, words}}
+        end
+      end)
+
+    {taken |> Enum.reverse() |> Enum.join(" "), line_start + offset}
   end
 
   # Has real (confirmed) singing reached the eager bootstrap's target line yet?

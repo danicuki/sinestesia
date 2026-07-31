@@ -365,7 +365,7 @@ defmodule Sinestesia.PipelineBootstrapTest do
     assert state.last_image_url == "https://example.test/opening.jpg"
   end
 
-  test "a LONGER real first stanza correctly waits for all of its own lines, not just one",
+  test "a LONGER real first stanza reveals once ENOUGH words accumulate, capped at @bootstrap_min_words — not necessarily the whole stanza",
        %{pid: pid} do
     System.put_env("SPECULATIVE_LOOKAHEAD", "on")
 
@@ -380,7 +380,12 @@ defmodule Sinestesia.PipelineBootstrapTest do
     Sinestesia.Pipeline.set_lyrics(pid, raw)
     state = :sys.get_state(pid)
 
-    assert %{target_index: 2} = state.bootstrap_speculation
+    # Line 0 alone is 8 words (under @bootstrap_min_words = 15); lines 0+1
+    # together are 18, already past it — the target stops there, NOT at line
+    # 2, even though the real stanza has 3 lines. Found live (2026-07-31):
+    # waiting for an entire real verse can run far longer than this — see the
+    # dedicated 8-line test below, modeled on Aquarela's actual first verse.
+    assert %{target_index: 1} = state.bootstrap_speculation
 
     sid = state.session_id
     gen = state.bootstrap_generation
@@ -391,15 +396,44 @@ defmodule Sinestesia.PipelineBootstrapTest do
 
     land_bootstrap_spec_image(pid, sid, gen, "https://example.test/opening.jpg")
 
-    # Only the first of the 3 stanza lines confirmed — must NOT reveal yet.
+    # Only the first line confirmed (8 words) — must NOT reveal yet.
     sing(pid, "Numa folha qualquer eu desenho um sol amarelo")
     refute :sys.get_state(pid).bootstrap_done?
 
-    # The rest of the stanza confirmed — now it may reveal.
+    # Second line confirmed too (18 words total, past the cap) — now it may
+    # reveal, WITHOUT waiting for the stanza's third line.
     sing(pid, "E com cinco ou seis retas é fácil fazer um castelo")
-    sing(pid, "Corro o lápis em torno da mão e me dou uma luva")
-
     assert :sys.get_state(pid).bootstrap_done? == true
+  end
+
+  test "a genuinely long stanza (Aquarela's real 8-line first verse) caps the wait instead of holding for all 8 lines",
+       %{pid: pid} do
+    System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+    # Modeled directly on the live report: Aquarela's real first verse has no
+    # internal blank-line break, so MusicalStructure.analyze/1 groups all 8
+    # short lines into ONE stanza. Before this fix, the eager bootstrap held
+    # the opening frame until every one of these 8 lines was confirmed sung —
+    # 30+ seconds of continuous singing before anything appeared on stage.
+    raw = """
+    Numa folha qualquer
+    Eu desenho um sol amarelo
+    E com cinco ou seis retas
+    É fácil fazer um castelo
+    Corro o lápis em torno da mão
+    E me dou uma luva
+    E se faço chover com dois riscos
+    Tenho um guarda-chuva
+
+    Se um pinguinho de tinta
+    """
+
+    Sinestesia.Pipeline.set_lyrics(pid, raw)
+    state = :sys.get_state(pid)
+
+    # Cumulative words: 3, 8, 14, 19 — crosses @bootstrap_min_words (15) at
+    # line 3 ("É fácil fazer um castelo"), the 4th of 8 lines, not the 8th.
+    assert %{target_index: 3} = state.bootstrap_speculation
   end
 
   test "reset_song (new song) re-arms the eager bootstrap when lyrics persist", %{pid: pid} do

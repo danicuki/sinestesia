@@ -58,11 +58,13 @@ export class DebugOverlay {
       gap: "24px",
       padding: "8px 12px",
       // Hard ceiling: instrumentation must never creep up over the picture.
-      // The dock's own controls sit above this, so leave them room too.
       maxHeight: "30vh",
       overflow: "hidden",
-      // Keep clear of the control dock in the bottom-right corner.
-      paddingRight: "22vw",
+      // Clear the control dock by leaving room BELOW, not beside. Reserving a
+      // right margin instead cost the columns a quarter of the screen across
+      // their whole height, to dodge a single row of buttons in one corner —
+      // and the squeeze put the history back to wrapping every line.
+      paddingBottom: "40px",
       background: "rgba(0,0,0,0.55)",
       font: "11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace",
       color: COL.final,

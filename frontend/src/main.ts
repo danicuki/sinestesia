@@ -10,6 +10,8 @@ import { Scene } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
 import { LyricsControl } from "./lyrics";
+import { SessionRecorder } from "./recorder";
+import { RecordControl } from "./record_control";
 import { SongLibraryControl } from "./song_library";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
@@ -311,6 +313,13 @@ async function start() {
   // clear the canvas immediately so the singer can start over, and let the mint
   // finish in the background against the snapshot the backend already took.
   let styleControl: StyleControl | null = null;
+  // Always recording, from the first event — a take you have to remember to
+  // arm is a take you lose. Nothing is written anywhere until "Save take" is
+  // clicked, and the file is produced by the browser's own download flow, so
+  // this never touches the network or the show.
+  const recorder = new SessionRecorder();
+  let recordControl: RecordControl | null = null;
+
   function endSong() {
     scene.clearImage();
     if (!socket) {
@@ -345,6 +354,11 @@ async function start() {
   if (socket) {
     socket.onImage = ({ url, prompt, timings, frames, verification }) => {
       console.log("[main] image:", prompt, timings ?? "", "frames:", frames ?? "none");
+      // Recorded here, at the moment the frame is handed to the scene — the
+      // browser is the only place that knows when a picture actually reached
+      // the screen, which is the half a backend log cannot supply.
+      recorder.noteReveal(url, prompt, timings);
+      recordControl?.setCount(recorder.count);
       scene.transitionTo(url, frames);
       verifyBadge?.update(verification);
       if (debug) {
@@ -365,6 +379,8 @@ async function start() {
     socket.onTranscript = (m) => {
       const tag = `[${m.provider ?? "?"}${m.isFinal ? " FINAL" : ""}]`;
       console.log(tag, m.latencyMs != null ? `+${m.latencyMs}ms` : "", m.text);
+      recorder.noteTranscript(m.text, m.isFinal);
+      recordControl?.setCount(recorder.count);
       debug?.setTranscript(m);
     };
     socket.onError = (message, provider) => {
@@ -400,6 +416,14 @@ async function start() {
     });
   }
 
+  // "Save take" — rehearsal/diagnostic tooling, hidden on stage like the rest.
+  if (!CLEAN) {
+    recordControl = new RecordControl(
+      () => recorder.download(),
+      () => recorder.clear(),
+    );
+  }
+
   // Style control + "End Song" — visible during rehearsal, hidden under
   // ?clean=1. Prefilled with the persisted style.
   if (!CLEAN) {
@@ -417,6 +441,8 @@ async function start() {
     styleControl = style;
     if (socket)
       socket.onStyle = (accepted, source) => {
+        // Carried into the saved take so a replay reproduces the same look.
+        if (accepted) recorder.noteStyle(accepted);
         style.setAccepted(accepted, source);
         // Persist the chosen style (user- or curator-picked). The reset echo is
         // ignored so "nova música" keeps the current look across reloads.
@@ -451,8 +477,14 @@ async function start() {
 
     if (socket) {
       socket.onSongs = (songs) => library.setSongs(songs);
-      socket.onSongLoaded = (m) => library.setCurrentSong(m);
-      socket.onSongIdentified = (m) => library.setCurrentSong(m);
+      socket.onSongLoaded = (m) => {
+        recorder.noteSong(m.title ?? "");
+        library.setCurrentSong(m);
+      };
+      socket.onSongIdentified = (m) => {
+        recorder.noteSong(m.title ?? "");
+        library.setCurrentSong(m);
+      };
       socket.onSongSaved = (m) => library.setSaved(m);
       socket.onSongError = (message) => library.setError(message);
     }

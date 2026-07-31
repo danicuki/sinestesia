@@ -723,12 +723,45 @@ defmodule Sinestesia.Pipeline do
 
     state = %{state | chunks: chunks, pending_pids: drop_dead(state.pending_pids)}
 
-    # If the eager bootstrap hasn't fired yet, it now targets the real first
-    # chunk instead of the one-line fallback it would otherwise have raced
-    # ahead with; maybe_speculate_bootstrap/1 is a safe no-op if it already
-    # has (its own `not is_nil(state.bootstrap_speculation)` guard).
-    {:noreply, maybe_speculate_bootstrap(state)}
+    # Re-target an eager bootstrap that's still in flight on the OLD (one line
+    # per scene) chunks, then let maybe_speculate_bootstrap/1 fire for the
+    # normal case where it hasn't started at all.
+    {:noreply, state |> retarget_bootstrap_for_chunks() |> maybe_speculate_bootstrap()}
   end
+
+  # `load_lyrics/3` calls maybe_speculate_bootstrap/1 SYNCHRONOUSLY, so by the
+  # time this feature's own background chunking Task answers — even under a
+  # second later — the eager bootstrap has always already been spawned against
+  # the one-line-per-scene fallback. maybe_speculate_bootstrap/1's
+  # `not is_nil(state.bootstrap_speculation)` guard then makes the upgrade a
+  # no-op, which meant a SUCCESSFUL chunking could never actually improve the
+  # opening frame — the one frame it was built to fix (HANDOFF gotcha #42).
+  #
+  # So: if the real first chunk covers more than the fallback did, throw the
+  # in-flight render away and start it again on the better content. Safe
+  # because nothing has been shown yet — the bootstrap is held until real
+  # singing reaches its target line, and this only ever runs in the seconds
+  # right after lyrics load, typically while the stage is still silent.
+  # Deliberately NOT done once the singer has already reached it
+  # (`confirmed`): re-rendering then would trade a slightly thin frame that is
+  # ready NOW for a better one that arrives after the moment it was needed,
+  # which is the wrong trade on stage.
+  defp retarget_bootstrap_for_chunks(%{bootstrap_speculation: %{confirmed: false} = bs} = state)
+       when not is_nil(bs) do
+    case bootstrap_content_and_target(state) do
+      {text, _target} when text != "" and text != bs.text ->
+        Logger.debug(
+          "[bootstrap-spec] re-targeting the opening on the real scene split: #{inspect(bs.text)} → #{inspect(text)}"
+        )
+
+        state |> discard_bootstrap_speculation() |> maybe_speculate_bootstrap()
+
+      _ ->
+        state
+    end
+  end
+
+  defp retarget_bootstrap_for_chunks(state), do: state
 
   # Forwarded so the headless replay task (and optionally the front) knows the
   # session finished. The browser ignores unknown message types per PROTOCOL.md.

@@ -79,6 +79,18 @@ defmodule Sinestesia.PerformanceFollower do
   from the cursor and takes the LAST line whose words are covered, not the
   first. Used once, right when an eagerly pre-rendered opening frame reveals,
   to position the cursor for ordinary per-line look-ahead to continue from.
+
+  The scan stops at the first line that ISN'T covered, rather than taking the
+  furthest covered line anywhere in the window. A performance moves through
+  the lyrics in order, so a covered line with an UNCOVERED gap before it was
+  never actually reached — it's a later repeat that happens to share words
+  with what's been sung. `coverage/2`'s denominator is the candidate line
+  alone, which makes a short line of common words (Fly Me To The Moon's "And
+  let me sing forever more" against an opening that already contains "and",
+  "let" and "me") cheap to clear by coincidence, so without the contiguity
+  requirement one lucky hit eight lines ahead drags the cursor there and the
+  look-ahead spends the rest of the song predicting lines nobody has sung
+  yet. See HANDOFF.md gotcha #42.
   """
   @spec furthest_match(String.t(), [String.t()], integer(), keyword()) ::
           {:match, non_neg_integer()} | :no_match
@@ -97,7 +109,7 @@ defmodule Sinestesia.PerformanceFollower do
 
       lo..hi
       |> Enum.filter(&(&1 >= 0 and &1 < n))
-      |> Enum.filter(fn i -> coverage(sung_set, tokens(Enum.at(script, i))) >= threshold end)
+      |> Enum.take_while(fn i -> coverage(sung_set, tokens(Enum.at(script, i))) >= threshold end)
       |> case do
         [] -> :no_match
         indices -> {:match, Enum.max(indices)}

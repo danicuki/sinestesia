@@ -123,12 +123,18 @@ defmodule Sinestesia.PipelineChunkingTest do
              } = state.bootstrap_speculation
     end
 
-    test "an already-fired bootstrap is left alone — the chunking result only applies going forward",
+    test "a bootstrap already in flight on the FALLBACK is re-targeted onto the real chunk",
          %{pid: pid} do
+      # The case that actually happens live, every time: load_lyrics/3 fires
+      # the eager bootstrap synchronously against the one-line-per-scene
+      # fallback, so the chunking result ALWAYS arrives with a render already
+      # in flight. Before HANDOFF gotcha #42 this was a no-op, which meant a
+      # successful chunking could never improve the one frame it exists to
+      # fix.
       Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
 
       state = :sys.get_state(pid)
-      assert %{target_index: 0} = state.bootstrap_speculation
+      assert %{target_index: 0, text: "Numa folha qualquer"} = state.bootstrap_speculation
       sid = state.session_id
       gen = state.chunk_generation
 
@@ -140,10 +146,38 @@ defmodule Sinestesia.PipelineChunkingTest do
 
       state = :sys.get_state(pid)
       assert state.chunks == chunks
-      # maybe_speculate_bootstrap/1's own `not is_nil(bootstrap_speculation)`
-      # guard makes this a no-op — the fallback-based render already in
-      # flight is not discarded/restarted.
-      assert %{target_index: 0} = state.bootstrap_speculation
+
+      assert %{
+               status: :director,
+               target_index: 1,
+               text: "Numa folha qualquer Eu desenho um sol amarelo"
+             } = state.bootstrap_speculation
+    end
+
+    test "a bootstrap the singer has ALREADY reached is not re-targeted out from under her",
+         %{pid: pid} do
+      # Once confirmed, the held frame is wanted NOW. Restarting the render
+      # would swap a ready, slightly thin opening for a better one that lands
+      # after the moment it was needed — the wrong trade on stage.
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+
+      state = :sys.get_state(pid)
+      sid = state.session_id
+      gen = state.chunk_generation
+
+      :sys.replace_state(pid, fn s ->
+        %{s | bootstrap_speculation: %{s.bootstrap_speculation | confirmed: true}}
+      end)
+
+      chunks = [
+        %{start_line: 0, end_line: 1, text: "Numa folha qualquer Eu desenho um sol amarelo"}
+      ]
+
+      send(pid, {:lyrics_chunked, {:ok, chunks}, sid, gen})
+
+      state = :sys.get_state(pid)
+      assert state.chunks == chunks
+      assert %{target_index: 0, text: "Numa folha qualquer", confirmed: true} = state.bootstrap_speculation
     end
 
     test "a chunking failure falls back to one chunk per line and still unblocks the bootstrap",

@@ -105,6 +105,34 @@ defmodule Sinestesia.PerformanceFollowerTest do
       assert {:match, idx} = Follower.furthest_match(accumulated, long_script, -1)
       assert idx <= 2
     end
+
+    test "a covered line with an UNCOVERED gap before it is a later repeat, not real progress" do
+      # Modeled on the live Fly Me To The Moon failure (HANDOFF gotcha #42).
+      # Short lines of common words make coverage/2 — whose denominator is the
+      # candidate line alone — cheap to clear by coincidence: line 9 shares
+      # "and"/"let"/"me" with the opening and scores 3/4 = 0.75, well over the
+      # threshold, despite not having been sung at all.
+      script = [
+        "Fly me to the Moon",
+        "Let me play among the stars",
+        "Let me see what spring is like",
+        "On Jupiter and Mars",
+        "In other words",
+        "Hold my hand",
+        "In other words",
+        "Baby kiss me",
+        "Fill my heart with song",
+        "And let me sing"
+      ]
+
+      sung = "Fly me to the moon and let me play among the stars"
+
+      # Only lines 0 and 1 were actually sung, and line 2 breaks the run, so
+      # that's where the cursor belongs — NOT line 9, which the pre-fix
+      # "furthest covered anywhere in the window" rule would have picked,
+      # dragging the look-ahead eight lines past the performance.
+      assert {:match, 1} = Follower.furthest_match(sung, script, -1, window: 12)
+    end
   end
 
   describe "normalize/1" do

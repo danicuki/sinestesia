@@ -97,7 +97,11 @@ defmodule Sinestesia.PipelineBootstrapTest do
       frame_url: nil,
       frame_route: nil,
       receipt: nil,
-      text: "fake opening text"
+      text: "fake opening text",
+      # @script is a flat list (no blank-line stanzas), so the real code
+      # would compute this via the fallback window (@bootstrap_fallback_lines
+      # = 2 lines) too — index 1 covers @script's first two lines.
+      target_index: 1
     }
 
     :sys.replace_state(pid, fn state ->
@@ -282,6 +286,80 @@ defmodule Sinestesia.PipelineBootstrapTest do
     assert state.bootstrap_generation == 2
     # The old attempt's Task is killed on discard.
     refute Process.alive?(first_pid)
+  end
+
+  test "a real first stanza sets the reveal target — SHORT stanza reveals after just its own lines",
+       %{pid: pid} do
+    # A one-line first stanza (blank-line separated from the rest) — the
+    # target should be line 0 alone, NOT an arbitrary word count.
+    System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+    raw = """
+    Numa folha qualquer eu desenho um sol amarelo
+
+    E com cinco ou seis retas é fácil fazer um castelo
+    Corro o lápis em torno da mão e me dou uma luva
+    """
+
+    Sinestesia.Pipeline.set_lyrics(pid, raw)
+    state = :sys.get_state(pid)
+
+    assert length(state.structure.sections) == 2
+    assert %{target_index: 0} = state.bootstrap_speculation
+
+    # Confirm ONLY the first (8-word) line — well under the old fixed 15-word
+    # threshold — and it must already be enough to reveal once ready.
+    sid = state.session_id
+    gen = state.bootstrap_generation
+
+    :sys.replace_state(pid, fn s ->
+      %{s | bootstrap_speculation: %{s.bootstrap_speculation | status: :image}}
+    end)
+
+    land_bootstrap_spec_image(pid, sid, gen, "https://example.test/opening.jpg")
+
+    sing(pid, "Numa folha qualquer eu desenho um sol amarelo")
+
+    state = :sys.get_state(pid)
+    assert state.bootstrap_done? == true
+    assert state.last_image_url == "https://example.test/opening.jpg"
+  end
+
+  test "a LONGER real first stanza correctly waits for all of its own lines, not just one",
+       %{pid: pid} do
+    System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+    raw = """
+    Numa folha qualquer eu desenho um sol amarelo
+    E com cinco ou seis retas é fácil fazer um castelo
+    Corro o lápis em torno da mão e me dou uma luva
+
+    Vai vai vai, aquarela do Brasil
+    """
+
+    Sinestesia.Pipeline.set_lyrics(pid, raw)
+    state = :sys.get_state(pid)
+
+    assert %{target_index: 2} = state.bootstrap_speculation
+
+    sid = state.session_id
+    gen = state.bootstrap_generation
+
+    :sys.replace_state(pid, fn s ->
+      %{s | bootstrap_speculation: %{s.bootstrap_speculation | status: :image}}
+    end)
+
+    land_bootstrap_spec_image(pid, sid, gen, "https://example.test/opening.jpg")
+
+    # Only the first of the 3 stanza lines confirmed — must NOT reveal yet.
+    sing(pid, "Numa folha qualquer eu desenho um sol amarelo")
+    refute :sys.get_state(pid).bootstrap_done?
+
+    # The rest of the stanza confirmed — now it may reveal.
+    sing(pid, "E com cinco ou seis retas é fácil fazer um castelo")
+    sing(pid, "Corro o lápis em torno da mão e me dou uma luva")
+
+    assert :sys.get_state(pid).bootstrap_done? == true
   end
 
   test "reset_song (new song) re-arms the eager bootstrap when lyrics persist", %{pid: pid} do

@@ -1642,22 +1642,33 @@ defmodule Sinestesia.Pipeline do
     bootstrap? = bootstrap?(state)
 
     cond do
-      bootstrap? and accumulated_word_count(state) < @bootstrap_min_words ->
-        # Wait until enough has been sung to seed a rich opening drawing. If an
-        # eager bootstrap (SPECULATIVE_LOOKAHEAD, rendered from pasted lyrics
-        # the moment they loaded) is already in flight, this is exactly the
-        # wait it needs too — it'll typically be ready well before real
-        # singing reaches the threshold.
+      # No known script (lookahead off, or nothing pasted yet) — the only
+      # signal available is a raw word count, so that's what the reactive path
+      # has always used. @bootstrap_min_words is a real but ARBITRARY number
+      # here: it exists only because there's nothing better to go on.
+      bootstrap? and is_nil(state.bootstrap_speculation) and
+          accumulated_word_count(state) < @bootstrap_min_words ->
+        state
+
+      # A script IS known, so we don't need to guess: the eager render already
+      # covers a musically coherent unit (the first STANZA, or a small
+      # fallback window when no real stanza breaks were given — see
+      # bootstrap_content_and_target/1), and we gate reveal on having ACTUALLY
+      # SUNG through that unit, whatever its natural word count turns out to
+      # be for THIS song. An 8-word opening line reveals in 8 words; a longer
+      # one waits longer — no fixed threshold either way.
+      bootstrap? and not is_nil(state.bootstrap_speculation) and
+          not bootstrap_target_reached?(state) ->
         state
 
       bootstrap? and match?(%{status: :ready}, state.bootstrap_speculation) ->
-        # Real singing just reached the threshold, and the eager bootstrap is
+        # Real singing just reached the target, and the eager bootstrap is
         # already rendered — use it instead of firing a second, redundant
         # Director call for the same opening.
         reveal_bootstrap_speculation(state)
 
       bootstrap? and not is_nil(state.bootstrap_speculation) ->
-        # Reached the threshold, but the eager render isn't done yet. Mark it
+        # Reached the target, but the eager render isn't done yet. Mark it
         # wanted and wait — its own completion handler reveals it. Must NOT
         # fall through to firing the reactive bootstrap below, or the opening
         # gets rendered twice.
@@ -2507,13 +2518,15 @@ defmodule Sinestesia.Pipeline do
   # Ordinarily the FIRST frame is always reactive — @bootstrap_min_words of
   # REAL singing has to accumulate before it fires (see maybe_trigger), because
   # generating it from too little content lets a poor opening dominate the
-  # whole song via i2i. But if the whole song is already pasted, there is no
-  # reason to wait for real singing to reach that word count: this renders the
-  # opening from the SCRIPT's own first words (same word-count target, same
-  # t2i shape) the moment lyrics load, and holds it exactly like an ordinary
-  # speculation — revealed only once REAL singing independently reaches the
-  # threshold. Runs once per song; `bootstrap_done?` (set on reveal) prevents
-  # re-entry, same invariant the reactive path already relies on.
+  # whole song via i2i. That word count is a real but ARBITRARY number: with
+  # the whole song already pasted, we don't need to guess how much is "enough"
+  # — the first STANZA already tells us. This renders the opening from that
+  # coherent unit (t2i, no seed — same shape as the reactive bootstrap) the
+  # moment lyrics load, and holds it exactly like an ordinary speculation:
+  # revealed only once REAL singing independently reaches the SAME unit's end
+  # (see bootstrap_target_reached?/1), whatever that turns out to cost in
+  # words for this particular song. Runs once per song; `bootstrap_done?` (set
+  # on reveal) prevents re-entry, same invariant the reactive path relies on.
   defp maybe_speculate_bootstrap(state) do
     cond do
       not lookahead_enabled?() ->
@@ -2532,7 +2545,7 @@ defmodule Sinestesia.Pipeline do
         state
 
       true ->
-        text = bootstrap_text_from_script(state.script)
+        {text, target_index} = bootstrap_content_and_target(state)
 
         if text == "" do
           state
@@ -2541,7 +2554,7 @@ defmodule Sinestesia.Pipeline do
           pid = spawn_bootstrap_director(state, text, gen)
 
           Logger.debug(
-            "[bootstrap-spec] pre-rendering the opening from pasted lyrics: #{inspect(text)}"
+            "[bootstrap-spec] pre-rendering the opening from pasted lyrics (through line #{target_index}): #{inspect(text)}"
           )
 
           bspec = %{
@@ -2555,7 +2568,8 @@ defmodule Sinestesia.Pipeline do
             frame_url: nil,
             frame_route: nil,
             receipt: nil,
-            text: text
+            text: text,
+            target_index: target_index
           }
 
           %{
@@ -2568,15 +2582,51 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
-  # The script's own opening words, matching the reactive bootstrap's word
-  # target — we already have the whole song, so there's no need to wait for
-  # real accumulation the way the reactive path does.
-  defp bootstrap_text_from_script(script) do
-    script
-    |> Enum.join(" ")
-    |> String.split(~r/\s+/, trim: true)
-    |> Enum.take(@bootstrap_window_words)
-    |> Enum.join(" ")
+  # When no real stanza breaks exist (a flat script — see below), how many
+  # opening lines to treat as "enough to draw something", instead of waiting
+  # for the whole song.
+  @bootstrap_fallback_lines 2
+  # A generous window for furthest_match/4 calls below: the eager bootstrap's
+  # target line, or the accumulated-so-far catch-up, may span several lines —
+  # unlike the ordinary per-line follower window (tuned for one line at a time).
+  @bootstrap_catchup_window 12
+
+  # The eager bootstrap's content AND the line it needs real singing to reach
+  # before revealing. Prefers the song's own first STANZA (state.structure,
+  # already computed from the pasted lyrics' blank-line breaks) — a musically
+  # coherent unit, whatever its natural length is for THIS song. Falls back to
+  # a small fixed window when there's no real stanza info to trust: a script
+  # with only ONE structure section is the tell — MusicalStructure.analyze/1
+  # always collapses a flat list (no blank lines given) into a single section
+  # spanning the WHOLE script, so trusting "the first section" there would
+  # mean waiting for the entire song, exactly the arbitrary-wait problem this
+  # is meant to avoid.
+  defp bootstrap_content_and_target(state) do
+    case state.structure.sections do
+      [first | _] when length(state.structure.sections) > 1 ->
+        {Enum.join(first.lines, " "), first.line_end}
+
+      _ ->
+        capped = Enum.take(state.script, @bootstrap_fallback_lines)
+        {Enum.join(capped, " "), max(length(capped) - 1, 0)}
+    end
+  end
+
+  # Has real (confirmed) singing reached the eager bootstrap's target line yet?
+  # Uses furthest_match/4 (not match/4) for the same reason
+  # catch_up_position_from_accumulated/1 does — everything sung SO FAR may
+  # already cover several lines, and we want the FURTHEST one reached, not the
+  # nearest.
+  defp bootstrap_target_reached?(%{bootstrap_speculation: %{target_index: target}} = state) do
+    sung_so_far = state.lyrics |> Enum.join(" ")
+
+    case Sinestesia.PerformanceFollower.furthest_match(sung_so_far, state.script, -1,
+           window: max(target + 1, @bootstrap_catchup_window),
+           threshold: lyric_threshold()
+         ) do
+      {:match, idx} -> idx >= target
+      :no_match -> false
+    end
   end
 
   defp spawn_bootstrap_director(state, text, gen) do
@@ -2644,11 +2694,6 @@ defmodule Sinestesia.Pipeline do
     |> catch_up_position_from_accumulated()
     |> maybe_speculate()
   end
-
-  # A generous window: the eager bootstrap can span several short lines before
-  # reaching @bootstrap_min_words, all covered by the SAME accumulated block —
-  # unlike the ordinary per-line follower window (tuned for one line at a time).
-  @bootstrap_catchup_window 12
 
   defp catch_up_position_from_accumulated(state) do
     sung_so_far = state.lyrics |> Enum.join(" ")

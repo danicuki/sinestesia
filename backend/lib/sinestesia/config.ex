@@ -164,7 +164,7 @@ defmodule Sinestesia.Config do
       default: nil,
       values: "1 | true | on",
       doc:
-        "Ask Scribe to clean the transcript instead of returning it verbatim. Off by default: its documented job is removing filler words, REPEATED PHRASES and stuttering, and a song repeats on purpose — stripping a returning chorus would remove the very signal PerformanceFollower uses to place the singer. Worth measuring on a real run for the false starts a live mic produces, but it is not the fix for held vowels (\"castelooo\"): the docs never claim it normalizes those, so the follower's own repeated-letter collapse stays on regardless and also covers the Deepgram and local-Whisper paths, which have no equivalent option."
+        "Ask Scribe to clean the transcript instead of returning it verbatim. Off by default because it only exists on the ElevenLabs path (Deepgram and the local Whisper sidecar have no equivalent), so it can never be the mechanism the follower relies on. Its documented scope is filler words and stuttering, never held-vowel normalization (\"castelooo\"), which is why the follower keeps its own repeated-letter collapse regardless. Worth measuring on a real run for the false starts a live mic produces."
     },
     %{
       key: "LOCAL_WHISPER_HOST",

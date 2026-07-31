@@ -49,6 +49,10 @@ defmodule Sinestesia.PipelineChunkingTest do
 
   defp sing(pid, text), do: send(pid, {:transcript, :replay, text, true, 0})
 
+  # An interim (not yet VAD-committed) transcript — what streams in while the
+  # singer is still going.
+  defp singing(pid, text), do: send(pid, {:transcript, :replay, text, false, 0})
+
   # A harmless, never-completing process to stand in for a real Task pid.
   defp fake_pid, do: spawn(fn -> Process.sleep(:infinity) end)
 
@@ -338,6 +342,34 @@ defmodule Sinestesia.PipelineChunkingTest do
       # so the next look-ahead doesn't re-target a scene already performed.
       assert state.last_image_url == "https://example.test/chunk.jpg"
       assert state.script_cursor == 2
+    end
+
+    test "a legato phrase releases the scene from an INTERIM transcript, without waiting for the pause",
+         %{pid: pid} do
+      # Found live: ElevenLabs only commits after ELEVEN_VAD_SILENCE of
+      # silence, so singing without breathing produces one enormous utterance
+      # covering several scenes — and only one of them can ever be revealed,
+      # because the rest are behind the cursor by the time it lands. The
+      # partials carry the same words a second at a time, so a held scene is
+      # released as soon as its own words are actually heard.
+      seed_chunk_speculation(pid)
+
+      singing(pid, "line two line three")
+
+      state = :sys.get_state(pid)
+      assert state.last_image_url == "https://example.test/chunk.jpg"
+      assert state.script_cursor == 2
+    end
+
+    test "an interim transcript that hasn't reached the scene's end yet reveals nothing",
+         %{pid: pid} do
+      seed_chunk_speculation(pid)
+
+      singing(pid, "line two")
+
+      state = :sys.get_state(pid)
+      refute state.last_image_url == "https://example.test/chunk.jpg"
+      assert state.script_cursor == 0
     end
 
     test "covering only the chunk's OPENING line still waits — that's a real mid-scene pause",

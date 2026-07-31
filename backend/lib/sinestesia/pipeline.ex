@@ -2873,7 +2873,62 @@ defmodule Sinestesia.Pipeline do
   # MUSICAL_STRUCTURE alone (no look-ahead) still tracks position so section
   # hints reach the reactive Director. Neither flag set → fully inert, same as
   # Phase 1's original behaviour.
+  # Interim (not yet committed) transcripts. These do NOT move the cursor or
+  # feed the reactive Director — but they CAN release a scene whose frame is
+  # already rendered and held, and that matters a lot when the singer doesn't
+  # breathe.
+  #
+  # ElevenLabs only commits on `ELEVEN_VAD_SILENCE` of silence, so a legato
+  # passage arrives as ONE enormous utterance. Measured live on Aquarela: a
+  # single commit carried "Vai voando… norte e sul. Vou com ela… Istambul.
+  # Pinto um barco a vela… num beijo azul" — six script lines, three whole
+  # scenes, of which only one could ever be revealed (the others are behind
+  # the cursor by the time it lands, so their pre-rendered frames are simply
+  # dropped). The next utterance was longer still and matched nothing at all,
+  # collapsing to the slow reactive path for the rest of the song.
+  #
+  # The partials are already streaming the same words a second at a time, so
+  # a held scene can be released the moment the words that scene depicts have
+  # actually been sung, mid-phrase, instead of waiting for a pause that may
+  # not come until three scenes later. This stays honestly voice-gated —
+  # nothing is shown before its own words are heard — it just stops using
+  # "the singer paused" as a proxy for "the singer finished the line".
+  defp advance_script(%{script_active?: true} = state, text, false) do
+    if lookahead_enabled?() do
+      {release_covered_scenes(state, text), :fallthrough}
+    else
+      {state, :fallthrough}
+    end
+  end
+
   defp advance_script(state, _text, false), do: {state, :fallthrough}
+
+  # Release every held scene this interim text already covers, not just the
+  # first: one long phrase can cover several, and revealing one promotes the
+  # next from the deep cache (see reveal_speculation -> maybe_speculate), so
+  # the very same text is re-tested against it. Bounded by the fact that each
+  # pass must consume a `:ready` speculation and push the cursor forward.
+  defp release_covered_scenes(state, text) do
+    case state.speculation do
+      %{status: :ready, index: end_line} ->
+        line = Enum.at(state.script, end_line)
+
+        if is_binary(line) and end_line > state.script_cursor and
+             Sinestesia.PerformanceFollower.covers?(text, line, threshold: lyric_threshold()) do
+          Logger.debug("[spec] interim text already covers the scene ending at line #{end_line}")
+
+          state
+          |> update_position(end_line)
+          |> reveal_speculation()
+          |> release_covered_scenes(text)
+        else
+          state
+        end
+
+      _ ->
+        state
+    end
+  end
 
   defp advance_script(%{script_active?: true} = state, text, true) do
     cond do

@@ -69,6 +69,55 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     end)
   end
 
+  # A finished, held (not-yet-revealed) frame in the shape reveal_speculation/1
+  # and the cache both expect. Seeding this directly via :sys.replace_state —
+  # rather than land_spec_director/land_spec_image, land_prerender_director/
+  # land_prerender_image — is deliberate: those helpers' handlers spawn a REAL
+  # image-generation Task as a side effect (that's the actual production
+  # code path — see pipeline_bootstrap_test.exs's moduledoc for the full
+  # explanation), and a test that ALSO seeds its own synthetic completion for
+  # the same slot races that real Task. Several tests below used to chain
+  # land_spec_director -> land_spec_image -> land_prerender_director ->
+  # land_prerender_image back-to-back with no assertion in between — exactly
+  # the risky pattern the moduledoc already warned about for THIS file's
+  # very first two tests, just not yet applied here. Found live
+  # (2026-07-31): adding a second always-on background Task
+  # (Sinestesia.LyricsChunker, fired by every set_lyrics/2 call once
+  # SPECULATIVE_LOOKAHEAD is on) measurably raised how often this pre-existing
+  # race actually manifested, from roughly 1 run in 20 to roughly 1 in 3-5.
+  defp seeded_frame(index, url) do
+    %{
+      index: index,
+      line: Enum.at(@script, index),
+      status: :ready,
+      confirmed: false,
+      pid: nil,
+      new_conv: nil,
+      step: nil,
+      state_delta: nil,
+      frame_msg: %{type: "image", url: url},
+      frame_url: url,
+      frame_route: nil,
+      receipt: nil
+    }
+  end
+
+  # set_lyrics/2 always spawns a REAL Sinestesia.LyricsChunker Task now (this
+  # test env has no API keys, so it resolves fast with {:error, :no_key}, but
+  # still asynchronously). Bumping chunk_generation right after makes that
+  # result permanently stale, so it can never land mid-test and interleave
+  # with this file's OWN synthetic spec/prerender messages — the same class
+  # of real-Task race pipeline_bootstrap_test.exs's moduledoc already warns
+  # about, just for a new async source this file didn't have to guard
+  # against before.
+  defp load_script(pid, script \\ @script) do
+    Sinestesia.Pipeline.set_lyrics(pid, script)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | chunk_generation: state.chunk_generation + 1}
+    end)
+  end
+
   defp land_bootstrap_image(pid) do
     send(
       pid,
@@ -115,7 +164,7 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     # eager-bootstrap Director call (a separate feature, its own test file) and
     # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    load_script(pid)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -142,7 +191,7 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     # eager-bootstrap Director call (a separate feature, its own test file) and
     # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    load_script(pid)
     land_bootstrap_image(pid)
 
     state = :sys.get_state(pid)
@@ -203,31 +252,16 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "LOOKAHEAD_DEPTH=3: confirming a line promotes the cache instead of re-rendering",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
-    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
-    # eager-bootstrap Director call (a separate feature, its own test file) and
-    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
-    land_bootstrap_image(pid)
+    load_script(pid)
 
-    state = :sys.get_state(pid)
-    sid = state.session_id
-    land_spec_director(pid, sid, 0, state.director_conversation)
-    land_spec_image(pid, sid, 0, "https://example.test/1.jpg")
-
-    state = :sys.get_state(pid)
-
-    land_prerender_director(
-      pid,
-      sid,
-      1,
-      state.speculation.new_conv,
-      state.speculation.frame_url,
-      %{}
-    )
-
-    land_prerender_image(pid, sid, 1, "https://example.test/2.jpg")
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | speculation: seeded_frame(0, "https://example.test/1.jpg"),
+          prerendered: %{1 => seeded_frame(1, "https://example.test/2.jpg")}
+      }
+    end)
 
     state = :sys.get_state(pid)
     assert map_size(state.prerendered) == 1
@@ -257,7 +291,7 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
     # here (see the moduledoc note on this in pipeline_bootstrap_test.exs).
     System.put_env("LOOKAHEAD_DEPTH", "3")
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    load_script(pid)
 
     frame = fn index, url ->
       %{
@@ -305,34 +339,18 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "off-script singing discards the speculation AND the whole prerender chain",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
-    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
-    # eager-bootstrap Director call (a separate feature, its own test file) and
-    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
-    land_bootstrap_image(pid)
+    load_script(pid)
 
-    state = :sys.get_state(pid)
-    sid = state.session_id
-    land_spec_director(pid, sid, 0, state.director_conversation)
-    land_spec_image(pid, sid, 0, "https://example.test/1.jpg")
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | speculation: seeded_frame(0, "https://example.test/1.jpg"),
+          prerendered: %{1 => seeded_frame(1, "https://example.test/2.jpg")}
+      }
+    end)
 
-    state = :sys.get_state(pid)
-
-    land_prerender_director(
-      pid,
-      sid,
-      1,
-      state.speculation.new_conv,
-      state.speculation.frame_url,
-      %{}
-    )
-
-    land_prerender_image(pid, sid, 1, "https://example.test/2.jpg")
-
-    state = :sys.get_state(pid)
-    assert map_size(state.prerendered) == 1
+    assert map_size(:sys.get_state(pid).prerendered) == 1
 
     sing(pid, "completely unrelated improvised words nowhere in the script")
 
@@ -346,22 +364,36 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
   test "confirming a line the prerender chain is STILL rendering waits instead of duplicating it",
        %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
-    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
-    # eager-bootstrap Director call (a separate feature, its own test file) and
-    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
-    land_bootstrap_image(pid)
+    load_script(pid)
+
+    # Seeds directly to the precondition the ORIGINAL flow (spec_director ->
+    # spec_image -> auto-deepen) would have reached: line 0 ready, held; line
+    # 1's prerender already in flight (:director, no pid — no real Task
+    # backing it, since this test's subject is the CONFIRMATION race, not how
+    # the chain got here).
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | speculation: seeded_frame(0, "https://example.test/1.jpg"),
+          prerender: %{
+            index: 1,
+            line: Enum.at(@script, 1),
+            status: :director,
+            pid: nil,
+            new_conv: nil,
+            step: nil,
+            state_delta: nil,
+            frame_msg: nil,
+            frame_url: nil,
+            frame_route: nil,
+            receipt: nil
+          }
+      }
+    end)
 
     state = :sys.get_state(pid)
     sid = state.session_id
-    land_spec_director(pid, sid, 0, state.director_conversation)
-    land_spec_image(pid, sid, 0, "https://example.test/1.jpg")
-
-    # The chain auto-deepens: a prerender for line 1 is now in flight but NOT
-    # finished — confirm that precondition before the real test.
-    state = :sys.get_state(pid)
     assert %{index: 1, status: :director} = state.prerender
 
     # Confirm line 0 was sung -> reveals it -> speculate_next(1) runs and finds
@@ -407,35 +439,20 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
 
   test "reloading lyrics clears any in-flight prerender chain", %{pid: pid} do
     System.put_env("LOOKAHEAD_DEPTH", "3")
-    # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true
-    # when lyrics load, or maybe_speculate_bootstrap/1 would ALSO spawn a real
-    # eager-bootstrap Director call (a separate feature, its own test file) and
-    # race with this test's synthetic speculation/prerender messages.
     seed_bootstrap(pid)
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
-    land_bootstrap_image(pid)
+    load_script(pid)
 
-    state = :sys.get_state(pid)
-    sid = state.session_id
-    land_spec_director(pid, sid, 0, state.director_conversation)
-    land_spec_image(pid, sid, 0, "https://example.test/1.jpg")
-
-    state = :sys.get_state(pid)
-
-    land_prerender_director(
-      pid,
-      sid,
-      1,
-      state.speculation.new_conv,
-      state.speculation.frame_url,
-      %{}
-    )
-
-    land_prerender_image(pid, sid, 1, "https://example.test/2.jpg")
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | speculation: seeded_frame(0, "https://example.test/1.jpg"),
+          prerendered: %{1 => seeded_frame(1, "https://example.test/2.jpg")}
+      }
+    end)
 
     assert map_size(:sys.get_state(pid).prerendered) == 1
 
-    Sinestesia.Pipeline.set_lyrics(pid, @script)
+    load_script(pid)
     state = :sys.get_state(pid)
     assert state.speculation == nil
     assert state.prerender == nil

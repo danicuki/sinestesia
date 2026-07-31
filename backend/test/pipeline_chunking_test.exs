@@ -1,0 +1,297 @@
+defmodule Sinestesia.PipelineChunkingTest do
+  @moduledoc """
+  State-machine invariants for scene chunking (Sinestesia.LyricsChunker):
+  every render/reveal target is a CHUNK (possibly several physical lines),
+  not always exactly one line — the fix for HANDOFF gotcha #37's remaining
+  cost (a too-thin single-line bootstrap sometimes drawing something
+  nonsensical) and for #38's multi-line-utterance case being handled at the
+  SOURCE (chunk boundaries chosen for visual coherence) rather than only
+  reconciled after the fact.
+
+  No network: the real LLM call always fails fast with :no_key in this test
+  env (no GOOGLE/ANTHROPIC keys set), so `load_lyrics/3`'s synchronous
+  one-chunk-per-line fallback is what every test observes unless it directly
+  overrides `state.chunks` via :sys.replace_state to simulate "the LLM
+  already decided" — exactly the pattern pipeline_bootstrap_test.exs and
+  pipeline_deep_lookahead_test.exs already use for deterministic state
+  machine testing.
+  """
+  use ExUnit.Case, async: false
+
+  setup do
+    prev = %{
+      stt: System.get_env("STT_PROVIDER"),
+      look: System.get_env("SPECULATIVE_LOOKAHEAD")
+    }
+
+    System.put_env("STT_PROVIDER", "replay")
+    System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+    System.delete_env("REPLAY_FILE")
+
+    {:ok, pid} = Sinestesia.Pipeline.start_link(self())
+
+    on_exit(fn ->
+      restore("STT_PROVIDER", prev.stt)
+      restore("SPECULATIVE_LOOKAHEAD", prev.look)
+
+      try do
+        if Process.alive?(pid), do: GenServer.stop(pid, :shutdown)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    %{pid: pid}
+  end
+
+  defp restore(key, nil), do: System.delete_env(key)
+  defp restore(key, val), do: System.put_env(key, val)
+
+  defp sing(pid, text), do: send(pid, {:transcript, :replay, text, true, 0})
+
+  # A harmless, never-completing process to stand in for a real Task pid.
+  defp fake_pid, do: spawn(fn -> Process.sleep(:infinity) end)
+
+  defp seed_bootstrap(pid) do
+    :sys.replace_state(pid, fn state ->
+      %{state | bootstrap_done?: true, last_image_url: "https://example.test/bootstrap.jpg"}
+    end)
+  end
+
+  describe "load_lyrics/3 populates a safe fallback immediately" do
+    test "chunks default to one per line, matching the pre-chunking behavior exactly", %{
+      pid: pid
+    } do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+
+      state = :sys.get_state(pid)
+
+      assert state.chunks == [
+               %{start_line: 0, end_line: 0, text: "Numa folha qualquer"},
+               %{start_line: 1, end_line: 1, text: "Eu desenho um sol amarelo"}
+             ]
+    end
+
+    test "the eager bootstrap targets the fallback's first chunk (one line) the instant lyrics load",
+         %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+
+      state = :sys.get_state(pid)
+
+      assert %{status: :director, target_index: 0, text: "Numa folha qualquer"} =
+               state.bootstrap_speculation
+    end
+  end
+
+  describe "upgrading from the fallback to a real chunking result" do
+    test "a resolved chunking result re-arms the bootstrap on the REAL first chunk, if it hasn't fired yet",
+         %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(
+        pid,
+        "Numa folha qualquer\nEu desenho um sol amarelo\nE com cinco ou seis retas"
+      )
+
+      state = :sys.get_state(pid)
+      sid = state.session_id
+
+      # Simulate the fallback-based render having NOT committed yet (e.g. it
+      # hadn't started, or was discarded) — the chunking result, once it
+      # resolves, should be the one deciding the target. Also bump
+      # chunk_generation: this test env has no API keys, so the REAL
+      # chunking Task set_lyrics/3 spawned is already racing toward its own
+      # {:error, :no_key} result under the OLD generation — bumping first
+      # makes that (now-stale) result get dropped instead of clobbering the
+      # one this test sends below.
+      gen = state.chunk_generation + 1
+
+      :sys.replace_state(pid, fn s -> %{s | bootstrap_speculation: nil, chunk_generation: gen} end)
+
+      chunks = [
+        %{start_line: 0, end_line: 1, text: "Numa folha qualquer Eu desenho um sol amarelo"},
+        %{start_line: 2, end_line: 2, text: "E com cinco ou seis retas"}
+      ]
+
+      send(pid, {:lyrics_chunked, {:ok, chunks}, sid, gen})
+
+      state = :sys.get_state(pid)
+      assert state.chunks == chunks
+
+      assert %{
+               status: :director,
+               target_index: 1,
+               text: "Numa folha qualquer Eu desenho um sol amarelo"
+             } = state.bootstrap_speculation
+    end
+
+    test "an already-fired bootstrap is left alone — the chunking result only applies going forward",
+         %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+
+      state = :sys.get_state(pid)
+      assert %{target_index: 0} = state.bootstrap_speculation
+      sid = state.session_id
+      gen = state.chunk_generation
+
+      chunks = [
+        %{start_line: 0, end_line: 1, text: "Numa folha qualquer Eu desenho um sol amarelo"}
+      ]
+
+      send(pid, {:lyrics_chunked, {:ok, chunks}, sid, gen})
+
+      state = :sys.get_state(pid)
+      assert state.chunks == chunks
+      # maybe_speculate_bootstrap/1's own `not is_nil(bootstrap_speculation)`
+      # guard makes this a no-op — the fallback-based render already in
+      # flight is not discarded/restarted.
+      assert %{target_index: 0} = state.bootstrap_speculation
+    end
+
+    test "a chunking failure falls back to one chunk per line and still unblocks the bootstrap",
+         %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+      state = :sys.get_state(pid)
+      sid = state.session_id
+      gen = state.chunk_generation
+
+      :sys.replace_state(pid, fn s -> %{s | bootstrap_speculation: nil} end)
+
+      send(pid, {:lyrics_chunked, {:error, :all_failed}, sid, gen})
+
+      state = :sys.get_state(pid)
+      assert state.chunks == Sinestesia.LyricsChunker.fallback(state.script)
+      assert %{status: :director, target_index: 0} = state.bootstrap_speculation
+    end
+
+    test "a stale chunking result (wrong session) is dropped", %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+      state = :sys.get_state(pid)
+      gen = state.chunk_generation
+
+      send(pid, {:lyrics_chunked, {:ok, [%{start_line: 0, end_line: 1, text: "stale"}]}, -1, gen})
+
+      state2 = :sys.get_state(pid)
+      assert state2.chunks == state.chunks
+    end
+
+    test "a stale chunking result (wrong generation — a reload happened) is dropped", %{pid: pid} do
+      Sinestesia.Pipeline.set_lyrics(pid, "Numa folha qualquer\nEu desenho um sol amarelo")
+      state = :sys.get_state(pid)
+      sid = state.session_id
+      stale_gen = state.chunk_generation
+
+      # A reload bumps chunk_generation.
+      Sinestesia.Pipeline.set_lyrics(pid, "totally different lyrics")
+      fresh_chunks = :sys.get_state(pid).chunks
+
+      send(
+        pid,
+        {:lyrics_chunked, {:ok, [%{start_line: 0, end_line: 0, text: "stale"}]}, sid, stale_gen}
+      )
+
+      assert :sys.get_state(pid).chunks == fresh_chunks
+    end
+  end
+
+  describe "ongoing speculation over a multi-line chunk" do
+    @script ["line one", "line two", "line three", "line four"]
+
+    defp seed_chunk_speculation(pid) do
+      Sinestesia.Pipeline.set_lyrics(pid, @script)
+      seed_bootstrap(pid)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | # Bump chunk_generation: this test env has no API keys, so the
+            # real chunking Task set_lyrics/3 already spawned is racing
+            # toward its own {:error, :no_key} result under the OLD
+            # generation. Left unbumped, that (now-stale) result can land at
+            # ANY point during this test and silently overwrite the custom
+            # chunks/speculation seeded below with the plain fallback — the
+            # exact class of real-Task race pipeline_bootstrap_test.exs's
+            # moduledoc already warns about, just for a new async source.
+            chunk_generation: state.chunk_generation + 1,
+            script_cursor: 0,
+            chunks: [
+              %{start_line: 0, end_line: 0, text: "line one"},
+              %{start_line: 1, end_line: 2, text: "line two line three"},
+              %{start_line: 3, end_line: 3, text: "line four"}
+            ],
+            speculation: %{
+              index: 2,
+              line: "line two line three",
+              status: :ready,
+              confirmed: false,
+              pid: fake_pid(),
+              new_conv: nil,
+              step: nil,
+              state_delta: nil,
+              frame_msg: %{type: "image", url: "https://example.test/chunk.jpg"},
+              frame_url: "https://example.test/chunk.jpg",
+              frame_route: nil,
+              receipt: nil
+            }
+        }
+      end)
+    end
+
+    test "confirming only the FIRST line of a 2-line chunk does not reveal or discard it", %{
+      pid: pid
+    } do
+      seed_chunk_speculation(pid)
+
+      sing(pid, "line two")
+
+      state = :sys.get_state(pid)
+      assert state.script_cursor == 1
+      # Still held, untouched — the chunk isn't done yet, not a wrong guess.
+      assert %{index: 2, status: :ready, frame_url: "https://example.test/chunk.jpg"} =
+               state.speculation
+
+      refute state.last_image_url == "https://example.test/chunk.jpg"
+    end
+
+    test "confirming the REST of the chunk reveals the held frame", %{pid: pid} do
+      seed_chunk_speculation(pid)
+
+      sing(pid, "line two")
+      sing(pid, "line three")
+
+      state = :sys.get_state(pid)
+      assert state.script_cursor == 2
+      assert state.last_image_url == "https://example.test/chunk.jpg"
+      # reveal_speculation/1 immediately looks ahead again — the held chunk
+      # frame is gone, replaced by a fresh speculation for whatever comes
+      # after it (line 4), not left nil.
+      assert %{index: 3} = state.speculation
+    end
+
+    test "a jump PAST the chunk's own end_line (never matching it exactly) still reveals it, not discards it",
+         %{pid: pid} do
+      seed_chunk_speculation(pid)
+
+      # A clean utterance covering BOTH of the chunk's lines scores each of
+      # them a perfect 1.0 (the utterance IS their exact concatenation), and
+      # match/4 breaks an exact-score tie toward the NEAREST candidate — so
+      # this lands on line 1, not the chunk's own end_line (2). That's fine:
+      # chunk_in_progress?/2 recognizes line 1 is still inside the held
+      # chunk's own range and leaves it held rather than discarding it.
+      sing(pid, "line two line three")
+
+      state = :sys.get_state(pid)
+      assert state.script_cursor == 1
+      assert %{index: 2, status: :ready} = state.speculation
+
+      # The singer moves on to the NEXT chunk's content, jumping straight
+      # past index 2 without ever matching it exactly. HANDOFF gotcha #38's
+      # reconciliation still catches this: index 2 falls inside
+      # (old_cursor, idx], so it's revealed instead of thrown away as a
+      # "wrong guess."
+      sing(pid, "line four")
+
+      state = :sys.get_state(pid)
+      assert state.script_cursor == 3
+      assert state.last_image_url == "https://example.test/chunk.jpg"
+    end
+  end
+end

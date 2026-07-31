@@ -98,9 +98,8 @@ defmodule Sinestesia.PipelineBootstrapTest do
       frame_route: nil,
       receipt: nil,
       text: "fake opening text",
-      # @script is a flat list (no blank-line stanzas), so the real code
-      # would compute this via the fallback window (@bootstrap_fallback_lines
-      # = 2 lines) too — index 1 covers @script's first two lines.
+      # Arbitrary for these tests — nothing here exercises the real target
+      # selection (that's pipeline_bootstrap_test.exs's own dedicated tests).
       target_index: 1
     }
 
@@ -109,6 +108,11 @@ defmodule Sinestesia.PipelineBootstrapTest do
         state
         | script: @script,
           script_active?: true,
+          # Seeded directly (bypassing load_lyrics/3, see the moduledoc) —
+          # the real code always populates this the instant lyrics load, so
+          # it must be seeded here too, or bootstrap_content_and_target/1
+          # sees an empty chunk list and never re-arms.
+          chunks: Sinestesia.LyricsChunker.fallback(@script),
           bootstrap_generation: state.bootstrap_generation + 1,
           bootstrap_speculation: Map.merge(base, overrides)
       }

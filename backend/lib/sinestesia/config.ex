@@ -401,6 +401,26 @@ defmodule Sinestesia.Config do
       doc:
         "How many lyric lines SPECULATIVE_LOOKAHEAD is allowed to pre-render ahead of the singer (chained sequentially — i2i needs the previous frame, so this can never parallelize). 1 (default) is Phase 1's original one-line lookahead, exactly. Above 1, the pipeline races further ahead in a background cache whenever there's a head start (e.g. lyrics loaded during an instrumental intro); every frame is still revealed only on STT confirmation. Deeper values mean more frames are generated well before they're sung — read this alongside how the mint certificate / any marketing describes \"how live\" the show is."
     },
+    %{
+      key: "LYRICS_CHUNK_GEMINI_MODEL",
+      group: :lookahead,
+      default: "gemini-3.6-flash",
+      doc:
+        "Model asked to split a loaded song's full lyrics into visually coherent scene units (see Sinestesia.LyricsChunker), replacing the old fixed-word/fixed-line guess with a real per-song read of the whole text. Runs once per song, off the critical path — never blocks a render."
+    },
+    %{
+      key: "LYRICS_CHUNK_ANTHROPIC_MODEL",
+      group: :lookahead,
+      default: "claude-haiku-4-5",
+      doc: "Fallback model for lyrics chunking. Needs ANTHROPIC_API_KEY."
+    },
+    %{
+      key: "LYRICS_CHUNK_TIMEOUT_MS",
+      group: :lookahead,
+      default: "8000",
+      doc:
+        "Per-attempt budget for lyrics chunking. Short relative to SONGID_TIMEOUT_MS: unlike song identification (off the hot path entirely, in the mint task), this sits between loading lyrics and the eager bootstrap being allowed to render — on any failure or timeout it falls back to one chunk per line, the same behavior as before this feature existed."
+    },
 
     # ── Song library ────────────────────────────────────────────────────────
     %{

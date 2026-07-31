@@ -223,6 +223,17 @@ defmodule Sinestesia.Pipeline do
        script_active?: false,
        script_cursor: -1,
        speculation: nil,
+       # The song's lyrics split into visually coherent "scene" units (see
+       # Sinestesia.LyricsChunker) — what the eager bootstrap and every
+       # subsequent look-ahead render actually targets, instead of always
+       # exactly one physical line. Populated with a safe one-chunk-per-line
+       # default the instant lyrics load (see load_lyrics/3); upgraded, off
+       # the critical path, if a smarter per-song split resolves in time.
+       # `chunk_generation` guards a stale result the same way
+       # `bootstrap_generation` does (a lyrics reload doesn't bump
+       # session_id).
+       chunks: [],
+       chunk_generation: 0,
        # Set when the current script came from Sinestesia.SongLibrary (loaded
        # explicitly via `load_song`, auto-identified, or advanced to from a
        # setlist) — nil for a raw paste. Lets the frontend show "identified as
@@ -678,6 +689,45 @@ defmodule Sinestesia.Pipeline do
     Logger.warning("[song-library] import failed for #{url}: #{inspect(reason)}")
     push(state.socket, %{type: "song_error", message: "import failed: #{inspect(reason)}"})
     {:noreply, state}
+  end
+
+  # Fired once per song, off the critical path, by load_lyrics/3 — see
+  # Sinestesia.LyricsChunker. Same belt-and-suspenders staleness guard as the
+  # eager bootstrap's bootstrap_generation (a lyrics reload doesn't bump
+  # session_id, so a stale chunking result needs its OWN counter to be
+  # recognized as stale).
+  def handle_info({:lyrics_chunked, _result, sid, _gen}, %{session_id: cur} = state)
+      when sid != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:lyrics_chunked, _result, _sid, gen}, %{chunk_generation: cur} = state)
+      when gen != cur do
+    {:noreply, %{state | pending_pids: drop_dead(state.pending_pids)}}
+  end
+
+  def handle_info({:lyrics_chunked, result, _sid, _gen}, state) do
+    chunks =
+      case result do
+        {:ok, chunks} ->
+          Logger.info("[lyrics_chunker] split into #{length(chunks)} scene(s)")
+          chunks
+
+        {:error, reason} ->
+          Logger.warning(
+            "[lyrics_chunker] #{inspect(reason)}; falling back to one scene per line"
+          )
+
+          Sinestesia.LyricsChunker.fallback(state.script)
+      end
+
+    state = %{state | chunks: chunks, pending_pids: drop_dead(state.pending_pids)}
+
+    # If the eager bootstrap hasn't fired yet, it now targets the real first
+    # chunk instead of the one-line fallback it would otherwise have raced
+    # ahead with; maybe_speculate_bootstrap/1 is a safe no-op if it already
+    # has (its own `not is_nil(state.bootstrap_speculation)` guard).
+    {:noreply, maybe_speculate_bootstrap(state)}
   end
 
   # Forwarded so the headless replay task (and optionally the front) knows the
@@ -2551,6 +2601,7 @@ defmodule Sinestesia.Pipeline do
     script = Sinestesia.PerformanceFollower.normalize(raw)
     structure = Sinestesia.MusicalStructure.analyze(raw)
     active? = script != []
+    gen = state.chunk_generation + 1
 
     Logger.info(
       if active? do
@@ -2560,17 +2611,46 @@ defmodule Sinestesia.Pipeline do
       end
     )
 
-    state
-    |> discard_speculation()
-    |> discard_bootstrap_speculation()
-    |> Map.merge(%{
-      script: script,
-      script_active?: active?,
-      script_cursor: -1,
-      structure: structure,
-      current_section: nil
-    })
-    |> maybe_speculate_bootstrap()
+    state =
+      state
+      |> discard_speculation()
+      |> discard_bootstrap_speculation()
+      |> Map.merge(%{
+        script: script,
+        script_active?: active?,
+        script_cursor: -1,
+        structure: structure,
+        current_section: nil,
+        # Safe default the instant lyrics load — every render/reveal target
+        # is exactly one physical line, IDENTICAL to this feature's own
+        # pre-chunking behavior. Upgraded below if a smarter split resolves
+        # in time; never blocks on it.
+        chunks: Sinestesia.LyricsChunker.fallback(script),
+        chunk_generation: gen
+      })
+
+    state =
+      if active? and lookahead_enabled?() do
+        pid = spawn_lyrics_chunker(state, script, gen)
+        %{state | pending_pids: MapSet.put(state.pending_pids, pid)}
+      else
+        state
+      end
+
+    maybe_speculate_bootstrap(state)
+  end
+
+  defp spawn_lyrics_chunker(state, script, gen) do
+    parent = self()
+    sid = state.session_id
+
+    {:ok, pid} =
+      Task.start(fn ->
+        result = Sinestesia.LyricsChunker.chunk(script)
+        send(parent, {:lyrics_chunked, result, sid, gen})
+      end)
+
+    pid
   end
 
   # After a completed song: move to the next setlist entry if one is active,
@@ -2859,6 +2939,15 @@ defmodule Sinestesia.Pipeline do
         pruned = state.prerendered |> Enum.reject(fn {i, _} -> i <= idx end) |> Map.new()
         {reveal_speculation(%{state | speculation: frame, prerendered: pruned}), :handled}
 
+      # Chunks (Sinestesia.LyricsChunker) can span several physical lines —
+      # the held speculation targets the CHUNK's end_line, but a confirmed
+      # utterance may only cover the chunk's OPENING portion so far (the
+      # singer is partway through it, not off-script). Position already
+      # advanced above; leave the held speculation/cache untouched and wait
+      # for a later utterance to finish covering the same chunk.
+      :in_progress ->
+        {state, :handled}
+
       :none ->
         {discard_speculation(state), :fallthrough}
     end
@@ -2883,10 +2972,26 @@ defmodule Sinestesia.Pipeline do
       active_idx != nil ->
         {:active, state.speculation}
 
+      chunk_in_progress?(state, idx) ->
+        :in_progress
+
       true ->
         :none
     end
   end
+
+  # Is `idx` inside the SAME chunk the held speculation is already targeting
+  # (its end_line), just not through the end of it yet? Looks the chunk up by
+  # its end_line rather than storing start_line redundantly on every
+  # speculation/prerender record.
+  defp chunk_in_progress?(%{speculation: %{index: end_line}} = state, idx) do
+    case Enum.find(state.chunks, &(&1.end_line == end_line)) do
+      %{start_line: start_line} -> idx >= start_line and idx < end_line
+      nil -> false
+    end
+  end
+
+  defp chunk_in_progress?(_state, _idx), do: false
 
   # NOTE: tried swapping this to furthest_match/4 (coverage-based, prefers the
   # FURTHEST qualifying candidate) while chasing the multi-line-utterance
@@ -3025,29 +3130,24 @@ defmodule Sinestesia.Pipeline do
   @bootstrap_catchup_window 12
 
   # The eager bootstrap's content AND the line it needs real singing to reach
-  # before revealing: the song's own FIRST LINE, always — never a whole
-  # stanza, never a word-count floor.
+  # before revealing: the song's FIRST CHUNK — see Sinestesia.LyricsChunker.
   #
-  # This replaces two earlier, progressively-less-wrong attempts (see gotchas
-  # #29 and #36 in HANDOFF.md) that both still hard-coded SOME threshold
-  # (first a fixed word count, then a fixed word count capped per real
-  # stanza) — found live (2026-07-31) to still be waiting on the wrong unit:
-  # a "stanza" is a formatting artifact of wherever the lyrics came from
-  # (Aquarela's real first verse is 8 short lines with no internal blank-line
-  # break), not the coherent unit the eager render actually needs. The
-  # smallest thing that is ALWAYS a real, complete, pasted lyric fragment —
-  # regardless of source formatting, regardless of how many words it happens
-  # to contain for this particular song — is a single line. No fixed
-  # parameter survives contact with "every song is a different reality"; the
-  # first line is the one unit that needs no parameter at all to identify.
-  #
-  # A genuinely richer, per-song judgment of "is one line actually enough, or
-  # does the opening phrase need two" is a real, separate improvement (an
-  # LLM read of the whole lyrics, off the critical path, with a hard fallback
-  # to this exact behavior) — proposed, not built here; see HANDOFF #37.
+  # This supersedes THREE earlier, progressively-less-wrong attempts (HANDOFF
+  # gotchas #29, #36, #37), each of which hard-coded some threshold (a fixed
+  # word count; a fixed word count capped per real stanza; always exactly one
+  # physical line) — found live to still be waiting on the wrong unit, or, in
+  # #37's case, to sometimes draw from too little ("Numa folha qualquer"
+  # alone has no concrete imagery — the yellow sun is in the NEXT line, and a
+  # site's own line-wrapping is not a visual boundary). The founder's own
+  # framing: the whole song is already known the moment it loads, so ask an
+  # LLM to read it once and decide, per song, where a coherent scene ends —
+  # never guess with a number. `state.chunks` is always populated (a
+  # one-chunk-per-line default the instant lyrics load, upgraded off the
+  # critical path if the real split resolves in time — see load_lyrics/3),
+  # so this never waits.
   defp bootstrap_content_and_target(state) do
-    case state.script do
-      [first | _] -> {first, 0}
+    case state.chunks do
+      [chunk | _] -> {chunk.text, chunk.end_line}
       [] -> {"", 0}
     end
   end
@@ -3172,39 +3272,57 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  # The chunk covering the line right after `after_line` — see
+  # Sinestesia.LyricsChunker. Chunks are contiguous and cover the whole
+  # script with no gaps, so this always resolves to exactly one chunk (or
+  # nil past the end of the pasted lyrics).
+  defp chunk_after(state, after_line) do
+    Enum.find(state.chunks, &(&1.start_line == after_line + 1))
+  end
+
   defp speculate_next(state) do
-    next = state.script_cursor + 1
+    case chunk_after(state, state.script_cursor) do
+      nil ->
+        # End of the pasted lyrics — nothing left to look ahead to.
+        state
 
-    cond do
-      # LOOKAHEAD_DEPTH > 1 already FINISHED rendering this line in the
-      # background — promote it straight to the active slot, no render needed.
-      Map.has_key?(state.prerendered, next) ->
-        {cached, rest} = Map.pop(state.prerendered, next)
-        Logger.debug("[spec] promoting pre-rendered line #{next} from the deep-lookahead cache")
-        maybe_deepen_lookahead(%{state | speculation: cached, prerendered: rest})
+      %{end_line: next} = chunk ->
+        cond do
+          # LOOKAHEAD_DEPTH > 1 already FINISHED rendering this scene in the
+          # background — promote it straight to the active slot, no render needed.
+          Map.has_key?(state.prerendered, next) ->
+            {cached, rest} = Map.pop(state.prerendered, next)
 
-      # The deep-lookahead chain is ALREADY rendering exactly this line, just
-      # not finished yet. Don't spawn a competing duplicate render — install a
-      # placeholder so match_and_advance/2 knows "in flight elsewhere, wait for
-      # it" (identical to how it already waits on an ordinary in-flight
-      # speculation). See prerender_image_done's success clause for the promotion.
-      match?(%{index: ^next}, state.prerender) ->
-        Logger.debug(
-          "[spec] line #{next} already rendering via the deep-lookahead chain; waiting"
-        )
+            Logger.debug(
+              "[spec] promoting pre-rendered scene ending at line #{next} from the deep-lookahead cache"
+            )
 
-        placeholder = pending_prerender_placeholder(next, state.prerender.line)
-        %{state | speculation: placeholder}
+            maybe_deepen_lookahead(%{state | speculation: cached, prerendered: rest})
 
-      true ->
-        case Enum.at(state.script, next) do
-          line when is_binary(line) and line != "" ->
-            pid = spawn_spec_director(state, line, next)
-            Logger.debug("[spec] look-ahead render for line #{next}: #{inspect(line)}")
+          # The deep-lookahead chain is ALREADY rendering exactly this scene,
+          # just not finished yet. Don't spawn a competing duplicate render —
+          # install a placeholder so match_and_advance/2 knows "in flight
+          # elsewhere, wait for it" (identical to how it already waits on an
+          # ordinary in-flight speculation). See prerender_image_done's
+          # success clause for the promotion.
+          match?(%{index: ^next}, state.prerender) ->
+            Logger.debug(
+              "[spec] scene ending at line #{next} already rendering via the deep-lookahead chain; waiting"
+            )
+
+            placeholder = pending_prerender_placeholder(next, chunk.text)
+            %{state | speculation: placeholder}
+
+          true ->
+            pid = spawn_spec_director(state, chunk.text, next)
+
+            Logger.debug(
+              "[spec] look-ahead render for scene ending at line #{next}: #{inspect(chunk.text)}"
+            )
 
             spec = %{
               index: next,
-              line: line,
+              line: chunk.text,
               status: :director,
               confirmed: false,
               pid: pid,
@@ -3224,10 +3342,6 @@ defmodule Sinestesia.Pipeline do
             }
 
             maybe_deepen_lookahead(state)
-
-          _ ->
-            # End of the pasted lyrics — nothing left to look ahead to.
-            state
         end
     end
   end
@@ -3286,13 +3400,7 @@ defmodule Sinestesia.Pipeline do
             state
 
           {frontier_index, frontier_url, frontier_conv, frontier_delta} ->
-            start_prerender(
-              state,
-              frontier_index + 1,
-              frontier_url,
-              frontier_conv,
-              frontier_delta
-            )
+            start_prerender(state, frontier_index, frontier_url, frontier_conv, frontier_delta)
         end
     end
   end
@@ -3326,11 +3434,18 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
-  defp start_prerender(state, index, seed_url, seed_conv, seed_delta) do
-    case Enum.at(state.script, index) do
-      line when is_binary(line) and line != "" ->
+  # `after_line` is the frontier already rendered (the previous chunk's own
+  # end_line, or -1 at the very start) — resolves to whichever chunk covers
+  # the line right after it (see chunk_after/2), not necessarily just one
+  # more physical line.
+  defp start_prerender(state, after_line, seed_url, seed_conv, seed_delta) do
+    case chunk_after(state, after_line) do
+      %{end_line: index, text: line} ->
         pid = spawn_prerender_director(state, line, index, seed_conv, seed_url, seed_delta)
-        Logger.debug("[prerender] deep look-ahead render for line #{index}: #{inspect(line)}")
+
+        Logger.debug(
+          "[prerender] deep look-ahead render for scene ending at line #{index}: #{inspect(line)}"
+        )
 
         pr = %{
           index: index,
@@ -3348,7 +3463,7 @@ defmodule Sinestesia.Pipeline do
 
         %{state | prerender: pr, pending_pids: MapSet.put(state.pending_pids, pid)}
 
-      _ ->
+      nil ->
         # End of the pasted lyrics — nothing deeper to prerender.
         state
     end

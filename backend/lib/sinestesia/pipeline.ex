@@ -1197,7 +1197,10 @@ defmodule Sinestesia.Pipeline do
           {:noreply, reveal_bootstrap_speculation(state)}
         else
           Logger.debug("[bootstrap-spec] opening frame ready, holding for enough real singing")
-          {:noreply, state}
+          # The opening frame is now a valid seed (see lookahead_frontier/1), so
+          # the deep chain can start filling the buffer NOW — during the silence
+          # before the first note — instead of waiting for this to be revealed.
+          {:noreply, maybe_deepen_lookahead(state)}
         end
 
       _ ->
@@ -3438,12 +3441,18 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
-  # How many lines beyond the confirmed cursor are already spoken for: the
-  # active speculation slot (any status), a prerender in flight, and whatever
-  # is already cached. LOOKAHEAD_DEPTH is a ceiling on this total, not a target
-  # to force — the chain only advances opportunistically as renders finish.
+  # How many lines beyond the confirmed cursor are already spoken for: a held
+  # eager bootstrap, the active speculation slot (any status), a prerender in
+  # flight, and whatever is already cached. LOOKAHEAD_DEPTH is a ceiling on
+  # this total, not a target to force — the chain only advances
+  # opportunistically as renders finish.
+  #
+  # The bootstrap counts because it IS an unrevealed frame ahead of the cursor:
+  # at LOOKAHEAD_DEPTH=3 the buffer sitting ready before the first note is the
+  # opening frame plus two more, not the opening frame plus three.
   defp lookahead_extent(state) do
-    if(state.speculation, do: 1, else: 0) +
+    if(state.bootstrap_speculation, do: 1, else: 0) +
+      if(state.speculation, do: 1, else: 0) +
       if(state.prerender, do: 1, else: 0) +
       map_size(state.prerendered)
   end
@@ -3453,6 +3462,13 @@ defmodule Sinestesia.Pipeline do
   # the conversation/placement bookkeeping that produced it). Prefers the
   # deepest cached prerender; falls back to the active speculation only once
   # IT has an image (status :ready) — before that there's nothing to seed from.
+  #
+  # The last fallback is the HELD eager bootstrap. Its frame is finished and
+  # sitting in memory, waiting only for real singing to reach its target line
+  # — which is a perfectly good seed even though nothing has been shown yet.
+  # Without this the whole deep chain stayed gated behind the first REVEAL, so
+  # the buffer was only ever built while the singer was already performing,
+  # never during the (often long) silence after lyrics load. See HANDOFF #43.
   defp lookahead_frontier(state) do
     case state.prerendered |> Map.keys() |> Enum.max(fn -> nil end) do
       idx when is_integer(idx) ->
@@ -3461,8 +3477,17 @@ defmodule Sinestesia.Pipeline do
 
       nil ->
         case state.speculation do
-          %{status: :ready} = s -> {s.index, s.frame_url, s.new_conv, s.state_delta}
-          _ -> nil
+          %{status: :ready} = s ->
+            {s.index, s.frame_url, s.new_conv, s.state_delta}
+
+          _ ->
+            case state.bootstrap_speculation do
+              %{status: :ready} = bs ->
+                {bs.target_index, bs.frame_url, bs.new_conv, bs.state_delta}
+
+              _ ->
+                nil
+            end
         end
     end
   end

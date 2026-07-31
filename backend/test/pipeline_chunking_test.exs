@@ -136,7 +136,13 @@ defmodule Sinestesia.PipelineChunkingTest do
       state = :sys.get_state(pid)
       assert %{target_index: 0, text: "Numa folha qualquer"} = state.bootstrap_speculation
       sid = state.session_id
-      gen = state.chunk_generation
+
+      # Bump chunk_generation first: set_lyrics/2 spawned a REAL chunking Task
+      # that is already racing toward its own {:error, :no_key} in this
+      # key-less test env, and it would otherwise land under the SAME
+      # generation and clobber the result this test sends below.
+      gen = state.chunk_generation + 1
+      :sys.replace_state(pid, fn s -> %{s | chunk_generation: gen} end)
 
       chunks = [
         %{start_line: 0, end_line: 1, text: "Numa folha qualquer Eu desenho um sol amarelo"}
@@ -163,10 +169,17 @@ defmodule Sinestesia.PipelineChunkingTest do
 
       state = :sys.get_state(pid)
       sid = state.session_id
-      gen = state.chunk_generation
+
+      # Same real-Task race as the test above — bump the generation so only
+      # this test's own synthetic result can land.
+      gen = state.chunk_generation + 1
 
       :sys.replace_state(pid, fn s ->
-        %{s | bootstrap_speculation: %{s.bootstrap_speculation | confirmed: true}}
+        %{
+          s
+          | chunk_generation: gen,
+            bootstrap_speculation: %{s.bootstrap_speculation | confirmed: true}
+        }
       end)
 
       chunks = [
@@ -177,7 +190,9 @@ defmodule Sinestesia.PipelineChunkingTest do
 
       state = :sys.get_state(pid)
       assert state.chunks == chunks
-      assert %{target_index: 0, text: "Numa folha qualquer", confirmed: true} = state.bootstrap_speculation
+
+      assert %{target_index: 0, text: "Numa folha qualquer", confirmed: true} =
+               state.bootstrap_speculation
     end
 
     test "a chunking failure falls back to one chunk per line and still unblocks the bootstrap",

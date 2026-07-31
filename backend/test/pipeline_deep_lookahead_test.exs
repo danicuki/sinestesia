@@ -157,6 +157,89 @@ defmodule Sinestesia.PipelineDeepLookaheadTest do
 
   defp sing(pid, text), do: send(pid, {:transcript, :replay, text, true, 0})
 
+  # A held eager bootstrap whose image has JUST landed: nothing revealed,
+  # nothing sung, bootstrap_done? still false. Seeded at :image status so the
+  # real {:bootstrap_spec_image_done, ...} handler is what moves it to :ready.
+  defp seed_pending_bootstrap(pid) do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | script: @script,
+          script_active?: true,
+          chunks: Sinestesia.LyricsChunker.fallback(@script),
+          bootstrap_generation: state.bootstrap_generation + 1,
+          chunk_generation: state.chunk_generation + 1,
+          bootstrap_speculation: %{
+            status: :image,
+            confirmed: false,
+            pid: nil,
+            new_conv: nil,
+            step: nil,
+            state_delta: nil,
+            frame_msg: nil,
+            frame_url: nil,
+            frame_route: nil,
+            receipt: nil,
+            text: "line one",
+            target_index: 0
+          }
+      }
+    end)
+
+    :sys.get_state(pid)
+  end
+
+  test "the buffer is primed during the silence BEFORE the first note, not after the first reveal",
+       %{pid: pid} do
+    # The founder's own description of the happy path: load the lyrics, and by
+    # the time the first line is sung there should already be a few frames
+    # waiting. Before HANDOFF #43 the whole deep chain was gated behind
+    # bootstrap_done?, which only flips on the first REVEAL — so a song loaded
+    # 20 seconds before the downbeat still had exactly one frame ready, and the
+    # buffer was only built while the singer was already performing.
+    System.put_env("LOOKAHEAD_DEPTH", "3")
+    state = seed_pending_bootstrap(pid)
+
+    send(
+      pid,
+      {:bootstrap_spec_image_done, {:ok, "https://example.test/opening.jpg", [], "opening prompt"},
+       base_timings(), state.session_id, state.bootstrap_generation}
+    )
+
+    state = :sys.get_state(pid)
+
+    # Still held — nothing has been sung, so nothing is on screen yet.
+    assert %{status: :ready} = state.bootstrap_speculation
+    refute state.bootstrap_done?
+
+    # ...but the chain is already running ahead of the performance.
+    assert %{index: 1} = state.prerender
+  end
+
+  test "a held bootstrap counts toward LOOKAHEAD_DEPTH, so the buffer is depth frames, not depth+1",
+       %{pid: pid} do
+    System.put_env("LOOKAHEAD_DEPTH", "2")
+    state = seed_pending_bootstrap(pid)
+
+    send(
+      pid,
+      {:bootstrap_spec_image_done, {:ok, "https://example.test/opening.jpg", [], "opening prompt"},
+       base_timings(), state.session_id, state.bootstrap_generation}
+    )
+
+    # Opening frame + one prerender in flight = 2. The chain must now stop.
+    state = :sys.get_state(pid)
+    assert %{index: 1} = state.prerender
+
+    :sys.replace_state(pid, fn s ->
+      %{s | prerender: nil, prerendered: Map.put(s.prerendered, 1, seeded_frame(1, "u1"))}
+    end)
+
+    send(pid, {:prerender_image_done, {:ok, "u1", [], "p1"}, base_timings(), state.session_id, 1})
+
+    assert :sys.get_state(pid).prerender == nil
+  end
+
   test "LOOKAHEAD_DEPTH=1 (default): the bootstrap reveal arms one speculation, never a prerender",
        %{pid: pid} do
     # seed_bootstrap BEFORE set_lyrics: bootstrap_done? must already be true

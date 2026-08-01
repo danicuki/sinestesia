@@ -97,10 +97,35 @@ defmodule Mix.Tasks.Sinestesia.Video do
     socket = spawn(fn -> socket_loop(parent) end)
     {:ok, _pipeline} = Sinestesia.Pipeline.start_link(socket)
 
+    frames_dir =
+      Path.join(System.tmp_dir!(), "sinestesia-video-frames-#{:erlang.unique_integer([:positive])}")
+
+    File.mkdir_p!(frames_dir)
+
     Mix.shell().info("── replaying #{session["name"]} (#{length(enriched["events"])} events, lead #{div(lead_ms, 1000)}s) ──")
-    acc = collect(deadline_ms, %{images: [], started_at: now_ms()})
+    acc = collect(deadline_ms, %{images: [], started_at: now_ms(), frames_dir: frames_dir})
 
     acc.images != [] || Mix.raise("no images were produced — check the provider env")
+
+    # Settle the in-flight downloads; a frame whose fetch ultimately failed is
+    # dropped (with its slot logged) rather than crashing the composition.
+    images =
+      acc.images
+      |> Enum.with_index(1)
+      |> Enum.filter(fn {img, n} ->
+        case Task.await(img.fetch, 180_000) do
+          :ok ->
+            true
+
+          other ->
+            Mix.shell().error("frame #{n} download failed (#{inspect(other)}) — dropped")
+            false
+        end
+      end)
+      |> Enum.map(fn {img, _} -> Map.delete(img, :fetch) end)
+
+    images != [] || Mix.raise("every frame download failed — check the image provider")
+    acc = %{acc | images: images}
 
     # ── 4. compose the final video ─────────────────────────────────────────
     out =
@@ -273,9 +298,38 @@ defmodule Mix.Tasks.Sinestesia.Video do
     receive do
       {:pushed, %{type: "image"} = msg} ->
         n = length(acc.images) + 1
-        at_s = Float.round((now_ms() - acc.started_at) / 1000, 1)
+        # Reveal instant = when the PUSH arrives here. NOT msg.ts: the
+        # pipeline stamps ts when the frame_msg is BUILT, which for held
+        # frames (eager bootstrap, deep look-ahead) is render-finish time,
+        # seconds before the reveal — using it put the opening frame on
+        # screen before a single word had been sung. Nothing else in collect
+        # blocks, so receive time IS push time.
+        revealed_at = now_ms()
+        at_s = Float.round((revealed_at - acc.started_at) / 1000, 1)
         Mix.shell().info("[#{String.pad_leading(to_string(n), 2, "0")}] +#{at_s}s  #{msg.prompt}")
-        collect(deadline_ms, %{acc | images: acc.images ++ [Map.put(msg, :arrived_at, now_ms())]})
+
+        # Download starts NOW (async — collect must never block, or later
+        # frames' receive-time timestamps shift), not in a burst at
+        # composition time. Frames arrive seconds apart, which is exactly the
+        # pacing a rate-limited free provider tolerates — fetching them all
+        # back-to-back at the end got this task a 429 ("max 1 queued request
+        # per IP") on its first live run, the same burst failure HANDOFF
+        # already records for the replay exporter.
+        file = Path.join(acc.frames_dir, "frame_#{String.pad_leading(to_string(n), 2, "0")}.jpg")
+        url = msg.url
+
+        task =
+          Task.async(fn ->
+            with {:ok, {ext, body}} <- fetch_image_retrying(url) do
+              write_as_jpg(file, ext, body)
+              :ok
+            end
+          end)
+
+        collect(deadline_ms, %{
+          acc
+          | images: acc.images ++ [%{revealed_at: revealed_at, file: file, fetch: task}]
+        })
 
       {:pushed, %{type: "replay_done"}} ->
         Mix.shell().info("── playback done, waiting for trailing work ──")
@@ -297,29 +351,32 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # and provides the audio; total duration is the performance's.
 
   defp compose(video, acc, lead_ms, fade_ms, pip, out) do
-    dir = Path.join(System.tmp_dir!(), "sinestesia-video-frames-#{:erlang.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
+    audio_dur_ms = probe_duration_ms(video)
 
-    # Reveal instants on the PERFORMANCE clock: arrival on the replay clock,
-    # minus the artificial pre-load lead. A frame revealed during the lead
-    # (eager bootstrap finishing early) clamps to 0 — on stage it would have
-    # been holding, revealed at the first confirmed words.
+    # Reveal instants on the PERFORMANCE clock: the pipeline's push moment on
+    # the replay clock, minus the artificial pre-load lead. A frame revealed
+    # during the lead (eager bootstrap finishing early) clamps to 0 — on
+    # stage it would have been holding, revealed at the first confirmed
+    # words. A frame revealed AFTER the audio ends is dropped, not clamped
+    # in: on the real stage that render would have landed after the song
+    # too — showing it earlier would falsify the very timing this exists to
+    # reproduce.
     frames =
       acc.images
-      |> Enum.with_index(1)
-      |> Enum.map(fn {msg, k} ->
-        at_ms = max(msg.arrived_at - acc.started_at - lead_ms, 0)
-        file = Path.join(dir, "frame_#{String.pad_leading(to_string(k), 2, "0")}.jpg")
-        {ext, body} = fetch_image(msg.url)
-        write_as_jpg(file, ext, body)
-        %{at_ms: at_ms, file: file}
+      |> Enum.map(fn img ->
+        %{at_ms: max(img.revealed_at - acc.started_at - lead_ms, 0), file: img.file}
       end)
       |> Enum.sort_by(& &1.at_ms)
+      |> Enum.reject(fn f ->
+        late = f.at_ms >= audio_dur_ms - 300
+        if late, do: Mix.shell().info("[compose] dropping a frame revealed after the song ended")
+        late
+      end)
       # Monotonic, ≥ 100ms apart — two frames revealed in the same instant
       # would give the xfade chain a zero-length segment.
       |> Enum.scan(fn f, prev -> %{f | at_ms: max(f.at_ms, prev.at_ms + 100)} end)
 
-    audio_dur_ms = probe_duration_ms(video)
+    frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
     {w, h} = probe_even_dims(List.first(frames).file)
 
     Mix.shell().info(
@@ -332,8 +389,6 @@ defmodule Mix.Tasks.Sinestesia.Video do
       {_, 0} -> :ok
       {output, status} -> Mix.raise("ffmpeg failed (#{status}):\n#{String.slice(output, -3000, 3000)}")
     end
-  after
-    :ok
   end
 
   defp ffmpeg_args(video, frames, audio_dur_ms, fade_ms, w, h, pip, out) do
@@ -453,16 +508,39 @@ defmodule Mix.Tasks.Sinestesia.Video do
     {w - rem(w, 2), h - rem(h, 2)}
   end
 
+  # Free image hosts rate-limit hard (Pollinations anonymous tier: max ONE
+  # queued request per IP) and their CDN can 5xx transiently — and for
+  # URL-triggers-generation providers the fetch IS the render, so a failure
+  # here is a lost frame, worth several patient retries with backoff.
+  defp fetch_image_retrying(url, tries \\ 5, backoff_ms \\ 4_000) do
+    case fetch_image(url) do
+      {:ok, _} = ok ->
+        ok
+
+      {:error, reason} when tries > 1 ->
+        Mix.shell().info("[fetch] #{inspect(reason)}; retrying in #{div(backoff_ms, 1000)}s")
+        Process.sleep(backoff_ms)
+        fetch_image_retrying(url, tries - 1, min(backoff_ms * 2, 20_000))
+
+      error ->
+        error
+    end
+  end
+
   defp fetch_image("data:image/" <> rest) do
     [meta, b64] = String.split(rest, ",", parts: 2)
     ext = if String.starts_with?(meta, "jpeg"), do: "jpg", else: "png"
-    {ext, Base.decode64!(b64)}
+    {:ok, {ext, Base.decode64!(b64)}}
   end
 
   defp fetch_image(url) do
     ext = if String.contains?(url, ".jpg"), do: "jpg", else: "png"
-    %{status: 200, body: body} = Req.get!(url, retry: false, decode_body: false)
-    {ext, body}
+
+    case Req.get(url, retry: false, decode_body: false, receive_timeout: 60_000) do
+      {:ok, %{status: 200, body: body}} -> {:ok, {ext, body}}
+      {:ok, %{status: status}} -> {:error, {:bad_status, status}}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp write_as_jpg(dest, "jpg", body), do: File.write!(dest, body)

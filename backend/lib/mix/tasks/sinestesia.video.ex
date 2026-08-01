@@ -140,7 +140,16 @@ defmodule Mix.Tasks.Sinestesia.Video do
             false
         end
       end)
-      |> Enum.map(fn {img, _} -> img end)
+      |> Enum.map(fn {img, _} ->
+        # A morph is only usable whole: one missing subframe would make the
+        # transition stutter, so any failure downgrades this image to the
+        # synthetic-blend path rather than playing a gappy sequence.
+        ok_subs = Enum.filter(img.subfiles, &(Map.get(results, &1) == :ok))
+
+        if length(ok_subs) == length(img.subfiles),
+          do: img,
+          else: %{img | subfiles: []}
+      end)
 
     images != [] || Mix.raise("every frame download failed — check the image provider")
     acc = %{acc | images: images}
@@ -352,7 +361,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
         at_s = Float.round((revealed_at - acc.started_at) / 1000, 1)
         Mix.shell().info("[#{String.pad_leading(to_string(n), 2, "0")}] +#{at_s}s  #{msg.prompt}")
 
-        # Hand the download to the single fetch worker (collect must never
+        # Hand the downloads to the single fetch worker (collect must never
         # block, or later frames' receive-time timestamps shift). ONE worker,
         # strictly serial, because the failure mode here is precise:
         # Pollinations' anonymous tier allows ONE queued request per IP, and
@@ -360,12 +369,27 @@ defmodule Mix.Tasks.Sinestesia.Video do
         # the replay. Parallel fetches with retries still lost 3 frames of 6
         # to 429s on a live run; a serial queue with patient backoff drains
         # naturally once the replay's own traffic quiets down.
-        file = Path.join(acc.frames_dir, "frame_#{String.pad_leading(to_string(n), 2, "0")}.jpg")
+        pad_n = String.pad_leading(to_string(n), 2, "0")
+        file = Path.join(acc.frames_dir, "frame_#{pad_n}.jpg")
         send(acc.fetcher, {:fetch, msg.url, file})
+
+        # The sidecar's latent-morph subframes (LOCAL_MORPH) — the exact
+        # transition the stage would have played into this image. Local URLs,
+        # so these fetches are cheap; they queue behind the main frame.
+        subfiles =
+          msg
+          |> Map.get(:frames, [])
+          |> Kernel.||([])
+          |> Enum.with_index(1)
+          |> Enum.map(fn {sub_url, j} ->
+            sub = Path.join(acc.frames_dir, "frame_#{pad_n}_m#{String.pad_leading(to_string(j), 2, "0")}.jpg")
+            send(acc.fetcher, {:fetch, sub_url, sub})
+            sub
+          end)
 
         collect(deadline_ms, %{
           acc
-          | images: acc.images ++ [%{revealed_at: revealed_at, file: file}]
+          | images: acc.images ++ [%{revealed_at: revealed_at, file: file, subfiles: subfiles}]
         })
 
       {:pushed, %{type: "replay_done"}} ->
@@ -381,11 +405,14 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── composition ──────────────────────────────────────────────────────────
   #
-  # The image track is an xfade chain: image k becomes fully visible fade_ms
-  # after its reveal instant — the same "morph starts at reveal" the stage
-  # player does — with black before the first reveal (the live canvas is
-  # black until the first frame too). The artist video is overlaid as PIP
-  # and provides the audio; total duration is the performance's.
+  # The image track is a concat of stills: each scene's transition window
+  # [reveal, reveal+fade] plays the sidecar's REAL latent-morph subframes
+  # when the run produced them (LOCAL_MORPH) — the exact frames the stage
+  # would have played — and a synthesized linear blend otherwise; then the
+  # final image holds until the next reveal. Black before the first reveal
+  # (the live canvas is black until the first frame too). The artist video
+  # is overlaid as PIP and provides the audio; total duration is the
+  # performance's.
 
   defp compose(video, acc, lead_ms, fade_ms, pip, out) do
     audio_dur_ms = probe_duration_ms(video)
@@ -401,7 +428,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
     frames =
       acc.images
       |> Enum.map(fn img ->
-        %{at_ms: max(img.revealed_at - acc.started_at - lead_ms, 0), file: img.file}
+        %{
+          at_ms: max(img.revealed_at - acc.started_at - lead_ms, 0),
+          file: img.file,
+          subfiles: img.subfiles
+        }
       end)
       |> Enum.sort_by(& &1.at_ms)
       |> Enum.reject(fn f ->
@@ -410,17 +441,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
         late
       end)
       # Monotonic, ≥ 100ms apart — two frames revealed in the same instant
-      # would give the xfade chain a zero-length segment.
+      # would give a zero-length segment.
       |> Enum.scan(fn f, prev -> %{f | at_ms: max(f.at_ms, prev.at_ms + 100)} end)
 
     frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
     {w, h} = probe_even_dims(List.first(frames).file)
 
+    morphs = Enum.count(frames, &(&1.subfiles != []))
+
     Mix.shell().info(
-      "── composing #{length(frames)} frames → #{w}x#{h}, fade #{fade_ms}ms, pip #{pip} ──"
+      "── composing #{length(frames)} frames (#{morphs} with real morphs) → #{w}x#{h}, fade #{fade_ms}ms, pip #{pip} ──"
     )
 
-    args = ffmpeg_args(video, frames, audio_dur_ms, fade_ms, w, h, pip, out)
+    workdir = Path.dirname(List.first(frames).file)
+    concat_path = build_concat(frames, fade_ms, audio_dur_ms, w, h, workdir)
+    args = ffmpeg_args(video, concat_path, audio_dur_ms, w, h, pip, out)
 
     case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
       {_, 0} -> :ok
@@ -428,59 +463,131 @@ defmodule Mix.Tasks.Sinestesia.Video do
     end
   end
 
-  defp ffmpeg_args(video, frames, audio_dur_ms, fade_ms, w, h, pip, out) do
-    n = length(frames)
-    reveal = Enum.map(frames, & &1.at_ms)
+  # The image track as a concat-demuxer script: a sequence of stills with
+  # durations. Every piece is normalized to the canvas first — the concat
+  # demuxer requires uniform dimensions, and the bootstrap frame (cloud t2i)
+  # can differ in size from the sidecar's morph subframes.
+  defp build_concat(frames, fade_ms, audio_dur_ms, w, h, workdir) do
+    black = Path.join(workdir, "black.jpg")
 
-    # Input i's on-screen duration: from its reveal to the next reveal, plus
-    # the fade tail it is the outgoing side of. Last one holds to the end.
-    durs =
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        ~w(-y -v error -f lavfi -i color=c=black:s=#{w}x#{h} -frames:v 1) ++ [black],
+        stderr_to_stdout: true
+      )
+
+    n = length(frames)
+
+    pieces =
       frames
       |> Enum.with_index()
-      |> Enum.map(fn {f, i} ->
-        next = if i + 1 < n, do: Enum.at(reveal, i + 1), else: audio_dur_ms
-        (next - f.at_ms + fade_ms) / 1000
+      |> Enum.flat_map(fn {f, i} ->
+        next_at = if i + 1 < n, do: Enum.at(frames, i + 1).at_ms, else: audio_dur_ms
+        prev_file = if i == 0, do: black, else: Enum.at(frames, i - 1).file
+
+        # The transition can never outlive its own slot: a rapid-fire reveal
+        # (two scenes in one breath) shortens the fade rather than overrunning
+        # the next scene's start.
+        fade = min(fade_ms, next_at - f.at_ms)
+
+        transition =
+          case f.subfiles do
+            [] ->
+              # No sidecar morph for this boundary (bootstrap t2i, provider
+              # fallback): synthesize the stage's crossfade as 12 linear
+              # blends, the same recipe mix sinestesia.replay exports.
+              blend_steps(prev_file, f.file, i, 12, workdir)
+
+            subs ->
+              Enum.map(subs, &norm(&1, w, h, workdir))
+          end
+
+        per = fade / length(transition) / 1000
+
+        transition_pieces = Enum.map(transition, &{&1, per})
+        hold = (next_at - f.at_ms - fade) / 1000
+
+        transition_pieces ++
+          if hold > 0.001, do: [{norm(f.file, w, h, workdir), hold}], else: []
       end)
 
-    image_inputs =
-      frames
-      |> Enum.zip(durs)
-      |> Enum.flat_map(fn {f, d} ->
-        ["-loop", "1", "-t", Float.to_string(Float.round(d, 3)), "-i", f.file]
+    first_at = List.first(frames).at_ms
+    pieces = if first_at > 0, do: [{black, first_at / 1000} | pieces], else: pieces
+
+    # Last line repeats the final still with no duration — concat-demuxer
+    # convention so the stream doesn't end a frame early.
+    {last_file, _} = List.last(pieces)
+
+    script =
+      pieces
+      |> Enum.flat_map(fn {file, dur} ->
+        ["file '#{file}'", "duration #{Float.round(dur, 3)}"]
       end)
+      |> Kernel.++(["file '#{last_file}'"])
+      |> Enum.join("\n")
 
-    # Filtergraph. Inputs: 0 = artist video, 1 = black base, 2..n+1 = images.
-    scale_filters =
-      frames
-      |> Enum.with_index(2)
-      |> Enum.map(fn {_f, idx} ->
-        "[#{idx}:v]scale=#{w}:#{h}:force_original_aspect_ratio=decrease," <>
-          "pad=#{w}:#{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30[img#{idx - 2}]"
-      end)
+    path = Path.join(workdir, "concat.txt")
+    File.write!(path, script <> "\n")
+    path
+  end
 
-    # Chain: black xfades into image 0 at its reveal, then each image into
-    # the next. Per-boundary fade clamps to the available gap so a rapid-fire
-    # reveal (two chunks in one breath) can't make the chain inconsistent.
-    {xfades, last_label} =
-      0..(n - 1)
-      |> Enum.reduce({[], "base"}, fn i, {acc, prev} ->
-        t = Enum.at(reveal, i)
-        gap_before = if i == 0, do: t, else: t - Enum.at(reveal, i - 1)
-        f = min(fade_ms, max(gap_before, 100)) / 1000
-        offset = t / 1000
-        label = if i == n - 1, do: "imgchain", else: "x#{i}"
+  # Scale+pad a still to the canvas, cached by basename (subframes are
+  # reused nowhere, finals are reused as hold pieces).
+  defp norm(file, w, h, workdir) do
+    out = Path.join(workdir, "norm_#{Path.basename(file)}")
 
-        filter =
-          "[#{prev}][img#{i}]xfade=transition=fade:duration=#{Float.round(f, 3)}:" <>
-            "offset=#{Float.round(offset, 3)}[#{label}]"
+    if not File.exists?(out) do
+      {_, 0} =
+        System.cmd(
+          "ffmpeg",
+          [
+            "-y", "-v", "error", "-i", file,
+            "-vf",
+            "scale=#{w}:#{h}:force_original_aspect_ratio=decrease," <>
+              "pad=#{w}:#{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1",
+            "-q:v", "2", out
+          ],
+          stderr_to_stdout: true
+        )
+    end
 
-        {acc ++ [filter], label}
-      end)
+    out
+  end
+
+  defp blend_steps(from_file, to_file, boundary, steps, workdir) do
+    {w, h} = probe_even_dims(to_file)
+    from_n = norm(from_file, w, h, workdir)
+    to_n = norm(to_file, w, h, workdir)
+
+    1..steps
+    |> Enum.map(fn j ->
+      t = :erlang.float_to_binary(j / (steps + 1), decimals: 4)
+      out = Path.join(workdir, "blend_#{boundary}_#{String.pad_leading(to_string(j), 2, "0")}.jpg")
+
+      {_, 0} =
+        System.cmd(
+          "ffmpeg",
+          [
+            "-y", "-v", "error", "-i", from_n, "-i", to_n,
+            "-filter_complex", "blend=all_expr='A*(1-#{t})+B*#{t}'",
+            "-frames:v", "1", out
+          ],
+          stderr_to_stdout: true
+        )
+
+      out
+    end)
+    |> Kernel.++([to_n])
+  end
+
+  defp ffmpeg_args(video, concat_path, audio_dur_ms, _w, h, pip, out) do
+    total_s = Float.round(audio_dur_ms / 1000, 3)
 
     pip_filters =
       case pip do
         "off" ->
-          ["[#{last_label}]copy[outv]"]
+          ["[imgs]copy[outv]"]
 
         pos ->
           ph = div(h, 3)
@@ -495,30 +602,24 @@ defmodule Mix.Tasks.Sinestesia.Video do
             end
 
           [
-            "[0:v]scale=-2:#{ph},setsar=1[pip]",
-            "[#{last_label}][pip]overlay=#{x}:#{y}:shortest=0[outv]"
+            "[1:v]scale=-2:#{ph},setsar=1[pip]",
+            "[imgs][pip]overlay=#{x}:#{y}:shortest=0[outv]"
           ]
       end
 
-    total_s = Float.round(audio_dur_ms / 1000, 3)
+    filtergraph = Enum.join(["[0:v]setsar=1,fps=30[imgs]"] ++ pip_filters, ";")
 
-    filtergraph =
-      Enum.join(
-        ["[1:v]setsar=1[base]"] ++ scale_filters ++ xfades ++ pip_filters,
-        ";"
-      )
-
-    ["-y", "-i", video] ++
-      ["-f", "lavfi", "-t", Float.to_string(total_s), "-i", "color=c=black:s=#{w}x#{h}:r=30"] ++
-      image_inputs ++
-      [
-        "-filter_complex", filtergraph,
-        "-map", "[outv]", "-map", "0:a",
-        "-t", Float.to_string(total_s),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "21",
-        "-c:a", "aac", "-b:a", "192k",
-        out
-      ]
+    [
+      "-y",
+      "-f", "concat", "-safe", "0", "-i", concat_path,
+      "-i", video,
+      "-filter_complex", filtergraph,
+      "-map", "[outv]", "-map", "1:a",
+      "-t", Float.to_string(total_s),
+      "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "21",
+      "-c:a", "aac", "-b:a", "192k",
+      out
+    ]
   end
 
   # ── small helpers (same shapes as mix sinestesia.replay) ─────────────────

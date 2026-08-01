@@ -80,7 +80,12 @@ def main():
     ap.add_argument("--name", help="session name (default: slug of the filename)")
     ap.add_argument("--style", help="visual style to bake into the session")
     ap.add_argument("--out", help="output dir (default: alongside the video)")
-    ap.add_argument("--lang", default="pt", help="ISO language ('' = auto-detect)")
+    # Auto-detect by default: unlike the live stage (Brazilian repertoire,
+    # ELEVEN_LANG=pt), an uploaded clip can be in any language, and forcing
+    # pt on an English take mangles the words badly enough to break song
+    # identification downstream ("let me see what spring is like" came back
+    # as "o que o spring é como um jupiter mar").
+    ap.add_argument("--lang", default="", help="ISO language (default: auto-detect)")
     ap.add_argument("--model", default="small",
                     help="faster-whisper model size (tiny/base/small/medium)")
     # Mirror the live STT: the backend commits an utterance after

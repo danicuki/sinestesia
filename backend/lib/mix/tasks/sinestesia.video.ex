@@ -102,18 +102,36 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     File.mkdir_p!(frames_dir)
 
+    fetcher = spawn_link(fn -> fetch_worker() end)
+
     Mix.shell().info("── replaying #{session["name"]} (#{length(enriched["events"])} events, lead #{div(lead_ms, 1000)}s) ──")
-    acc = collect(deadline_ms, %{images: [], started_at: now_ms(), frames_dir: frames_dir})
+
+    acc =
+      collect(deadline_ms, %{
+        images: [],
+        started_at: now_ms(),
+        frames_dir: frames_dir,
+        fetcher: fetcher
+      })
 
     acc.images != [] || Mix.raise("no images were produced — check the provider env")
 
-    # Settle the in-flight downloads; a frame whose fetch ultimately failed is
+    # Drain the fetch queue; a frame whose download ultimately failed is
     # dropped (with its slot logged) rather than crashing the composition.
+    send(fetcher, {:drain, self()})
+
+    results =
+      receive do
+        {:fetched, results} -> results
+      after
+        300_000 -> Mix.raise("fetch worker did not drain in 5 minutes")
+      end
+
     images =
       acc.images
       |> Enum.with_index(1)
       |> Enum.filter(fn {img, n} ->
-        case Task.await(img.fetch, 180_000) do
+        case Map.get(results, img.file) do
           :ok ->
             true
 
@@ -122,7 +140,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
             false
         end
       end)
-      |> Enum.map(fn {img, _} -> Map.delete(img, :fetch) end)
+      |> Enum.map(fn {img, _} -> img end)
 
     images != [] || Mix.raise("every frame download failed — check the image provider")
     acc = %{acc | images: images}
@@ -134,6 +152,32 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     compose(video, acc, lead_ms, fade_ms, opts[:pip] || "br", out)
     Mix.shell().info("\n── done ──\n#{out}")
+  end
+
+  # Strictly-serial download worker. Fetches queue in ITS mailbox while it
+  # patiently retries the current one — so the rate-limited provider only
+  # ever sees one request from us at a time, and a contended window (the
+  # pipeline's own warm-up traffic during the replay) just delays the queue
+  # instead of failing frames. `{:drain, from}` replies with a results map
+  # once everything queued before it is done.
+  defp fetch_worker(results \\ %{}) do
+    receive do
+      {:fetch, url, file} ->
+        outcome =
+          case fetch_image_retrying(url) do
+            {:ok, {ext, body}} ->
+              write_as_jpg(file, ext, body)
+              :ok
+
+            error ->
+              error
+          end
+
+        fetch_worker(Map.put(results, file, outcome))
+
+      {:drain, from} ->
+        send(from, {:fetched, results})
+    end
   end
 
   # ── session ──────────────────────────────────────────────────────────────
@@ -308,27 +352,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
         at_s = Float.round((revealed_at - acc.started_at) / 1000, 1)
         Mix.shell().info("[#{String.pad_leading(to_string(n), 2, "0")}] +#{at_s}s  #{msg.prompt}")
 
-        # Download starts NOW (async — collect must never block, or later
-        # frames' receive-time timestamps shift), not in a burst at
-        # composition time. Frames arrive seconds apart, which is exactly the
-        # pacing a rate-limited free provider tolerates — fetching them all
-        # back-to-back at the end got this task a 429 ("max 1 queued request
-        # per IP") on its first live run, the same burst failure HANDOFF
-        # already records for the replay exporter.
+        # Hand the download to the single fetch worker (collect must never
+        # block, or later frames' receive-time timestamps shift). ONE worker,
+        # strictly serial, because the failure mode here is precise:
+        # Pollinations' anonymous tier allows ONE queued request per IP, and
+        # our fetches compete with the pipeline's own warm-up HEADs during
+        # the replay. Parallel fetches with retries still lost 3 frames of 6
+        # to 429s on a live run; a serial queue with patient backoff drains
+        # naturally once the replay's own traffic quiets down.
         file = Path.join(acc.frames_dir, "frame_#{String.pad_leading(to_string(n), 2, "0")}.jpg")
-        url = msg.url
-
-        task =
-          Task.async(fn ->
-            with {:ok, {ext, body}} <- fetch_image_retrying(url) do
-              write_as_jpg(file, ext, body)
-              :ok
-            end
-          end)
+        send(acc.fetcher, {:fetch, msg.url, file})
 
         collect(deadline_ms, %{
           acc
-          | images: acc.images ++ [%{revealed_at: revealed_at, file: file, fetch: task}]
+          | images: acc.images ++ [%{revealed_at: revealed_at, file: file}]
         })
 
       {:pushed, %{type: "replay_done"}} ->
@@ -512,7 +549,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # queued request per IP) and their CDN can 5xx transiently — and for
   # URL-triggers-generation providers the fetch IS the render, so a failure
   # here is a lost frame, worth several patient retries with backoff.
-  defp fetch_image_retrying(url, tries \\ 5, backoff_ms \\ 4_000) do
+  defp fetch_image_retrying(url, tries \\ 7, backoff_ms \\ 4_000) do
     case fetch_image(url) do
       {:ok, _} = ok ->
         ok

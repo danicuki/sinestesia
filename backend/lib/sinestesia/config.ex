@@ -424,6 +424,14 @@ defmodule Sinestesia.Config do
       doc: "Fallback model for lyrics chunking. Needs ANTHROPIC_API_KEY."
     },
     %{
+      key: "LYRICS_CHUNK_ALLOW_LOCAL",
+      group: :lookahead,
+      default: nil,
+      values: "1 | true",
+      doc:
+        "Let the local Ollama model split lyrics into scenes when the cloud models are unavailable (fully-offline setups, mix sinestesia.video). Safer than SONGID_ALLOW_LOCAL's tradeoff: the answer is a strict line-range format validated for full contiguous coverage, so a bad local answer degrades to the one-scene-per-line fallback, never to a wrong result."
+    },
+    %{
       key: "LYRICS_CHUNK_TIMEOUT_MS",
       group: :lookahead,
       default: "15000",

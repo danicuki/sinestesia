@@ -45,3 +45,5 @@ backend/bench-*/
 .vercel
 .env*
 songs/*
+tools/.venv/
+tools/__pycache__/

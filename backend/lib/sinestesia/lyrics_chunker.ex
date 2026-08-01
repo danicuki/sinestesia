@@ -118,12 +118,23 @@ defmodule Sinestesia.LyricsChunker do
     |> Enum.map(fn {line, i} -> %{start_line: i, end_line: i, text: line} end)
   end
 
-  # Same world-knowledge-first chain SongId uses, minus the local-model
-  # allowance: a wrong SEGMENTATION isn't a permanent on-chain mistake like a
-  # wrong song title, but a small local model still isn't worth trusting with
-  # "did this sentence complete" judgment any more than it is with naming a
-  # song — it errs confidently.
-  defp providers, do: [:gemini, :haiku]
+  # Same world-knowledge-first chain SongId uses. The local model is opt-in
+  # (LYRICS_CHUNK_ALLOW_LOCAL=1, mirroring SONGID_ALLOW_LOCAL) rather than
+  # excluded outright: a small local model errs confidently on "did this
+  # sentence complete" judgment, BUT — unlike a song title — its answer here
+  # is a strict line-range format that parse/2 validates for full contiguous
+  # coverage, so a bad answer degrades to the one-line fallback, never to a
+  # wrong result. On a fully-offline box (no Gemini/Anthropic keys at all,
+  # e.g. `mix sinestesia.video` on a machine with only Ollama), the choice is
+  # not "local vs. cloud" — it's "local vs. the per-line fallback this feature
+  # exists to improve on".
+  defp providers do
+    if System.get_env("LYRICS_CHUNK_ALLOW_LOCAL") in ["1", "true"] do
+      [:gemini, :haiku, :ollama]
+    else
+      [:gemini, :haiku]
+    end
+  end
 
   defp attempt(provider, user, tries \\ @attempts) do
     case call(provider, user) do
@@ -203,6 +214,33 @@ defmodule Sinestesia.LyricsChunker do
 
       _ ->
         {:error, :no_key}
+    end
+  end
+
+  # Mirrors SongId's ollama call: same endpoint, deterministic, no thinking.
+  # num_predict is sized for the answer format (one "N-M" range per line —
+  # a 60-line song needs ~400 tokens, nowhere near a prose budget).
+  defp call(:ollama, user) do
+    cfg = Application.fetch_env!(:sinestesia, :config)
+    url = Keyword.fetch!(cfg, :ollama_url) <> "/api/chat"
+
+    body = %{
+      model: Keyword.fetch!(cfg, :ollama_model),
+      stream: false,
+      think: false,
+      options: %{temperature: 0.0, num_predict: 1_000},
+      messages: [
+        %{role: "system", content: @system},
+        %{role: "user", content: user}
+      ]
+    }
+
+    case Req.post(url, json: body, receive_timeout: timeout_ms(), retry: false) do
+      {:ok, %{status: 200, body: %{"message" => %{"content" => t}}}} when is_binary(t) ->
+        {:ok, t}
+
+      {:ok, resp} -> {:error, {:bad_status, resp.status}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

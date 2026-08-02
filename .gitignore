@@ -45,3 +45,5 @@ backend/bench-*/
 .vercel
 .env*
 songs/*
+DEMO_SCRIPT.md
+demo/

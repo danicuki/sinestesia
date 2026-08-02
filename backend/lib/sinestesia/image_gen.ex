@@ -138,7 +138,34 @@ defmodule Sinestesia.ImageGen do
   # original sample sequences (aquarela/cityscape/cosmic) were made: temporal
   # coherence comes from prompt overlap (scene list + same style every frame)
   # and the frontend's morphing, not from feeding images back into the model.
-  defp t2i(prompt) do
+  # Finch reports :pool_not_available while an HTTP/2 pool is still coming up
+  # — the supervisor exists but no connection has registered (see HANDOFF #51,
+  # where the Director hit the same race). The look-ahead fires the eager
+  # bootstrap and a depth-3 prerender chain within milliseconds of each other,
+  # so the first few frames of a song race one cold pool.
+  #
+  # Here the consequence is worse than a slow frame: an i2i failure degrades
+  # the frame to t2i, which the code below openly notes loses continuity with
+  # the previous image — a visible artefact on stage, caused by a race that
+  # clears in a quarter second. So retry the same call first.
+  @pool_warmup_retries 2
+  @pool_warmup_ms 250
+
+  defp with_pool_warmup(fun, tries \\ @pool_warmup_retries) do
+    case fun.() do
+      {:error, %Req.HTTPError{reason: :pool_not_available}} when tries > 0 ->
+        Logger.debug("[image_gen] connection pool still warming; retrying")
+        Process.sleep(@pool_warmup_ms)
+        with_pool_warmup(fun, tries - 1)
+
+      result ->
+        result
+    end
+  end
+
+  defp t2i(prompt), do: with_pool_warmup(fn -> do_t2i(prompt) end)
+
+  defp do_t2i(prompt) do
     case provider() do
       :cloudflare -> Sinestesia.ImageGen.Cloudflare.text2img(prompt)
       :google -> Sinestesia.ImageGen.GeminiImage.generate(prompt)
@@ -153,7 +180,10 @@ defmodule Sinestesia.ImageGen do
     System.get_env("LOCAL_MORPH", "true") in ~w(true 1 yes)
   end
 
-  defp i2i(prompt, image_url, opts) do
+  defp i2i(prompt, image_url, opts),
+    do: with_pool_warmup(fn -> do_i2i(prompt, image_url, opts) end)
+
+  defp do_i2i(prompt, image_url, opts) do
     case {provider(), image_url} do
       {:fal, url} when is_binary(url) and url != "" ->
         case Keyword.get(opts, :element) do

@@ -63,21 +63,24 @@ defmodule Mix.Tasks.Sinestesia.Video do
     fade_ms = opts[:fade] || 1_500
     lead_ms = round((opts[:lead] || 15.0) * 1_000)
 
-    # Decide the transcription provider from the operator's REAL STT_PROVIDER
-    # before the replay override below hides it.
+    # Boot FIRST. Two things depend on it and both bit us: Req/Finch has to be
+    # running before any HTTP call, and `config/runtime.exs` is what loads
+    # `.env` into the process environment — so reading STT_PROVIDER or
+    # ELEVENLABS_API_KEY before this point sees an operator's .env as empty
+    # and silently falls back to the local sidecar.
+    #
+    # PORT is set beforehand because the supervisor binds it at boot; the
+    # replay override of STT_PROVIDER is NOT, both because runtime.exs lets a
+    # pre-set variable win over .env (which would hide the real choice) and
+    # because nothing reads it until Pipeline.start_link below.
+    System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
+    Mix.Task.run("app.start")
+
     stt =
       case opts[:stt] do
         nil -> Sinestesia.BatchStt.provider()
         name -> String.to_existing_atom(name)
       end
-
-    # The app must be up before ANY of this: transcription, song lookup and
-    # the pipeline all go through Req/Finch. STT_PROVIDER is set to replay
-    # for the pipeline's own (fake) STT — batch transcription already has
-    # its provider captured above.
-    System.put_env("STT_PROVIDER", "replay")
-    System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
-    Mix.Task.run("app.start")
 
     # ── 1. session (transcription) ─────────────────────────────────────────
     session = load_or_build_session(video, Keyword.put(opts, :stt_provider, stt))
@@ -100,6 +103,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
         style = opts[:style] || song.style || s["style"]
         if style, do: Map.put(s, "style", style), else: s
       end)
+
+    # From here on the pipeline drives itself off the recorded session.
+    System.put_env("STT_PROVIDER", "replay")
 
     enriched_path = Path.join(System.tmp_dir!(), "sinestesia-video-#{session["name"]}.json")
     File.write!(enriched_path, Jason.encode!(enriched))

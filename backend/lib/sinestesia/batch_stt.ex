@@ -169,11 +169,15 @@ defmodule Sinestesia.BatchStt do
   defp call(:elevenlabs, audio, lang) do
     key = api_key() || throw(:no_key)
 
+    # Req's multipart parts are `{name, value}` or `{name, {value, options}}`
+    # — the options belong INSIDE the tuple, not as a third element. A
+    # %File.Stream{} fills in filename and content-type from the path on its
+    # own, and streams rather than loading the whole wav into memory.
     fields =
       [
         {"model_id", @eleven_model},
         {"timestamps_granularity", "word"},
-        {"file", File.stream!(audio, 64_000), filename: Path.basename(audio)}
+        {"file", {File.stream!(audio, 64_000), []}}
       ] ++ if lang == "", do: [], else: [{"language_code", lang}]
 
     case Req.post(@eleven_url,

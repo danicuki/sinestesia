@@ -60,4 +60,3 @@ The artists require a total of **60 minutes (1 hour)** of uninterrupted stage ac
 * **Guitarist & System Engineer:** Daniel Cukier
 * **Showreel (90s):** [Watch on YouTube](https://youtu.be/BnoYW_fPRuE)
 * **Live Demo Video Reference:** [Watch on YouTube (NFC Summit Lisbon)](https://www.youtube.com/watch?v=c_ZsERk0Al8)
-* **Open-Source Codebase:** [github.com/danicuki/sinestesia](https://github.com/danicuki/sinestesia)

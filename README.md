@@ -241,4 +241,4 @@ HANDOFF.md                     Decisions, gotchas, onboarding
 
 ## License
 
-MIT. PRs welcome — especially anything that pushes Rails 1 and 3 further.
+Proprietary — all rights reserved. The source is closed for now.

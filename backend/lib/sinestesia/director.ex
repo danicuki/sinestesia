@@ -148,6 +148,12 @@ defmodule Sinestesia.Director do
   # bootstrap call doesn't fall through to Gemini (which is out of credits).
   @gemma_timeout_ms 8_000
   @gemini_timeout_ms 3_000
+
+  # Two retries at a quarter second covers the observed warm-up window with
+  # room to spare; beyond that it is a real failure and the chain should move
+  # on rather than stall a frame the singer is already past.
+  @pool_warmup_retries 2
+  @pool_warmup_ms 250
   @haiku_timeout_ms 3_000
   # 0G routes inference over the network with an on-chain-signed request. The
   # sidecar now settles/verifies ON-CHAIN IN THE BACKGROUND (off the response
@@ -357,10 +363,38 @@ defmodule Sinestesia.Director do
 
   ## Provider chain
 
-  defp try_chain([], _messages), do: {:error, :all_directors_failed}
+  defp try_chain(chain, messages), do: try_chain(chain, messages, @pool_warmup_retries)
 
-  defp try_chain([p | rest], messages) do
+  defp try_chain([], _messages, _warmups), do: {:error, :all_directors_failed}
+
+  # Finch answers `:pool_not_available` while an HTTP/2 pool is still coming
+  # up: the pool supervisor exists but no connection has registered yet
+  # (Finch.Pool.Manager.maybe_start_pool -> :not_ready). It shows up on the
+  # first BURST of concurrent calls to a host — the look-ahead fires the eager
+  # bootstrap and a depth-3 prerender chain within milliseconds of each other,
+  # so several requests race one cold pool — and clears in well under a
+  # second. Falling through on it would trade the operator's chosen model for
+  # a weaker one over a transient race, and silently change who directed the
+  # frame, so retry the SAME provider first.
+  defp try_chain([p | _] = chain, messages, warmups)
+       when warmups > 0 do
     case call(p, messages) do
+      {:error, %Req.HTTPError{reason: :pool_not_available}} ->
+        Logger.debug("director #{p}: connection pool still warming; retrying")
+        Process.sleep(@pool_warmup_ms)
+        try_chain(chain, messages, warmups - 1)
+
+      result ->
+        handle_result(result, chain, messages, warmups)
+    end
+  end
+
+  defp try_chain([p | _] = chain, messages, warmups) do
+    handle_result(call(p, messages), chain, messages, warmups)
+  end
+
+  defp handle_result(result, [p | rest], messages, warmups) do
+    case result do
       {:ok, prompt} ->
         # Record which provider actually answered — the chain falls through on
         # failure, so the configured provider is not necessarily the one that
@@ -369,11 +403,11 @@ defmodule Sinestesia.Director do
         {:ok, prompt}
 
       {:error, :no_key} ->
-        try_chain(rest, messages)
+        try_chain(rest, messages, warmups)
 
       {:error, reason} ->
         Logger.warning("director #{p} failed (#{inspect(reason)}); trying next")
-        try_chain(rest, messages)
+        try_chain(rest, messages, warmups)
     end
   end
 

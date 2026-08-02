@@ -31,6 +31,8 @@ The result: a single sketch that fills up with the imagery of the song as it's b
 
 ## Live demo video
 
+Showreel (90s): https://youtu.be/BnoYW_fPRuE
+
 https://www.youtube.com/watch?v=c_ZsERk0Al8
 
 Closing showcase at NFC Summit (Creative AI track), Lisbon. Daniella Alcarpe singing — visuals drawn in real time by Sinestesia on the back wall.

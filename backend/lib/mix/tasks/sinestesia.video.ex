@@ -197,11 +197,32 @@ defmodule Mix.Tasks.Sinestesia.Video do
         root = Path.expand("..")
         py = Path.join(root, "tools/.venv/bin/python")
 
+        # Transcription runs in tools/.venv regardless of backend; what it
+        # needs installed differs. With ELEVENLABS_API_KEY set (the stage's
+        # own account) it uses Scribe's batch endpoint and only needs
+        # `requests`; with no key at all it falls to a local faster-whisper.
+        # See tools/stt_batch.py — STT_PROVIDER selects the REALTIME engine
+        # for the live show, and is honoured here too so an operator doesn't
+        # have to configure the same thing twice.
+        eleven? = (System.get_env("ELEVENLABS_API_KEY") || "") != ""
+
+        deps =
+          if eleven?,
+            do: "requests",
+            else: "faster-whisper"
+
         File.exists?(py) ||
           Mix.raise("""
           tools/.venv not found. Create it once with:
+
             uv venv --python 3.12 tools/.venv
-            uv pip install --python tools/.venv/bin/python faster-whisper
+            uv pip install --python tools/.venv/bin/python #{deps}
+
+          (or: python3 -m venv tools/.venv && tools/.venv/bin/pip install #{deps})
+
+          #{if eleven?,
+            do: "ELEVENLABS_API_KEY is set, so Scribe's batch endpoint will be used — no local model needed.",
+            else: "No ELEVENLABS_API_KEY found, so transcription runs on a local whisper. Set the key to use Scribe instead."}
           """)
 
         out_dir = Path.join(System.tmp_dir!(), "sinestesia-video")

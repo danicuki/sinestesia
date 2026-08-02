@@ -13,7 +13,11 @@ Usage:
     tools/.venv/bin/python tools/video_to_session.py clip.mp4
     ... clip.mp4 --name minha-take --out /tmp --model small --lang pt
 
-Needs: ffmpeg on PATH; faster-whisper in the running python (see tools/.venv,
+Backend: ElevenLabs Scribe batch when STT_PROVIDER=elevenlabs and a key is
+around (same engine and account the stage uses, and more accurate), else a
+local faster-whisper that needs no key at all. Force either with --stt.
+
+Needs: ffmpeg on PATH; `requests` (ElevenLabs) or faster-whisper (local) (see tools/.venv,
 created with `uv venv --python 3.12 tools/.venv &&
 uv pip install --python tools/.venv/bin/python faster-whisper`).
 """
@@ -27,6 +31,9 @@ import tempfile
 from pathlib import Path
 
 from session_events import build_events
+from stt_batch import pick_backend, transcribe
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def slugify(s: str) -> str:
@@ -46,34 +53,6 @@ def extract_audio(video: Path, out_dir: Path) -> Path:
     return wav
 
 
-def transcribe(wav: Path, lang: str, model_size: str) -> list[dict]:
-    """Local faster-whisper with word timestamps → [{"text","start","end"}]."""
-    from faster_whisper import WhisperModel
-
-    print(f"[2/3] transcribing locally (faster-whisper {model_size}, "
-          f"lang={lang or 'auto'}) …", flush=True)
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    segments, info = model.transcribe(
-        str(wav),
-        language=lang or None,
-        word_timestamps=True,
-        vad_filter=True,
-    )
-
-    words: list[dict] = []
-    for seg in segments:
-        for w in seg.words or []:
-            text = w.word.strip()
-            if text:
-                words.append({"text": text, "start": w.start, "end": w.end})
-
-    if not words:
-        sys.exit("Whisper returned no words — silent audio? wrong language?")
-    print(f"      {len(words)} words, {words[-1]['end']:.0f}s "
-          f"(detected language: {info.language}, p={info.language_probability:.2f})")
-    return words
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video", help="path to the performance video (mp4/mov/…)")
@@ -88,6 +67,9 @@ def main():
     ap.add_argument("--lang", default="", help="ISO language (default: auto-detect)")
     ap.add_argument("--model", default="small",
                     help="faster-whisper model size (tiny/base/small/medium)")
+    ap.add_argument("--stt", default="", choices=["", "elevenlabs", "whisper"],
+                    help="transcription backend (default: STT_PROVIDER if it is "
+                         "elevenlabs and a key is present, else local whisper)")
     # Mirror the live STT: the backend commits an utterance after
     # ELEVEN_VAD_SILENCE (default 0.6s) of silence, so the replay should too.
     ap.add_argument("--gap", type=float, default=0.6,
@@ -103,7 +85,8 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     wav = extract_audio(video, out_dir)
-    words = transcribe(wav, args.lang, args.model)
+    backend = pick_backend(args.stt, ROOT)
+    words = transcribe(wav, backend, args.lang, ROOT, args.model)
     events = build_events(words, args.gap)
 
     session = {

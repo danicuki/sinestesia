@@ -179,6 +179,13 @@ defmodule Sinestesia.Config do
       doc: "Port of the local Whisper sidecar."
     },
     %{
+      key: "LOCAL_WHISPER_BATCH_PORT",
+      group: :stt,
+      default: "8012",
+      doc:
+        "HTTP port of the local-whisper sidecar's batch endpoint (/transcribe_file), used by Sinestesia.BatchStt to turn a finished recording into a session for mix sinestesia.video. Separate from LOCAL_WHISPER_PORT (the realtime WebSocket) and deliberately not port+1, which would collide with the local SDXL sidecar's 8003 in an offline setup."
+    },
+    %{
       key: "LOCAL_WHISPER_PATH",
       group: :stt,
       default: "/transcribe",

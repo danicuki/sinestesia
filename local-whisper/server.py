@@ -28,7 +28,11 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -48,6 +52,7 @@ except Exception:
 
 try:
     from faster_whisper import WhisperModel
+    from faster_whisper.audio import decode_audio
 except Exception:
     WhisperModel = None
 
@@ -410,6 +415,96 @@ async def handle(ws):
         raise
 
 
+
+# ── Batch transcription (HTTP) ───────────────────────────────────────────────
+#
+# The WebSocket above is the LIVE path: PCM in, partials out, no word timings.
+# Turning a finished recording into a replay session (`mix sinestesia.video`)
+# needs the opposite — the whole file at once, with per-word timestamps.
+#
+# It lives here rather than in a separate tool because this is where the model
+# already is: one process, one warm model, reachable by the same Elixir
+# backend over the host/port it already knows. The transport is a plain HTTP
+# POST of the raw wav bytes (no multipart to parse, no new dependency) served
+# on LOCAL_WHISPER_BATCH_PORT by a stdlib handler in a daemon thread.
+# (A dedicated port, not BIND_PORT+1: that lands on 8003, which is the local
+# SDXL sidecar's default — the two run side by side in an offline setup.)
+
+
+def transcribe_words(audio: np.ndarray, language: Optional[str]) -> list[dict]:
+    """Whole-file transcription with word timings, for offline session building."""
+    segments, _info = get_faster_model().transcribe(
+        audio,
+        language=language,
+        vad_filter=True,
+        word_timestamps=True,
+    )
+
+    words: list[dict] = []
+    for seg in segments:
+        for w in seg.words or []:
+            text = w.word.strip()
+            if text:
+                words.append({"text": text, "start": w.start, "end": w.end})
+    return words
+
+
+class _BatchHandler(BaseHTTPRequestHandler):
+    def do_POST(self):  # noqa: N802 (stdlib naming)
+        parsed = urlparse(self.path)
+        if parsed.path != "/transcribe_file":
+            self.send_error(404, "only /transcribe_file")
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            self.send_error(400, "empty body (expected raw wav bytes)")
+            return
+
+        raw = self.rfile.read(length)
+        query = parse_qs(parsed.query)
+        language = (query.get("language") or [None])[0] or None
+
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as fh:
+                fh.write(raw)
+                fh.flush()
+                # decode_audio gives the mono float32 at SAMPLE_RATE that the
+                # model wants, whatever the input wav's layout happened to be.
+                audio = decode_audio(fh.name, sampling_rate=SAMPLE_RATE)
+            t0 = time.time()
+            words = transcribe_words(audio, language)
+            log.info(
+                "batch: %d words from %.0fs of audio in %.1fs",
+                len(words),
+                len(audio) / SAMPLE_RATE,
+                time.time() - t0,
+            )
+            body = json.dumps({"words": words}).encode()
+        except Exception as e:  # noqa: BLE001 — report, never kill the server
+            log.exception("batch transcription failed")
+            self.send_error(500, str(e)[:200])
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass  # the module logger already reports what matters
+
+
+BATCH_PORT = int(os.environ.get("LOCAL_WHISPER_BATCH_PORT", "8012"))
+
+
+def start_batch_server(port: int) -> None:
+    server = ThreadingHTTPServer((BIND_HOST, port), _BatchHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info("batch transcription on http://%s:%d/transcribe_file", BIND_HOST, port)
+
+
 async def main():
     log.info("using Whisper backend: %s", WHISPER_BACKEND)
     log.info("loading model: %s", MODEL_REPO)
@@ -417,6 +512,8 @@ async def main():
     _ = transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), FORCE_LANGUAGE)
     mode = f"forced={FORCE_LANGUAGE}" if FORCE_LANGUAGE else "auto-detect"
     log.info("model loaded and warmed (language: %s)", mode)
+
+    start_batch_server(BATCH_PORT)
 
     log.info("listening on ws://%s:%d/transcribe", BIND_HOST, BIND_PORT)
     async with websockets.serve(

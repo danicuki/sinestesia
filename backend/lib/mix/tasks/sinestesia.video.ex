@@ -12,8 +12,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   The steps mirror the live flow exactly:
 
-    1. transcribe the video's audio locally with word timings
-       (tools/video_to_session.py — no cloud STT, no API key);
+    1. transcribe the video's audio with word timings
+       (`Sinestesia.BatchStt` — the same providers and keys the stage uses,
+       picked by the same STT_PROVIDER; falls back to the local-whisper
+       sidecar when there is no key at all);
     2. find the song: the local library first (`SongLibrary.identify`, the
        same matcher the stage uses), then `SongId` + a lyrics-site import
        (letras.mus.br / cifraclub), VERIFIED against the transcript before
@@ -41,6 +43,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --fade MS         crossfade duration (default 1500, matching the stage)
       --lead S          pre-load head start in seconds (default 15)
       --pip POS         br|bl|tr|tl|off (default br)
+      --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
+      --lang CODE       ISO language for transcription (default: auto-detect)
 
   Provider selection stays with the environment (.env), same as every other
   entry point: DIRECTOR_PROVIDER / IMAGE_PROVIDER / OLLAMA_MODEL etc. For a
@@ -59,16 +63,28 @@ defmodule Mix.Tasks.Sinestesia.Video do
     fade_ms = opts[:fade] || 1_500
     lead_ms = round((opts[:lead] || 15.0) * 1_000)
 
+    # Decide the transcription provider from the operator's REAL STT_PROVIDER
+    # before the replay override below hides it.
+    stt =
+      case opts[:stt] do
+        nil -> Sinestesia.BatchStt.provider()
+        name -> String.to_existing_atom(name)
+      end
+
+    # The app must be up before ANY of this: transcription, song lookup and
+    # the pipeline all go through Req/Finch. STT_PROVIDER is set to replay
+    # for the pipeline's own (fake) STT — batch transcription already has
+    # its provider captured above.
+    System.put_env("STT_PROVIDER", "replay")
+    System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
+    Mix.Task.run("app.start")
+
     # ── 1. session (transcription) ─────────────────────────────────────────
-    session = load_or_build_session(video, opts)
+    session = load_or_build_session(video, Keyword.put(opts, :stt_provider, stt))
     transcript = session["events"] |> Enum.filter(& &1["final"]) |> Enum.map_join(" ", & &1["text"])
     Mix.shell().info("── transcript ──\n#{transcript}\n")
 
     # ── 2. song: library → identify → import → verify ──────────────────────
-    # Needs the app for Req/SongId/SongLibrary; env must be set before boot.
-    System.put_env("STT_PROVIDER", "replay")
-    System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
-    Mix.Task.run("app.start")
 
     song = resolve_song(transcript, opts)
     Mix.shell().info("── song: #{song.title}#{if song.artist, do: " — #{song.artist}"} ──")
@@ -194,51 +210,17 @@ defmodule Mix.Tasks.Sinestesia.Video do
   defp load_or_build_session(video, opts) do
     case opts[:session] do
       nil ->
-        root = Path.expand("..")
-        py = Path.join(root, "tools/.venv/bin/python")
-
-        # Transcription runs in tools/.venv regardless of backend; what it
-        # needs installed differs. With ELEVENLABS_API_KEY set (the stage's
-        # own account) it uses Scribe's batch endpoint and only needs
-        # `requests`; with no key at all it falls to a local faster-whisper.
-        # See tools/stt_batch.py — STT_PROVIDER selects the REALTIME engine
-        # for the live show, and is honoured here too so an operator doesn't
-        # have to configure the same thing twice.
-        eleven? = (System.get_env("ELEVENLABS_API_KEY") || "") != ""
-
-        deps =
-          if eleven?,
-            do: "requests",
-            else: "faster-whisper"
-
-        File.exists?(py) ||
-          Mix.raise("""
-          tools/.venv not found. Create it once with:
-
-            uv venv --python 3.12 tools/.venv
-            uv pip install --python tools/.venv/bin/python #{deps}
-
-          (or: python3 -m venv tools/.venv && tools/.venv/bin/pip install #{deps})
-
-          #{if eleven?,
-            do: "ELEVENLABS_API_KEY is set, so Scribe's batch endpoint will be used — no local model needed.",
-            else: "No ELEVENLABS_API_KEY found, so transcription runs on a local whisper. Set the key to use Scribe instead."}
-          """)
-
         out_dir = Path.join(System.tmp_dir!(), "sinestesia-video")
-        File.mkdir_p!(out_dir)
 
-        {output, status} =
-          System.cmd(py, [Path.join(root, "tools/video_to_session.py"), video, "--out", out_dir],
-            stderr_to_stdout: true
-          )
+        stt_opts = [lang: opts[:lang] || "", provider: opts[:stt_provider]]
 
-        status == 0 || Mix.raise("transcription failed:\n#{output}")
-        Mix.shell().info(output)
+        case Sinestesia.BatchStt.session_from_video(video, out_dir, stt_opts) do
+          {:ok, session} ->
+            session
 
-        name = video |> Path.basename() |> Path.rootname() |> slugify()
-        session_path = Path.join(out_dir, "#{name}.json")
-        session_path |> File.read!() |> Jason.decode!()
+          {:error, reason} ->
+            Mix.raise("transcription failed: #{inspect(reason)}")
+        end
 
       path ->
         path |> Path.expand() |> File.read!() |> Jason.decode!()
@@ -733,7 +715,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
              out: :string,
              fade: :integer,
              lead: :float,
-             pip: :string
+             pip: :string,
+             stt: :string,
+             lang: :string
            ]
          ) do
       {opts, [video], []} ->
@@ -742,7 +726,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
       _ ->
         Mix.raise(
           "usage: mix sinestesia.video <video> [--session S] [--song-url URL] " <>
-            "[--style S] [--out PATH] [--fade MS] [--lead S] [--pip br|bl|tr|tl|off]"
+            "[--style S] [--out PATH] [--fade MS] [--lead S] [--pip br|bl|tr|tl|off] " <>
+            "[--stt elevenlabs|local_whisper] [--lang CODE]"
         )
     end
   end

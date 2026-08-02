@@ -123,6 +123,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `ELEVEN_NO_VERBATIM` | _unset_ | `1 \| true \| on` | Ask Scribe to clean the transcript instead of returning it verbatim. Off by default because it only exists on the ElevenLabs path (Deepgram and the local Whisper sidecar have no equivalent), so it can never be the mechanism the follower relies on. Its documented scope is filler words and stuttering, never held-vowel normalization ("castelooo"), which is why the follower keeps its own repeated-letter collapse regardless. Worth measuring on a real run for the false starts a live mic produces. |
 | `LOCAL_WHISPER_HOST` | `127.0.0.1` | — | Host of the local Whisper sidecar (STT_PROVIDER=local_whisper). |
 | `LOCAL_WHISPER_PORT` | `8002` | — | Port of the local Whisper sidecar. |
+| `LOCAL_WHISPER_BATCH_PORT` | `8012` | — | HTTP port of the local-whisper sidecar's batch endpoint (/transcribe_file), used by Sinestesia.BatchStt to turn a finished recording into a session for mix sinestesia.video. Separate from LOCAL_WHISPER_PORT (the realtime WebSocket) and deliberately not port+1, which would collide with the local SDXL sidecar's 8003 in an offline setup. |
 | `LOCAL_WHISPER_PATH` | `/transcribe` | — | Transcription path on the local Whisper sidecar. |
 
 ### Director (LLM)

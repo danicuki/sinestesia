@@ -34,6 +34,7 @@
       <a href="/" style="color: #A39C93;">For artists</a>
       <a href="/producers" style="color: #A39C93;">For venues</a>
       <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a>
+      <a href="/pt/press" lang="pt-BR" onclick="try{localStorage.setItem('sn-lang','pt')}catch(e){}" style="color: #A39C93;">PT</a>
       <a href="mailto:info@sinestesia.art" style="border: 1px solid rgba(237,231,222,0.28); padding: 9px 16px; border-radius: 999px; color: #EDE7DE;">Contact</a>
     </div>
   </nav>
@@ -43,18 +44,30 @@
   <div class="wrap" style="padding: 80px 0 40px;">
     <p class="mono" style="margin-bottom: 22px;">Press kit · EPK · updated August 2026</p>
     <h1 style="font-size: clamp(36px, 6vw, 68px); line-height: 1.02; letter-spacing: -0.02em; max-width: 20ch;">The singer performs. An AI paints what she sings — <span style="font-style: italic; color: #F2C48B;">live, and never ahead of her voice.</span></h1>
-    <p style="margin-top: 24px; max-width: 58ch; font-size: clamp(16px, 2vw, 19px); line-height: 1.6; color: #C8C1B8;">Sinestesia is a live audiovisual performance by a Brazilian duo based in Lisbon. As Daniella Alcarpe sings, a real-time engine listens to each sung line and paints one continuous artwork projected on stage, seconds behind her voice. One song becomes one painting, born in front of the room. The engine is open-source and can run fully offline.</p>
+    <p style="margin-top: 24px; max-width: 58ch; font-size: clamp(16px, 2vw, 19px); line-height: 1.6; color: #C8C1B8;">Sinestesia is a live audiovisual performance by a Brazilian duo based in Lisbon. As Daniella Alcarpe sings, a real-time engine listens to each sung line and paints one continuous artwork projected on stage, seconds behind her voice. One song becomes one painting, born in front of the room. The engine can run fully offline.</p>
   </div>
 </section>
 
 <section style="padding: 0 20px 72px;">
   <div class="wrap" style="display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
     <div class="card" style="padding: 10px;">
-      <div style="position: relative; aspect-ratio: 16 / 9; border-radius: 8px; overflow: hidden; background: #191821;">
-        <video src="assets/aranha-live-30s.mp4" autoplay muted loop playsinline preload="metadata" aria-label="Thirty seconds of a real performance: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block;"></video>
+      <div data-carousel role="region" aria-label="Clips from real performances" style="position: relative; aspect-ratio: 1376 / 768; border-radius: 8px; overflow: hidden; background: #191821;">
+        <video data-slide data-title="“Aquarela” · real output, no cuts" src="assets/aquarela-tarsila.mp4" muted playsinline preload="auto" aria-label="Aquarela: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 1; transition: opacity 600ms ease;"></video>
+        <video data-slide data-title="“Fly Me to the Moon” · real output, no cuts" src="assets/flyme.mp4" muted playsinline preload="metadata" aria-label="Fly Me to the Moon: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+        <video data-slide data-title="“Garota de Ipanema” · real output, no cuts" src="assets/garotadeipanema.mp4" muted playsinline preload="metadata" aria-label="Garota de Ipanema: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+        <video data-slide data-title="“Trem das Cores” · real output, no cuts" src="assets/tremdascores.mp4" muted playsinline preload="metadata" aria-label="Trem das Cores: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+        <button data-sound type="button" aria-pressed="false" aria-label="Turn sound on" style="position: absolute; z-index: 4; right: 10px; top: 10px; display: flex; gap: 6px; align-items: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10px; letter-spacing: 0.1em; color: #EDE7DE; background: rgba(12,11,15,0.6); border: 1px solid rgba(237,231,222,0.16); padding: 5px 9px; border-radius: 999px; cursor: pointer;">🔇 SOUND OFF</button>
+        <button data-prev type="button" aria-label="Previous clip" style="position: absolute; z-index: 4; left: 8px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 999px; border: 1px solid rgba(237,231,222,0.28); background: rgba(12,11,15,0.55); color: #EDE7DE; font-size: 15px; line-height: 1; cursor: pointer;">‹</button>
+        <button data-next type="button" aria-label="Next clip" style="position: absolute; z-index: 4; right: 8px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; border-radius: 999px; border: 1px solid rgba(237,231,222,0.28); background: rgba(12,11,15,0.55); color: #EDE7DE; font-size: 15px; line-height: 1; cursor: pointer;">›</button>
+        <div style="position: absolute; z-index: 4; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 8px;">
+          <button data-dot type="button" aria-label="Play clip 1: Aquarela" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: #E08A3C; cursor: pointer;"></button>
+          <button data-dot type="button" aria-label="Play clip 2: Fly Me to the Moon" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
+          <button data-dot type="button" aria-label="Play clip 3: Garota de Ipanema" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
+          <button data-dot type="button" aria-label="Play clip 4: Trem das Cores" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
+        </div>
       </div>
       <div style="display: flex; justify-content: space-between; gap: 10px; padding: 12px 6px 4px;">
-        <span class="mono">30s · Real output, no cuts</span>
+        <span class="mono" data-carousel-caption>“Aquarela” · real output, no cuts</span>
       </div>
     </div>
     <div style="display: grid; gap: 14px; align-content: start;">
@@ -68,10 +81,10 @@
         <p style="font-family: Georgia, serif; font-size: 22px; color: #EDE7DE;">NFC Summit Lisbon — the premiere</p>
         <p style="margin-top: 8px; color: #A39C93; font-size: 14px; line-height: 1.6;">Unedited footage of the first public show. On YouTube.</p>
       </a>
-      <a href="https://github.com/danicuki/sinestesia" class="card" style="display: block; padding: 22px 24px;">
+      <a href="/under-the-hood" class="card" style="display: block; padding: 22px 24px;">
         <p class="mono" style="color: #E08A3C; margin-bottom: 10px;">Read · the instrument itself</p>
-        <p style="font-family: Georgia, serif; font-size: 22px; color: #EDE7DE;">Open-source engine</p>
-        <p style="margin-top: 8px; color: #A39C93; font-size: 14px; line-height: 1.6;">The full pipeline — speech, director, painting, provenance — public on GitHub.</p>
+        <p style="font-family: Georgia, serif; font-size: 22px; color: #EDE7DE;">Under the hood</p>
+        <p style="margin-top: 8px; color: #A39C93; font-size: 14px; line-height: 1.6;">The full pipeline — speech, director, painting, provenance — explained for engineers and press.</p>
       </a>
     </div>
   </div>
@@ -82,14 +95,16 @@
     <h2 style="font-size: clamp(26px, 4vw, 42px); letter-spacing: -0.015em;">Who we are</h2>
     <div style="margin-top: 28px; display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
       <div style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <img src="assets/daniella-alcarpe.webp" alt="Portrait of Daniella Alcarpe." width="112" height="112" loading="lazy" style="width: 112px; height: 112px; object-fit: cover; border-radius: 999px; display: block; margin-bottom: 14px;">
         <h3 style="font-size: 24px;">Daniella Alcarpe</h3>
         <p class="mono" style="margin-top: 6px;">Voice · artistic curation</p>
         <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7;">Brazilian singer with a fifteen-year career across MPB and jazz — three albums, stages including SESC São Paulo, Blue Note SP and Theatro Municipal — dedicated to the research of great Brazilian composers and the art of delicate interpretation. In Sinestesia she is the performance's clock and author: every brushstroke is gated on a line she has actually sung. <a href="https://alcarpe.com.br/">alcarpe.com.br</a></p>
       </div>
       <div style="border-top: 1px solid rgba(237,231,222,0.18); padding-top: 20px;">
+        <img src="assets/daniel-cukier.webp" alt="Portrait of Daniel Cukier." width="112" height="112" loading="lazy" style="width: 112px; height: 112px; object-fit: cover; border-radius: 999px; display: block; margin-bottom: 14px;">
         <h3 style="font-size: 24px;">Daniel Cukier</h3>
         <p class="mono" style="margin-top: 6px;">Guitar · systems engineering</p>
-        <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7;">Engineer and musician; PhD in Computer Science (University of São Paulo), co-founder of Elo7 — later acquired by Etsy — and a national poetry award winner. He builds and operates the engine on stage: streaming speech recognition, an LLM director holding the whole song's context, one continuous canvas — released as open source. <a href="https://daniel.cukier.xyz/">daniel.cukier.xyz</a></p>
+        <p style="margin-top: 12px; color: #A39C93; font-size: 15px; line-height: 1.7;">Engineer and musician; PhD in Computer Science (University of São Paulo), serial entrepreneur and a national poetry award winner. He builds and operates the engine on stage: streaming speech recognition, an LLM director holding the whole song's context, one continuous canvas. <a href="https://daniel.cukier.xyz/">daniel.cukier.xyz</a></p>
       </div>
     </div>
   </div>
@@ -114,9 +129,17 @@
 
 <section style="padding: 0 20px 96px;">
   <div class="wrap" style="display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-    <div style="border: 1px dashed rgba(237,231,222,0.25); border-radius: 14px; padding: 24px;">
-      <p class="mono" style="color: #E08A3C;">Placeholder — press photos</p>
-      <p style="margin-top: 10px; color: #A39C93; font-size: 14px; line-height: 1.7;">Two high-res photos (stage wide shot with projection; duo portrait) as a downloadable zip. Nothing goes here until the real photos exist.</p>
+    <div class="card" style="padding: 24px;">
+      <p class="mono" style="color: #E08A3C;">Press photos · high-res</p>
+      <div style="margin-top: 14px; display: flex; gap: 14px;">
+        <a href="assets/daniella-alcarpe-press.jpg" download="daniella-alcarpe.jpg" title="Download the high-res portrait of Daniella Alcarpe">
+          <img src="assets/daniella-alcarpe.webp" alt="Portrait of Daniella Alcarpe." width="96" height="96" loading="lazy" style="width: 96px; height: 96px; object-fit: cover; border-radius: 10px; display: block;">
+        </a>
+        <a href="assets/daniel-cukier-press.jpg" download="daniel-cukier.jpg" title="Download the high-res portrait of Daniel Cukier">
+          <img src="assets/daniel-cukier.webp" alt="Portrait of Daniel Cukier." width="96" height="96" loading="lazy" style="width: 96px; height: 96px; object-fit: cover; border-radius: 10px; display: block;">
+        </a>
+      </div>
+      <p style="margin-top: 12px; color: #A39C93; font-size: 14px; line-height: 1.7;">Portraits of Daniella Alcarpe and Daniel Cukier — click to download the high-res originals.</p>
     </div>
     <div class="card" style="padding: 24px;">
       <p class="mono" style="color: #E08A3C;">Booking &amp; press contact</p>
@@ -129,9 +152,68 @@
 <footer style="border-top: 1px solid rgba(237,231,222,0.10); padding: 28px 20px 40px;">
   <div class="wrap" style="display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; font-size: 14px; color: #8F877E;">
     <span>Sinestesia — Daniella Alcarpe &amp; Daniel Cukier</span>
-    <span><a href="/" style="color: #A39C93;">Home</a> · <a href="/producers" style="color: #A39C93;">Venues</a> · <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a></span>
+    <span><a href="/" style="color: #A39C93;">Home</a> · <a href="/producers" style="color: #A39C93;">Venues</a> · <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a> · <a href="/pt/press" lang="pt-BR" onclick="try{localStorage.setItem('sn-lang','pt')}catch(e){}" style="color: #A39C93;">PT</a></span>
   </div>
 </footer>
 
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var carousel = document.querySelector("[data-carousel]");
+  if (!carousel) return;
+  var slides = Array.prototype.slice.call(carousel.querySelectorAll("[data-slide]"));
+  var dots = Array.prototype.slice.call(carousel.querySelectorAll("[data-dot]"));
+  var caption = document.querySelector("[data-carousel-caption]");
+  var current = 0;
+
+  slides.forEach(function (v) {
+    v.defaultMuted = true; v.muted = true; v.playsInline = true;
+    if (reduce) v.setAttribute("controls", "");
+    v.addEventListener("ended", function () { show(current + 1); });
+  });
+
+  function show(i) {
+    current = (i + slides.length) % slides.length;
+    slides.forEach(function (v, k) {
+      v.style.opacity = k === current ? "1" : "0";
+      v.style.zIndex = k === current ? "1" : "0";
+      if (k === current) {
+        v.preload = "auto";
+        if (!reduce) { v.currentTime = 0; v.play().catch(function () {}); }
+      } else if (!v.paused) {
+        v.pause();
+      }
+    });
+    slides[(current + 1) % slides.length].preload = "auto";
+    dots.forEach(function (d, k) { d.style.background = k === current ? "#E08A3C" : "rgba(237,231,222,0.35)"; });
+    if (caption) caption.textContent = slides[current].dataset.title;
+  }
+
+  carousel.querySelector("[data-prev]").addEventListener("click", function () { show(current - 1); });
+  carousel.querySelector("[data-next]").addEventListener("click", function () { show(current + 1); });
+  dots.forEach(function (d, k) { d.addEventListener("click", function () { show(k); }); });
+
+  var muted = true;
+  var soundBtn = carousel.querySelector("[data-sound]");
+  soundBtn.addEventListener("click", function () {
+    muted = !muted;
+    slides.forEach(function (v) { v.muted = muted; v.defaultMuted = muted; });
+    soundBtn.textContent = muted ? "🔇 SOUND OFF" : "🔊 SOUND ON";
+    soundBtn.setAttribute("aria-pressed", String(!muted));
+    soundBtn.setAttribute("aria-label", muted ? "Turn sound on" : "Turn sound off");
+    if (!muted && !reduce) slides[current].play().catch(function () {});
+  });
+
+  if (!reduce) {
+    var tryPlay = function (n) {
+      slides[current].play().catch(function () {
+        if (n > 0) setTimeout(function () { tryPlay(n - 1); }, 400);
+        else document.addEventListener("pointerdown", function () { slides[current].muted = muted; slides[current].play().catch(function () {}); }, { once: true });
+      });
+    };
+    tryPlay(2);
+  }
+});
+</script>
 </body>
 </html>

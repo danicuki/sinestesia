@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sinestesia — por dentro da máquina</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230C0B0F'/%3E%3Cg style='mix-blend-mode:screen'%3E%3Ccircle cx='13' cy='16' r='7.5' fill='%23EDE7DE'/%3E%3Ccircle cx='20' cy='16' r='7.5' fill='%23E08A3C'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: #F5F1EA; color: #1A1720; overflow-x: hidden; }
+  * { box-sizing: border-box; }
+  a { color: #A45B12; text-decoration: none; text-underline-offset: 4px; }
+  a:hover { color: #7A4109; text-decoration: underline; }
+  :focus-visible { outline: 2px solid #A45B12; outline-offset: 3px; border-radius: 2px; }
+  h1, h2, h3 { margin: 0; font-weight: 400; text-wrap: pretty; }
+  p { margin: 0; text-wrap: pretty; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+    [data-reveal] { opacity: 1 !important; transform: none !important; }
+  }
+</style>
+</helmet>
+
+<div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; background: #F5F1EA;">
+
+  <header style="border-bottom: 1px solid rgba(26,23,32,0.14);">
+    <nav style="max-width: 940px; margin: 0 auto; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 24px;">
+      <a href="/pt" style="display: flex; align-items: center; gap: 10px; color: #1A1720;">
+        <span aria-hidden="true" style="position: relative; display: block; width: 29px; height: 18px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 18px; height: 18px; border-radius: 999px; background: #1A1720; mix-blend-mode: multiply;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 18px; height: 18px; border-radius: 999px; background: #C97C22; mix-blend-mode: multiply;"></span></span>
+        <span style="font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: 20px; letter-spacing: -0.005em;">S<span style="color: #A45B12;">i</span>nestes<span style="color: #A45B12;">i</span>a</span>
+      </a>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px;">
+        <a href="/pt" style="color: #5C554E;">Para artistas</a>
+        <a href="/pt/producers" style="color: #5C554E;">Para casas de show</a>
+        <a href="/pt/press" style="color: #5C554E;">Imprensa</a>
+        <a href="/under-the-hood" lang="en" onclick="try{localStorage.setItem('sn-lang','en')}catch(e){}" style="color: #A39C93;">EN</a>
+      </div>
+    </nav>
+  </header>
+
+  <article style="max-width: 940px; margin: 0 auto; padding: 0 20px;">
+    <div style="padding: 72px 0 44px; border-bottom: 1px solid rgba(26,23,32,0.14);">
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; letter-spacing: 0.16em; text-transform: uppercase; color: #6E665F;">Apêndice</p>
+      <h1 style="margin-top: 22px; font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; font-size: clamp(36px, 6vw, 64px); line-height: 1.02; letter-spacing: -0.02em; max-width: 20ch;">Por dentro da máquina</h1>
+      <p style="margin-top: 22px; max-width: 60ch; font-size: 18px; line-height: 1.6; color: #3C3730;">Como uma voz vira uma pintura, e como a pintura prova qual performance a criou. Escrito para engenheiros; todos os outros podem pular.</p>
+    </div>
+
+    <nav aria-label="Sumário" style="padding: 28px 0; border-bottom: 1px solid rgba(26,23,32,0.14);">
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6E665F;">Sumário</p>
+      <ol style="margin: 16px 0 0; padding: 0 0 0 20px; display: grid; gap: 8px; font-size: 16px; color: #3C3730;">
+        <li><a href="#pipeline">O pipeline ao vivo</a></li>
+        <li><a href="#director">O loop do diretor</a></li>
+        <li><a href="#canvas">Por que uma tela única é difícil</a></li>
+        <li><a href="#provenance">Proveniência do momento</a></li>
+        <li><a href="#verifiable">Inferência verificável</a></li>
+        <li><a href="#limits">Limites conhecidos</a></li>
+      </ol>
+    </nav>
+
+    <section id="pipeline" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">1 · O pipeline ao vivo</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">O áudio sai da mesa como um feed de linha estéreo. Dois caminhos rodam em paralelo a partir do mesmo buffer: um transcreve e lê o significado, o outro acompanha andamento e energia. Os dois alimentam um diretor que decide o que a pintura faz em seguida. O renderizador nunca reinicia — ele só recebe instruções.</p>
+      <div style="margin-top: 28px; overflow-x: auto; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; background: #FBF8F3;">
+        <pre style="margin: 0; padding: 24px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.85; color: #3C3730; min-width: 620px;">feed da mesa ──► ring buffer (2 s) ──┬──► transcrição ──────┐
+                                     │    (linha, t0, t1)   │
+                                     └──► análise musical ──┤
+                                          (bpm, tom, energia)
+                                                            ▼
+                                                   diretor  (LLM)
+                                                            │  instrução
+                                                            ▼
+                          renderizador da tela  ◄── estado da pintura
+                                   │
+                          saída do projetor (1080p) ──► overlay de QR (últimos 30 s)
+                                   │
+                          fim da música ──► selo ──► registro de proveniência</pre>
+      </div>
+      <p style="margin-top: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #6E665F;">ROLE PARA O LADO PARA VER O DIAGRAMA COMPLETO</p>
+    </section>
+
+    <section id="director" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">2 · O loop do diretor</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">O diretor é o único componente que toma decisões estéticas. Ele vê a última linha cantada, o resumo corrente da música até ali e uma descrição compacta do que já está na tela. Ele retorna uma instrução — uma região, um assunto, um movimento de paleta, uma intensidade. Ele não tem permissão para limpar a tela.</p>
+      <div style="margin-top: 26px; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Vê</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Última linha, resumo da música até ali, descrição da tela, posição no compasso.</p>
+          </div>
+
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Retorna</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Uma instrução: região, assunto, mudança de paleta, intensidade, blend.</p>
+          </div>
+
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Não pode</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Limpar a tela, mover o horizonte ou contradizer uma fonte de luz já firmada.</p>
+          </div>
+
+          <div style="border-top: 1px solid rgba(26,23,32,0.18); padding-top: 16px;">
+            <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #A45B12;">Registrado</p>
+            <p style="margin-top: 10px; font-size: 15px; line-height: 1.65; color: #3C3730;">Instrução, linha que a causou, id do modelo, timestamp, hash.</p>
+          </div>
+
+      </div>
+      <p style="margin-top: 24px; max-width: 66ch; font-size: 15px; line-height: 1.7; color: #5C554E;">Cada instrução é registrada com a linha que a causou e o timestamp em que disparou. Esse log não é telemetria — é a partitura da obra, e é entregue junto com a peça.</p>
+    </section>
+
+    <section id="canvas" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">3 · Por que uma tela única é difícil</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Gerar uma imagem por linha é fácil e parece um slideshow. Fazer uma única imagem coerente crescer por quatro minutos significa que cada nova pincelada precisa respeitar a composição, a iluminação e a cor já firmadas. Mantemos um latent persistente da tela mais um mapa de regiões do que já foi ocupado, e restringimos cada edição à área ainda livre ou intencionalmente repintada. Repintar é permitido — a camada mais antiga continua visível por baixo, e é isso que faz o resultado parecer tinta.</p>
+      <div style="margin-top: 26px; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; padding: 22px; background: #FBF8F3;">
+        <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #6E665F;">Orçamento de latência, por instrução</p>
+        <div style="margin-top: 16px; display: grid; gap: 10px;">
+
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Transcrição de uma linha cantada</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 400 ms</span>
+            </div>
+
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Decisão do diretor</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 700 ms</span>
+            </div>
+
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Primeira pincelada visível</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 500 ms</span>
+            </div>
+
+            <div style="display: flex; gap: 16px; align-items: baseline; font-size: 15px; color: #3C3730; border-bottom: 1px dotted rgba(26,23,32,0.2); padding-bottom: 8px;">
+              <span style="flex: 1;">Pincelada assentada na tela</span>
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #A45B12;">≤ 2 s</span>
+            </div>
+
+        </div>
+        <p style="margin-top: 14px; font-size: 14px; line-height: 1.65; color: #5C554E;">A meta é uma mudança visível dentro de um compasso a partir da linha cantada. Os números aqui são o orçamento de projeto, não um benchmark medido.</p>
+      </div>
+    </section>
+
+    <section id="provenance" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">4 · Proveniência do momento</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Uma pintura sem a sua performance é decoração. Então, quando a música termina, selamos a imagem junto com o registro que a produziu, e mintamos esse par. O token aponta para a imagem e para um registro imutável dos inputs — não para uma promessa de que nos comportamos bem.</p>
+      <div style="margin-top: 26px; overflow-x: auto; border: 1px solid rgba(26,23,32,0.16); border-radius: 12px; background: #FBF8F3;">
+        <pre style="margin: 0; padding: 24px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.8; color: #3C3730; min-width: 560px;">{
+  "performance": { "song": "…", "artist": "…", "venue": "…", "started_at": "…" },
+  "transcript":  [ { "t": 12.480, "line": "…" }, … ],
+  "director_log":[ { "t": 13.021, "instruction": { … }, "model": "…", "hash": "…" }, … ],
+  "canvas":      { "final_image": "ipfs://…", "keyframes": [ "ipfs://…", … ] },
+  "attestation": { "scheme": "…", "signature": "0x…" }
+}</pre>
+      </div>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 15px; line-height: 1.7; color: #5C554E;">Qualquer pessoa com uma impressão pode checar três coisas: que a transcrição bate com o áudio daquela noite, que cada instrução decorre de uma linha que foi realmente cantada, e que a imagem final é o resultado de reproduzir esse log. A plateia nunca vê nada disso — ela vê uma imagem e um código.</p>
+    </section>
+
+    <section id="verifiable" style="padding: 56px 0 0;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">5 · Inferência verificável</h2>
+      <p style="margin-top: 18px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">A alegação interessante não é "uma IA fez arte". É que um modelo específico, recebendo uma linha específica em um segundo específico, produziu uma instrução específica — e que isso pode ser verificado depois por alguém que não estava na sala. Atestamos a identidade do modelo e o par de input/output de cada chamada do diretor, então a cadeia que vai da voz à pincelada é auditável de ponta a ponta.</p>
+      <p style="margin-top: 16px; max-width: 66ch; font-size: 17px; line-height: 1.7; color: #3C3730;">Onde a atestação mora, e quão forte ela é, é a parte que ainda está em movimento. A build atual assina o log na borda e ancora um digest on-chain; esquemas mais fortes estão no roadmap, e preferimos dizer isso com clareza a prometer mais do que entregamos.</p>
+    </section>
+
+    <section id="limits" style="padding: 56px 0 88px;">
+      <h2 style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.1; letter-spacing: -0.015em;">6 · Limites conhecidos</h2>
+      <ul style="margin: 20px 0 0; padding: 0 0 0 20px; display: grid; gap: 12px; max-width: 66ch; font-size: 16px; line-height: 1.7; color: #3C3730;">
+        <li>Efeitos vocais pesados e vozes gritadas degradam a transcrição; o sistema recua para o modo só-música.</li>
+        <li>Músicas com menos de noventa segundos não dão à pintura espaço suficiente para acumular.</li>
+        <li>Trocar de idioma no meio da música funciona, mas a paleta pode dar solavancos.</li>
+        <li>Ele interpreta. Às vezes vai pintar o substantivo errado com convicção. Tratamos isso como parte do próprio meio.</li>
+      </ul>
+      <div style="margin-top: 44px; padding-top: 28px; border-top: 1px solid rgba(26,23,32,0.14); display: flex; flex-wrap: wrap; gap: 14px;">
+        <a href="/pt" style="border: 1px solid rgba(26,23,32,0.24); color: #1A1720; padding: 14px 22px; border-radius: 999px; font-size: 15px;">Voltar para a capa</a>
+        <a href="mailto:info@sinestesia.art" style="background: #1A1720; color: #F5F1EA; padding: 14px 24px; border-radius: 999px; font-size: 15px; font-weight: 600;">Pergunte algo específico</a>
+      </div>
+    </section>
+  </article>
+
+  <footer style="border-top: 1px solid rgba(26,23,32,0.14); padding: 28px 20px 52px;">
+    <div style="max-width: 940px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 16px 40px; justify-content: space-between; align-items: baseline;">
+      <p style="display: flex; align-items: center; gap: 12px; font-family: Georgia, 'Iowan Old Style', serif; font-size: 17px; color: #1A1720;"><span aria-hidden="true" style="position: relative; display: block; width: 24px; height: 15px; flex: none; isolation: isolate;"><span style="position: absolute; inset: 0 auto 0 0; width: 15px; height: 15px; border-radius: 999px; background: #1A1720; mix-blend-mode: multiply;"></span><span style="position: absolute; inset: 0 0 0 auto; width: 15px; height: 15px; border-radius: 999px; background: #C97C22; mix-blend-mode: multiply;"></span></span>S<span style="color: #A45B12;">i</span>nestes<span style="color: #A45B12;">i</span>a</p>
+      <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #6E665F;">APÊNDICE · NÃO É O PITCH</p>
+      <a href="/under-the-hood" lang="en" onclick="try{localStorage.setItem('sn-lang','en')}catch(e){}" style="color: #A39C93;">EN</a>
+    </div>
+  </footer>
+</div>
+</x-dc>
+
+</body>
+</html>

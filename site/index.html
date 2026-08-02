@@ -1,8 +1,18 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  // First visit from a Portuguese browser lands on /pt; an explicit EN/PT
+  // choice (stored by the language switcher) always wins over the heuristic.
+  (function () {
+    try {
+      var lang = localStorage.getItem("sn-lang");
+      if (lang === "pt" || (!lang && /^pt/i.test(navigator.language || ""))) location.replace("/pt");
+    } catch (e) {}
+  })();
+</script>
 </head>
 <body>
 <x-dc>
@@ -42,6 +52,7 @@
         <a href="/producers" style="color: #A39C93;">For venues</a>
         <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a>
         <a href="/press" style="color: #A39C93;">Press kit</a>
+        <a href="/pt" lang="pt-BR" onclick="try{localStorage.setItem('sn-lang','pt')}catch(e){}" style="color: #A39C93;">PT</a>
         <a href="#book" style="border: 1px solid rgba(237,231,222,0.28); padding: 9px 16px; border-radius: 999px; color: #EDE7DE;">Play a show</a>
       </div>
     </nav>
@@ -62,30 +73,42 @@
 
     <div style="position: relative; max-width: 1180px; margin: 0 auto; padding-bottom: 96px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px;">
       <figure data-reveal style="margin: 0; border: 1px solid rgba(237,231,222,0.16); border-radius: 14px; background: #14131A; padding: 10px; box-shadow: 0 40px 90px -40px rgba(0,0,0,0.9);">
-        <div style="position: relative; aspect-ratio: 1 / 1; max-width: 640px; margin: 0 auto; border-radius: 8px; overflow: hidden; background: repeating-linear-gradient(135deg, #1D1B24 0 14px, #191821 14px 28px); display: grid; place-items: center;">
-          <video data-hero-video src="assets/aranha-live-30s.mp4" autoplay muted loop playsinline preload="auto" aria-label="Thirty seconds of a real performance: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block;"></video>
-          <div aria-hidden="true" style="position: absolute; inset: 0; background: linear-gradient(180deg, transparent 55%, rgba(12,11,15,0.55));"></div>
-          <div style="position: absolute; left: 14px; bottom: 14px; display: flex; gap: 8px; align-items: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #EDE7DE; background: rgba(12,11,15,0.6); border: 1px solid rgba(237,231,222,0.16); padding: 6px 10px; border-radius: 999px;">
+        <div data-carousel role="region" aria-label="Clips from real performances" style="position: relative; aspect-ratio: 1376 / 768; max-width: 980px; margin: 0 auto; border-radius: 8px; overflow: hidden; background: repeating-linear-gradient(135deg, #1D1B24 0 14px, #191821 14px 28px);">
+          <video data-slide data-title="“AQUARELA” · FROM A REAL SET" src="assets/aquarela-tarsila.mp4" muted playsinline preload="auto" aria-label="Aquarela: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 1; transition: opacity 600ms ease;"></video>
+          <video data-slide data-title="“FLY ME TO THE MOON” · FROM A REAL SET" src="assets/flyme.mp4" muted playsinline preload="metadata" aria-label="Fly Me to the Moon: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+          <video data-slide data-title="“GAROTA DE IPANEMA” · FROM A REAL SET" src="assets/garotadeipanema.mp4" muted playsinline preload="metadata" aria-label="Garota de Ipanema: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+          <video data-slide data-title="“TREM DAS CORES” · FROM A REAL SET" src="assets/tremdascores.mp4" muted playsinline preload="metadata" aria-label="Trem das Cores: one canvas filling in line by line as the song is sung." style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity 600ms ease;"></video>
+          <div aria-hidden="true" style="position: absolute; inset: 0; z-index: 2; pointer-events: none; background: linear-gradient(180deg, transparent 55%, rgba(12,11,15,0.55));"></div>
+          <div style="position: absolute; z-index: 3; left: 14px; bottom: 14px; display: flex; gap: 8px; align-items: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #EDE7DE; background: rgba(12,11,15,0.6); border: 1px solid rgba(237,231,222,0.16); padding: 6px 10px; border-radius: 999px;">
             <span style="width: 6px; height: 6px; border-radius: 999px; background: #E08A3C; animation: sn-bloom 1.8s ease-in-out infinite alternate;"></span>LIVE · PAINTING
+          </div>
+          <button data-sound type="button" aria-pressed="false" aria-label="Turn sound on" style="position: absolute; z-index: 4; right: 14px; top: 14px; display: flex; gap: 8px; align-items: center; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #EDE7DE; background: rgba(12,11,15,0.6); border: 1px solid rgba(237,231,222,0.16); padding: 6px 10px; border-radius: 999px; cursor: pointer;">🔇 SOUND OFF</button>
+          <button data-prev type="button" aria-label="Previous clip" style="position: absolute; z-index: 4; left: 10px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 999px; border: 1px solid rgba(237,231,222,0.28); background: rgba(12,11,15,0.55); color: #EDE7DE; font-size: 16px; line-height: 1; cursor: pointer;">‹</button>
+          <button data-next type="button" aria-label="Next clip" style="position: absolute; z-index: 4; right: 10px; top: 50%; transform: translateY(-50%); width: 38px; height: 38px; border-radius: 999px; border: 1px solid rgba(237,231,222,0.28); background: rgba(12,11,15,0.55); color: #EDE7DE; font-size: 16px; line-height: 1; cursor: pointer;">›</button>
+          <div style="position: absolute; z-index: 4; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; gap: 8px;">
+            <button data-dot type="button" aria-label="Play clip 1: Aquarela" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: #E08A3C; cursor: pointer;"></button>
+            <button data-dot type="button" aria-label="Play clip 2: Fly Me to the Moon" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
+            <button data-dot type="button" aria-label="Play clip 3: Garota de Ipanema" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
+            <button data-dot type="button" aria-label="Play clip 4: Trem das Cores" style="width: 8px; height: 8px; padding: 0; border-radius: 999px; border: none; background: rgba(237,231,222,0.35); cursor: pointer;"></button>
           </div>
         </div>
         <figcaption style="display: flex; flex-wrap: wrap; gap: 10px 24px; justify-content: space-between; padding: 12px 6px 4px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.09em; color: #8F877E;">
-          <span>“ARANHA” · 30s FROM A REAL SET</span><span>SINGLE CANVAS · NO CUTS</span>
+          <span data-carousel-caption>“AQUARELA” · FROM A REAL SET</span><span>SINGLE CANVAS · NO CUTS</span>
         </figcaption>
       </figure>
 
       <div data-reveal style="border: 1px solid rgba(237,231,222,0.12); border-radius: 14px; background: rgba(20,19,26,0.6); padding: 20px 22px;">
-        <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #8F877E; margin-bottom: 14px;">What it heard — sample transcript, placeholder text</p>
+        <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #8F877E; margin-bottom: 14px;">What it heard — “Fly Me to the Moon”, sung live</p>
         <div style="display: grid; gap: 10px;">
-          
-            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">the harbour lights went out one by one</p>
-          
-            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">and you kept talking about the summer</p>
-          
-            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">i painted over it, i painted over it</p>
-          
-            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">nothing here is finished yet</p>
-          
+
+            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">fly me to the moon</p>
+
+            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">let me play among the stars</p>
+
+            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">let me see what spring is like</p>
+
+            <p data-line style="font-family: Georgia, 'Iowan Old Style', serif; font-size: clamp(16px, 2vw, 20px); line-height: 1.4; color: #C8C1B8; opacity: 0.35;">on Jupiter and Mars</p>
+
         </div>
       </div>
     </div>
@@ -218,6 +241,7 @@
         <a href="/producers" style="color: #A39C93;">For venues</a>
         <a href="/under-the-hood" style="color: #A39C93;">Under the hood</a>
         <a href="/press" style="color: #A39C93;">Press kit</a>
+        <a href="/pt" lang="pt-BR" onclick="try{localStorage.setItem('sn-lang','pt')}catch(e){}" style="color: #A39C93;">PT</a>
         <a href="mailto:info@sinestesia.art" style="color: #A39C93;">info@sinestesia.art</a>
       </div>
       <p style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: 0.1em; color: #8F877E;">IT ETERNALIZES A LIVE MOMENT</p>
@@ -231,17 +255,60 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const root = this.el || document;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const vid = document.querySelector("[data-hero-video]");
-    if (vid) {
-      vid.defaultMuted = true;
-      vid.muted = true;
-      vid.playsInline = true;
-      if (reduce) { vid.pause(); vid.removeAttribute("autoplay"); vid.setAttribute("controls", ""); }
-      else {
-        const tryPlay = (n) => vid.play().catch(() => {
+    const carousel = document.querySelector("[data-carousel]");
+    if (carousel) {
+      const slides = Array.from(carousel.querySelectorAll("[data-slide]"));
+      const dots = Array.from(carousel.querySelectorAll("[data-dot]"));
+      const caption = document.querySelector("[data-carousel-caption]");
+      let current = 0;
+
+      slides.forEach((v) => {
+        v.defaultMuted = true; v.muted = true; v.playsInline = true;
+        if (reduce) v.setAttribute("controls", "");
+        v.addEventListener("ended", () => show(current + 1));
+      });
+
+      function show(i) {
+        current = (i + slides.length) % slides.length;
+        slides.forEach((v, k) => {
+          v.style.opacity = k === current ? "1" : "0";
+          v.style.zIndex = k === current ? "1" : "0";
+          if (k === current) {
+            v.preload = "auto";
+            if (!reduce) { v.currentTime = 0; v.play().catch(() => {}); }
+          } else if (!v.paused) {
+            v.pause();
+          }
+        });
+        // Warm the next clip so the crossfade lands on a ready frame.
+        slides[(current + 1) % slides.length].preload = "auto";
+        dots.forEach((d, k) => { d.style.background = k === current ? "#E08A3C" : "rgba(237,231,222,0.35)"; });
+        if (caption) caption.textContent = slides[current].dataset.title;
+      }
+
+      carousel.querySelector("[data-prev]").addEventListener("click", () => show(current - 1));
+      carousel.querySelector("[data-next]").addEventListener("click", () => show(current + 1));
+      dots.forEach((d, k) => d.addEventListener("click", () => show(k)));
+
+      // Sound starts off (autoplay with audio is blocked anyway); the click is
+      // a user gesture, so unmuting mid-playback is always allowed.
+      let muted = true;
+      const soundBtn = carousel.querySelector("[data-sound]");
+      soundBtn.addEventListener("click", () => {
+        muted = !muted;
+        slides.forEach((v) => { v.muted = muted; v.defaultMuted = muted; });
+        soundBtn.textContent = muted ? "🔇 SOUND OFF" : "🔊 SOUND ON";
+        soundBtn.setAttribute("aria-pressed", String(!muted));
+        soundBtn.setAttribute("aria-label", muted ? "Turn sound on" : "Turn sound off");
+        if (!muted && !reduce) slides[current].play().catch(() => {});
+      });
+
+      if (!reduce) {
+        // Autoplay policies: retry once, then wait for the first tap.
+        const tryPlay = (n) => slides[current].play().catch(() => {
           if (n > 0) setTimeout(() => tryPlay(n - 1), 400);
           else {
-            const tap = () => { vid.muted = true; vid.play(); document.removeEventListener("pointerdown", tap); };
+            const tap = () => { slides[current].muted = muted; slides[current].play().catch(() => {}); };
             document.addEventListener("pointerdown", tap, { once: true });
           }
         });

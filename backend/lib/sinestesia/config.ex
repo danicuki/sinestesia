@@ -191,6 +191,14 @@ defmodule Sinestesia.Config do
       default: "/transcribe",
       doc: "Transcription path on the local Whisper sidecar."
     },
+    %{
+      key: "DEMUCS_DEVICE",
+      group: :stt,
+      default: "cpu",
+      values: "cpu | cuda | mps",
+      doc:
+        "Torch device for Demucs vocal separation in mix sinestesia.video's URL flow (Sinestesia.MediaSource). Set mps on Apple Silicon — several times faster than cpu. Only read by the offline task, never during a live show."
+    },
 
     # ── Director ────────────────────────────────────────────────────────────
     %{

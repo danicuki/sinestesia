@@ -9,6 +9,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
       mix sinestesia.video ../take.mp4
       mix sinestesia.video ../take.mp4 --song-url https://www.letras.mus.br/toquinho/aquarela/
       mix sinestesia.video ../take.mp4 --session ../take-session.json --out /tmp/final.mp4
+      mix sinestesia.video https://www.youtube.com/watch?v=XXXXXXX
+
+  ## YouTube (or any yt-dlp-supported URL)
+
+  Given a URL instead of a file, the input is a *finished recording* rather
+  than a camera take: the audio is downloaded (`yt-dlp`), the vocal stem is
+  isolated (`demucs --two-stems=vocals` — batch STT on a clean voice beats
+  STT on a full mix, same reason `tools/song_to_session.py` separates
+  first), the session is transcribed from the VOCALS, and the final video is
+  composed over the ORIGINAL full mix. There is no artist footage, so there
+  is no PIP. Everything between — identification, lyrics import, chunking,
+  the replay through the real pipeline — is the same code path as a camera
+  take. `DEMUCS_DEVICE=mps` makes separation several times faster on Apple
+  Silicon; `--no-separate` skips Demucs and transcribes the full mix.
 
   The steps mirror the live flow exactly:
 
@@ -42,9 +56,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --out PATH        output video (default: <video dir>/<name>-sinestesia.mp4)
       --fade MS         crossfade duration (default 1500, matching the stage)
       --lead S          pre-load head start in seconds (default 15)
-      --pip POS         br|bl|tr|tl|off (default br)
+      --pip POS         br|bl|tr|tl|off (default br; forced off for URLs)
       --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
       --lang CODE       ISO language for transcription (default: auto-detect)
+      --no-separate     URL flow: skip Demucs, transcribe the full mix
 
   Provider selection stays with the environment (.env), same as every other
   entry point: DIRECTOR_PROVIDER / IMAGE_PROVIDER / OLLAMA_MODEL etc. For a
@@ -56,9 +71,16 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   @impl true
   def run(args) do
-    {video, opts} = parse_args(args)
-    video = Path.expand(video)
-    File.exists?(video) || Mix.raise("video not found: #{video}")
+    {input, opts} = parse_args(args)
+
+    input =
+      if Sinestesia.MediaSource.url?(input) do
+        input
+      else
+        path = Path.expand(input)
+        File.exists?(path) || Mix.raise("video not found: #{path}")
+        path
+      end
 
     fade_ms = opts[:fade] || 1_500
     lead_ms = round((opts[:lead] || 15.0) * 1_000)
@@ -82,14 +104,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
         name -> String.to_existing_atom(name)
       end
 
+    # ── 0. resolve the medium (after boot: .env holds DEMUCS_DEVICE) ───────
+    # `compose` is what the final video's audio comes from; `stt` is what the
+    # transcription hears. For a camera take they are the same file. For a
+    # URL they differ: compose keeps the original full mix, stt gets the
+    # isolated vocal stem.
+    media = resolve_media(input, opts)
+
     # ── 1. session (transcription) ─────────────────────────────────────────
-    session = load_or_build_session(video, Keyword.put(opts, :stt_provider, stt))
+    session = load_or_build_session(media, Keyword.put(opts, :stt_provider, stt))
     transcript = session["events"] |> Enum.filter(& &1["final"]) |> Enum.map_join(" ", & &1["text"])
     Mix.shell().info("── transcript ──\n#{transcript}\n")
 
     # ── 2. song: library → identify → import → verify ──────────────────────
 
-    song = resolve_song(transcript, opts)
+    song = resolve_song(transcript, media.title, opts)
     Mix.shell().info("── song: #{song.title}#{if song.artist, do: " — #{song.artist}"} ──")
 
     # ── 3. replay through the real pipeline ────────────────────────────────
@@ -177,13 +206,71 @@ defmodule Mix.Tasks.Sinestesia.Video do
     acc = %{acc | images: images}
 
     # ── 4. compose the final video ─────────────────────────────────────────
-    out =
-      opts[:out] ||
-        Path.join(Path.dirname(video), "#{session["name"]}-sinestesia.mp4")
+    out = opts[:out] || default_out(media, session["name"])
 
-    compose(video, acc, lead_ms, fade_ms, opts[:pip] || "br", out)
+    pip =
+      cond do
+        not media.has_video? and opts[:pip] not in [nil, "off"] ->
+          Mix.shell().info("[compose] --pip ignored: a URL source has no artist footage")
+          "off"
+
+        not media.has_video? ->
+          "off"
+
+        true ->
+          opts[:pip] || "br"
+      end
+
+    compose(media.compose, acc, lead_ms, fade_ms, pip, out)
     Mix.shell().info("\n── done ──\n#{out}")
   end
+
+  # ── media resolution ─────────────────────────────────────────────────────
+
+  defp resolve_media(input, opts) do
+    if Sinestesia.MediaSource.url?(input) do
+      out_dir = Path.join(System.tmp_dir!(), "sinestesia-video-dl-#{:erlang.phash2(input)}")
+
+      %{audio: audio, title: title} =
+        case Sinestesia.MediaSource.download(input, out_dir) do
+          {:ok, dl} -> dl
+          {:error, reason} -> Mix.raise("download failed: #{format_tool_error(reason)}")
+        end
+
+      if title, do: Mix.shell().info("── source: #{title} ──")
+
+      stt_media =
+        if opts[:no_separate] do
+          Mix.shell().info("[media] --no-separate: transcribing the full mix")
+          audio
+        else
+          case Sinestesia.MediaSource.separate_vocals(audio, out_dir) do
+            {:ok, vocals} ->
+              vocals
+
+            {:error, reason} ->
+              Mix.raise("""
+              vocal separation failed: #{format_tool_error(reason)}
+              (re-run with --no-separate to transcribe the full mix instead)
+              """)
+          end
+        end
+
+      %{compose: audio, stt: stt_media, title: title, has_video?: false}
+    else
+      %{compose: input, stt: input, title: nil, has_video?: true}
+    end
+  end
+
+  defp format_tool_error({:tool_missing, bin, hint}), do: "#{bin} not found — #{hint}"
+  defp format_tool_error(other), do: inspect(other)
+
+  # A camera take's output lands next to the take; a URL's "directory" is a
+  # tmp download dir nobody will look in, so the output lands in cwd.
+  defp default_out(%{has_video?: true, compose: video}, name),
+    do: Path.join(Path.dirname(video), "#{name}-sinestesia.mp4")
+
+  defp default_out(_media, name), do: Path.expand("#{name}-sinestesia.mp4")
 
   # Strictly-serial download worker. Fetches queue in ITS mailbox while it
   # patiently retries the current one — so the rate-limited provider only
@@ -213,16 +300,25 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── session ──────────────────────────────────────────────────────────────
 
-  defp load_or_build_session(video, opts) do
+  defp load_or_build_session(media, opts) do
     case opts[:session] do
       nil ->
         out_dir = Path.join(System.tmp_dir!(), "sinestesia-video")
 
         stt_opts = [lang: opts[:lang] || "", provider: opts[:stt_provider]]
 
-        case Sinestesia.BatchStt.session_from_video(video, out_dir, stt_opts) do
+        case Sinestesia.BatchStt.session_from_video(media.stt, out_dir, stt_opts) do
           {:ok, session} ->
+            # The session transcribed the STT medium (a vocal stem, for a
+            # URL), but everything downstream that touches "audio" or the
+            # name must see the PERFORMANCE: the original mix, named after
+            # the source title — "vocals" is what the file is, not what the
+            # song is.
             session
+            |> Map.put("audio", Path.expand(media.compose))
+            |> then(fn s ->
+              if media.title, do: Map.put(s, "name", slugify(media.title)), else: s
+            end)
 
           {:error, reason} ->
             Mix.raise("transcription failed: #{inspect(reason)}")
@@ -235,13 +331,13 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── song resolution ──────────────────────────────────────────────────────
 
-  defp resolve_song(transcript, opts) do
+  defp resolve_song(transcript, title_hint, opts) do
     cond do
       url = opts[:song_url] ->
         import_and_save(url, nil) ||
           Mix.raise("could not import lyrics from #{url}")
 
-      match = library_hit(transcript) ->
+      match = library_hit(transcript, title_hint) ->
         Mix.shell().info("[song] matched the local library: #{match.title}")
         match
 
@@ -250,14 +346,46 @@ defmodule Mix.Tasks.Sinestesia.Video do
     end
   end
 
-  # The exact matcher the stage uses for SONG_AUTO_IDENTIFY, same 24-word cap.
-  defp library_hit(transcript) do
+  # Batch STT of a studio mix mangles words the live mic doesn't ("Numa
+  # folha" → "Uma folha é"), which eats the margin under the live matcher's
+  # threshold. Unlike the stage, this flow holds the WHOLE transcript — so a
+  # looser second pass is allowed exactly when the same covers? verification
+  # that gates lyric imports confirms it, and the source title (URL flow)
+  # gets a third, equally-verified pass. A candidate that fails verification
+  # is treated as no hit at all, never a soft yes.
+  @loose_threshold 0.5
+
+  @doc false
+  # Public for tests; not part of any API.
+  def library_hit(transcript, title_hint \\ nil) do
     capped = transcript |> String.split() |> Enum.take(24) |> Enum.join(" ")
 
-    case Sinestesia.SongLibrary.identify(capped) do
-      {:match, song} -> song
-      :no_match -> nil
+    strict =
+      case Sinestesia.SongLibrary.identify(capped) do
+        {:match, song} -> song
+        :no_match -> nil
+      end
+
+    loose = fn ->
+      case Sinestesia.SongLibrary.identify(capped, threshold: @loose_threshold) do
+        {:match, song} -> if verified?(transcript, song.lyrics_text), do: song
+        :no_match -> nil
+      end
     end
+
+    by_title = fn ->
+      if title_hint do
+        Sinestesia.SongLibrary.list()
+        |> Enum.map(&Sinestesia.SongLibrary.get(&1.id))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.find(fn song ->
+          String.contains?(slugify(title_hint), slugify(song.title)) and
+            verified?(transcript, song.lyrics_text)
+        end)
+      end
+    end
+
+    strict || loose.() || by_title.()
   end
 
   defp identify_and_import(transcript) do
@@ -723,7 +851,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
              lead: :float,
              pip: :string,
              stt: :string,
-             lang: :string
+             lang: :string,
+             no_separate: :boolean
            ]
          ) do
       {opts, [video], []} ->
@@ -731,9 +860,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
       _ ->
         Mix.raise(
-          "usage: mix sinestesia.video <video> [--session S] [--song-url URL] " <>
+          "usage: mix sinestesia.video <video-or-url> [--session S] [--song-url URL] " <>
             "[--style S] [--out PATH] [--fade MS] [--lead S] [--pip br|bl|tr|tl|off] " <>
-            "[--stt elevenlabs|local_whisper] [--lang CODE]"
+            "[--stt elevenlabs|local_whisper] [--lang CODE] [--no-separate]"
         )
     end
   end

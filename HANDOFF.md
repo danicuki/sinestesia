@@ -267,3 +267,25 @@ Watch the backend log for:
 ```
 
 End-of-handoff. Welcome aboard.
+
+## Addendum (2026-08-04): mix sinestesia.video accepts URLs
+
+`mix sinestesia.video <youtube-url>` turns a finished music video into a
+Sinestesia show video: yt-dlp downloads the audio, Demucs isolates the vocal
+stem (`Sinestesia.MediaSource` — both invoked like ffmpeg, no Python
+orchestration), batch STT transcribes the VOCALS, and the final render is
+composed over the ORIGINAL full mix with no PIP (there is no artist take).
+Identification, lyrics import, chunking and the replay through the real
+pipeline are the exact same code path as a camera take.
+
+Gotchas learned building it:
+- The session's `"audio"` must be rewritten to the original mix and its
+  `"name"` to the source title — otherwise everything downstream is named
+  "vocals" and probes the wrong file.
+- `DEMUCS_DEVICE` (registry, default cpu) — `mps` on Apple Silicon is
+  several times faster. First demucs run downloads the model (~300MB).
+- `--no-separate` transcribes the full mix when demucs isn't installed;
+  expect worse word timestamps.
+- Platform titles are a NAMING hint only, never identity: identification
+  still runs from the transcript (titles carry "ORIGINAL", emoji, channel
+  names — exactly what must not reach a provenance record).

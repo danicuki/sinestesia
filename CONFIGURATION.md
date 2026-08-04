@@ -125,6 +125,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `LOCAL_WHISPER_PORT` | `8002` | — | Port of the local Whisper sidecar. |
 | `LOCAL_WHISPER_BATCH_PORT` | `8012` | — | HTTP port of the local-whisper sidecar's batch endpoint (/transcribe_file), used by Sinestesia.BatchStt to turn a finished recording into a session for mix sinestesia.video. Separate from LOCAL_WHISPER_PORT (the realtime WebSocket) and deliberately not port+1, which would collide with the local SDXL sidecar's 8003 in an offline setup. |
 | `LOCAL_WHISPER_PATH` | `/transcribe` | — | Transcription path on the local Whisper sidecar. |
+| `DEMUCS_DEVICE` | `cpu` | `cpu \| cuda \| mps` | Torch device for Demucs vocal separation in mix sinestesia.video's URL flow (Sinestesia.MediaSource). Set mps on Apple Silicon — several times faster than cpu. Only read by the offline task, never during a live show. |
 
 ### Director (LLM)
 

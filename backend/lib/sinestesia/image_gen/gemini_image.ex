@@ -94,11 +94,9 @@ defmodule Sinestesia.ImageGen.GeminiImage do
 
   defp inline_image(other), do: {:error, {:bad_input_url, other}}
 
-  defp extract_image(%{"candidates" => candidates}) do
-    parts =
-      candidates
-      |> List.first(%{})
-      |> get_in(["content", "parts"]) || []
+  defp extract_image(%{"candidates" => candidates} = body) do
+    candidate = List.first(candidates, %{})
+    parts = get_in(candidate, ["content", "parts"]) || []
 
     case Enum.find(parts, &match?(%{"inlineData" => %{"data" => _}}, &1)) do
       %{"inlineData" => %{"data" => b64} = data} ->
@@ -106,7 +104,21 @@ defmodule Sinestesia.ImageGen.GeminiImage do
         {:ok, "data:#{mime};base64," <> b64}
 
       _ ->
-        {:error, {:no_image_in_response, parts}}
+        # A 200 with no image is a REFUSAL, and the reason is never in the
+        # parts (they come back empty) — it's in the candidate's
+        # finishReason (IMAGE_SAFETY, PROHIBITED_CONTENT, RECITATION —
+        # trademarked characters land here: "spider-man" fails where
+        # "spider-suit hero" passes) and in promptFeedback. Surface both:
+        # someone at a sound desk needs to know WHICH word poisoned the
+        # prompt, not that a list was empty.
+        {:error,
+         {:no_image_in_response,
+          %{
+            finish_reason: Map.get(candidate, "finishReason"),
+            block_reason: get_in(body, ["promptFeedback", "blockReason"]),
+            refusal_text:
+              parts |> Enum.find_value(&Map.get(&1, "text")) |> then(&(&1 && String.slice(&1, 0, 200)))
+          }}}
     end
   end
 

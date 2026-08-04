@@ -14,6 +14,60 @@ defmodule Sinestesia.LyricsImport.LetrasComBr do
 
   @type result :: %{title: String.t() | nil, artist: String.t() | nil, lyrics_text: String.t()}
 
+  # The site's own search backend (observed in the page's autocomplete,
+  # verified live 2026-08-04). Guessing URL slugs from a title/artist is a
+  # trap — letras localizes them ("Simon & Garfunkel" lives at
+  # /simon-e-garfunkel/) — so asking the search index for the real `dns`
+  # (artist slug) and song id is the only reliable route.
+  @search_url "https://solr.sscdn.co/letras/m1/"
+
+  @doc """
+  Search letras.mus.br for a song; returns candidate song-page URLs, best
+  match first. Network errors return `[]` — the caller has slug-guess
+  fallbacks and a transcript verification behind this.
+  """
+  @spec search(String.t(), keyword()) :: [String.t()]
+  def search(query, opts \\ []) when is_binary(query) do
+    # Solr chokes on query operators — "Simon & Garfunkel" finds NOTHING
+    # with the ampersand and 182 hits without it. Letters, digits and
+    # spaces only.
+    query = query |> String.replace(~r/[^\p{L}\p{N}\s]/u, " ") |> String.trim()
+
+    case Req.get(Keyword.get(opts, :search_url, @search_url),
+           params: [q: query, wt: "json"],
+           headers: [{"user-agent", "Mozilla/5.0"}],
+           receive_timeout: 10_000,
+           retry: false,
+           # The body is JSONP (LetrasSug({...})) served as json — Req's
+           # auto-decode chokes on the callback wrapper and turns the whole
+           # response into {:error, %Jason.DecodeError{}}.
+           decode_body: false
+         ) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        # JSONP: LetrasSug({...}) — strip the callback wrapper.
+        with %{"response" => %{"docs" => docs}} <-
+               body
+               |> String.replace(~r/^[A-Za-z]+\(/, "")
+               |> String.trim() |> String.trim_trailing(")")
+               |> Jason.decode!()  do
+          docs
+          |> Enum.filter(&(is_binary(&1["dns"]) and is_binary(&1["url"])))
+          |> Enum.map(&"https://www.letras.mus.br/#{&1["dns"]}/#{&1["url"]}/")
+          |> Enum.uniq()
+          |> Enum.take(3)
+        else
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
+  rescue
+    # A malformed search response must degrade to "no candidates", never
+    # take down song resolution — the slug guesses still run after us.
+    _ -> []
+  end
+
   @spec parse(String.t()) :: {:ok, result()} | {:error, term()}
   def parse(html) when is_binary(html) do
     with {:ok, block} <- extract_lyric_block(html),

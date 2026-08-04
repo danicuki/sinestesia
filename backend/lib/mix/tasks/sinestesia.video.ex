@@ -435,14 +435,22 @@ defmodule Mix.Tasks.Sinestesia.Video do
     end
   end
 
-  # letras.mus.br first (simpler markup, per LyricsImport), cifraclub second.
+  # The SITE's search first — slug guesses are a trap (letras localizes
+  # "Simon & Garfunkel" to /simon-e-garfunkel/, unguessable from the name).
+  # The guessed URLs stay as fallback for when the search is unreachable,
+  # and every candidate still has to pass transcript verification.
   defp candidate_urls(%{title: title, artist: artist}) do
+    searched = Sinestesia.LyricsImport.LetrasComBr.search("#{title} #{artist}")
+
     t = slugify(title)
 
-    case artist && slugify(artist) do
-      nil -> []
-      a -> ["https://www.letras.mus.br/#{a}/#{t}/", "https://www.cifraclub.com.br/#{a}/#{t}/letra/"]
-    end
+    guessed =
+      case artist && slugify(artist) do
+        nil -> []
+        a -> ["https://www.letras.mus.br/#{a}/#{t}/", "https://www.cifraclub.com.br/#{a}/#{t}/letra/"]
+      end
+
+    Enum.uniq(searched ++ guessed)
   end
 
   # Import, VERIFY against what was actually sung, then persist to SONGS_DIR

@@ -33,7 +33,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
     2. find the song: the local library first (`SongLibrary.identify`, the
        same matcher the stage uses), then `SongId` + a lyrics-site import
        (letras.mus.br / cifraclub), VERIFIED against the transcript before
-       being trusted, and saved into `SONGS_DIR` for next time;
+       being trusted, and saved into `SONGS_DIR` for next time. When nothing
+       verifiable exists online — an original, an unreleased song — the
+       transcription itself becomes the lyric sheet: the predictive stack
+       then follows the transcript, which for a finished recording matches
+       the performance exactly. It is NOT saved to the library (STT text is
+       not verified lyrics); pass `--song-url` to use a real page instead;
     3. replay the session through the real pipeline — chunking, eager
        bootstrap, deep look-ahead, reveal-on-confirmation all live code;
     4. compose the revealed frames into a video: crossfades at the reveal
@@ -139,7 +144,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     # ── 2. song: library → identify → import → verify ──────────────────────
 
-    song = resolve_song(transcript, media.title, opts)
+    song = resolve_song(session, transcript, media.title, opts)
     Mix.shell().info("── song: #{song.title}#{if song.artist, do: " — #{song.artist}"} ──")
 
     # ── 3. replay through the real pipeline ────────────────────────────────
@@ -352,7 +357,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── song resolution ──────────────────────────────────────────────────────
 
-  defp resolve_song(transcript, title_hint, opts) do
+  defp resolve_song(session, transcript, title_hint, opts) do
     cond do
       url = opts[:song_url] ->
         import_and_save(url, nil) ||
@@ -362,8 +367,23 @@ defmodule Mix.Tasks.Sinestesia.Video do
         Mix.shell().info("[song] matched the local library: #{match.title}")
         match
 
+      song = identify_and_import(transcript) ->
+        song
+
       true ->
-        identify_and_import(transcript)
+        # An original or unreleased song has no lyrics page anywhere — that
+        # can't be a fatal error for a task whose input is arbitrary
+        # recordings. The transcription IS an accurate lyric sheet for this
+        # exact recording (it came from this audio), so the look-ahead will
+        # follow it near-perfectly; what it can't carry is a verified
+        # title/artist, so those stay a naming hint and nil rather than a
+        # guess (SongId's rejected guess is NOT reused here).
+        Mix.shell().info(
+          "[song] no verified lyrics found online — using the transcription itself " <>
+            "as the lyric sheet (pass --song-url to import from a lyrics page instead)"
+        )
+
+        transcript_song(session, title_hint)
     end
   end
 
@@ -416,23 +436,53 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
         candidate_urls(guess)
         |> Enum.find_value(fn url -> import_and_save(url, transcript) end)
-        |> case do
+        |> tap(fn
           nil ->
-            Mix.raise("""
-            couldn't import verified lyrics for "#{title}" (#{guess.artist || "?"}).
-            Pass --song-url with a letras.mus.br / cifraclub.com.br link.
-            """)
+            Mix.shell().info(
+              "[song] no page for \"#{title}\" (#{guess.artist || "?"}) survived transcript verification"
+            )
 
-          song ->
-            song
-        end
+          _song ->
+            :ok
+        end)
 
       other ->
-        Mix.raise("""
-        song identification failed (#{inspect(other)}).
-        Pass --song-url with a letras.mus.br / cifraclub.com.br link.
-        """)
+        Mix.shell().info("[song] identification failed (#{inspect(other)})")
+        nil
     end
+  end
+
+  # A pause long enough to read as an instrumental break becomes a stanza
+  # boundary — that's what MusicalStructure sections on, and the pauses are
+  # real (they're in the recording), unlike any guess about verse/chorus.
+  # The pause is the SILENCE, not the final-to-final distance: a final's
+  # at_ms is the END of its phrase (BatchStt stamps `w.end`), so consecutive
+  # finals are always a whole sung line apart. The first partial after a
+  # final is (one word into) the next phrase's start — that minus the
+  # previous final's end is the silence.
+  @stanza_gap_ms 4_000
+
+  @doc false
+  # Public for tests; not part of any API.
+  def transcript_song(session, title_hint) do
+    {rev_lines, _prev_end, _start} =
+      Enum.reduce(session["events"], {[], nil, nil}, fn ev, {lines, prev_end, start} ->
+        start = start || ev["at_ms"]
+
+        if ev["final"] do
+          gap? = prev_end != nil and start - prev_end > @stanza_gap_ms
+          {[if(gap?, do: "\n" <> ev["text"], else: ev["text"]) | lines], ev["at_ms"], nil}
+        else
+          {lines, prev_end, start}
+        end
+      end)
+
+    %{
+      title: title_hint || "Untitled",
+      artist: nil,
+      style: nil,
+      lyrics_text: rev_lines |> Enum.reverse() |> Enum.join("\n")
+    }
   end
 
   # The SITE's search first — slug guesses are a trap (letras localizes

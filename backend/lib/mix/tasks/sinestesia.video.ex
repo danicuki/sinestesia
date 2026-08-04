@@ -625,7 +625,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # durations. Every piece is normalized to the canvas first — the concat
   # demuxer requires uniform dimensions, and the bootstrap frame (cloud t2i)
   # can differ in size from the sidecar's morph subframes.
-  defp build_concat(frames, fade_ms, audio_dur_ms, w, h, workdir) do
+  @doc false
+  # Public for tests; not part of any API.
+  def build_concat(frames, fade_ms, audio_dur_ms, w, h, workdir) do
     black = Path.join(workdir, "black.jpg")
 
     {_, 0} =
@@ -655,7 +657,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
               # No sidecar morph for this boundary (bootstrap t2i, provider
               # fallback): synthesize the stage's crossfade as 12 linear
               # blends, the same recipe mix sinestesia.replay exports.
-              blend_steps(prev_file, f.file, i, 12, workdir)
+              # Blends happen ON THE CANVAS — providers like Gemini return
+              # different dimensions per generation (1376x768 one frame,
+              # 1408x768 the next), and ffmpeg's blend filter refuses
+              # mismatched inputs.
+              blend_steps(prev_file, f.file, i, 12, w, h, workdir)
 
             subs ->
               Enum.map(subs, &norm(&1, w, h, workdir))
@@ -690,10 +696,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
     path
   end
 
-  # Scale+pad a still to the canvas, cached by basename (subframes are
-  # reused nowhere, finals are reused as hold pieces).
+  # Scale+pad a still to the canvas. The cache key MUST carry the target
+  # dimensions: keying by basename alone once returned a 1376x768 cached
+  # normalization when 1408x768 was asked for, and ffmpeg's blend filter
+  # crashed the whole composition on the mismatch.
   defp norm(file, w, h, workdir) do
-    out = Path.join(workdir, "norm_#{Path.basename(file)}")
+    out = Path.join(workdir, "norm_#{w}x#{h}_#{Path.basename(file)}")
 
     if not File.exists?(out) do
       {_, 0} =
@@ -713,8 +721,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     out
   end
 
-  defp blend_steps(from_file, to_file, boundary, steps, workdir) do
-    {w, h} = probe_even_dims(to_file)
+  defp blend_steps(from_file, to_file, boundary, steps, w, h, workdir) do
     from_n = norm(from_file, w, h, workdir)
     to_n = norm(to_file, w, h, workdir)
 

@@ -65,6 +65,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
   entry point: DIRECTOR_PROVIDER / IMAGE_PROVIDER / OLLAMA_MODEL etc. For a
   fully-offline run: DIRECTOR_PROVIDER=gemma, LYRICS_CHUNK_ALLOW_LOCAL=1,
   SONGID_ALLOW_LOCAL=1, and any keyless IMAGE_PROVIDER.
+
+  One deliberate exception: the predictive stack (SPECULATIVE_LOOKAHEAD=on,
+  LOOKAHEAD_DEPTH=3, MUSICAL_STRUCTURE=on) defaults ON here even though the
+  stage treats it as opt-in — this task's entire purpose is the ideal show,
+  and without look-ahead every frame is reactive and lands seconds late.
+  Your .env or shell still wins if either sets those variables.
   """
   use Mix.Task
   require Logger
@@ -97,6 +103,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # because nothing reads it until Pipeline.start_link below.
     System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
     Mix.Task.run("app.start")
+
+    # The point of this task is the show the stage WOULD have produced, and
+    # the stage runs the predictive stack — lyrics look-ahead, deep
+    # pre-render, structure hints. Without it every frame is reactive and
+    # lands ~2-3s after its line, which is precisely the timing this task
+    # exists to avoid. Defaults are applied AFTER app.start so an operator's
+    # .env (loaded by runtime.exs) or shell still wins.
+    for {k, v} <- %{
+          "SPECULATIVE_LOOKAHEAD" => "on",
+          "LOOKAHEAD_DEPTH" => "3",
+          "MUSICAL_STRUCTURE" => "on"
+        },
+        System.get_env(k) == nil do
+      System.put_env(k, v)
+    end
 
     stt =
       case opts[:stt] do

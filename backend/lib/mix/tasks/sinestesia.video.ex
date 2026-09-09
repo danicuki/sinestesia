@@ -83,8 +83,19 @@ defmodule Mix.Tasks.Sinestesia.Video do
       boundary frame natively. Kept for realtime experiments too (~3s
       per 5s clip is a stage property).
 
+  An instrumental introduction (2s or longer before the first verse) gets
+  its own OPENING SHOT on the sequential chain — text-to-video, directed
+  as an overture — instead of a black screen, and its final frame seeds
+  the first verse's clip.
+
   This is PAID inference either way: the task prints the total estimate and
-  asks before submitting (`--yes` skips the prompt).
+  asks before submitting (`--yes` skips the prompt). Failures recover in
+  three layers: transient provider errors ("high demand", 429/5xx) retry
+  with a wait; a safety-refused direction retries once with the scene's
+  neutral fallback direction; anything still failing freezes the current
+  frame for that window and the chain continues. Finished clips and the
+  film direction are CACHED under the song's cache entry, so an
+  interrupted or partly-failed run re-pays only the scenes it didn't get.
 
   ## Options
 
@@ -325,7 +336,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
       end
 
     if opts[:motion] do
-      opts = Keyword.put(opts, :lyrics_text, song.lyrics_text)
+      opts =
+        opts
+        |> Keyword.put(:lyrics_text, song.lyrics_text)
+        |> Keyword.put(:media_cache, media.cache)
+
       compose_motion(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out, style, opts)
     else
       compose(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out)
@@ -859,8 +874,6 @@ defmodule Mix.Tasks.Sinestesia.Video do
       Map.get(spec.rates, resolution) ||
         Mix.raise("#{model_name} has no #{resolution} (options: #{Enum.join(Map.keys(spec.rates), " | ")})")
 
-    n = length(frames)
-
     scenes =
       frames
       |> Enum.with_index()
@@ -886,6 +899,30 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # shot (crossfading independent clips reads as cuts, not a sequence —
     # founder-rejected). Anchors seed the start and heal failures.
     drift? = spec.chain == :drift
+    first_at = List.first(frames).at_ms
+
+    # The founder's ask: an instrumental introduction deserves an OPENING
+    # SHOT, not a black screen. On the sequential chain the overture is one
+    # more scene — text-to-video, no words yet — and its final frame seeds
+    # the first verse's clip, so the film flows out of its own opening.
+    {scenes, intro?} =
+      if drift? and first_at >= 2_000 do
+        intro = %{
+          index: 0,
+          window_ms: first_at,
+          from: List.first(frames).file,
+          to: List.first(frames).file,
+          prompt:
+            "(instrumental introduction — no words sung yet: establish the world " <>
+              "and mood of the song before the first verse)"
+        }
+
+        {[intro | Enum.map(scenes, &%{&1 | index: &1.index + 1})], true}
+      else
+        {scenes, false}
+      end
+
+    n = length(scenes)
 
     durations =
       Enum.map(scenes, fn scene ->
@@ -901,9 +938,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # Directions come BEFORE the money gate: they're a cheap text call, and
     # whether the film director actually answered belongs in the decision
     # to spend — a run that silently paid for 22 clips on generic fallback
-    # directions is how this lesson was learned.
-    {dir_source, directions} =
-      Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt), opts[:lyrics_text])
+    # directions is how this lesson was learned. Directed results are
+    # CACHED per song: rerunning after an interruption must reuse the same
+    # directions, or the clip cache below could never hit.
+    {dir_source, directions} = directed(style, Enum.map(scenes, & &1.prompt), opts)
 
     if dir_source == :fallback do
       Mix.shell().error(
@@ -934,10 +972,22 @@ defmodule Mix.Tasks.Sinestesia.Video do
       model: model_name,
       resolution: resolution,
       style_suffix: style,
-      aspect_ratio: if(w >= h, do: "16:9", else: "9:16")
+      aspect_ratio: if(w >= h, do: "16:9", else: "9:16"),
+      # A safety-refused direction gets ONE retry with this scene's neutral
+      # fallback direction — drier language, same journey. And finished
+      # clips are cached under the song's cache entry, so an interrupted or
+      # partly-failed run re-pays only what it didn't get.
+      clip_cache_dir: opts[:media_cache] && Path.join(opts[:media_cache], "clips")
     ]
 
-    work = Enum.zip(scenes, Enum.zip(directions, durations))
+    safes = Sinestesia.MotionDirector.fallback(Enum.map(scenes, & &1.prompt))
+
+    work =
+      [scenes, directions, durations, safes]
+      |> Enum.zip()
+      |> Enum.map(fn {scene, direction, duration, safe} ->
+        %{scene: scene, direction: direction, duration: duration, safe: safe}
+      end)
 
     clips =
       if drift? do
@@ -954,11 +1004,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
       else
         work
         |> Task.async_stream(
-          fn {scene, {direction, duration}} ->
+          fn %{scene: scene, direction: direction, duration: duration, safe: safe} ->
             from = Map.fetch!(normed, scene.from)
             to = scene.to && Map.fetch!(normed, scene.to)
+            item_opts = [safe_direction: safe] ++ gen_opts
 
-            case generate_clip(scene.index, direction, duration, from, to, workdir, gen_opts) do
+            case generate_clip(scene.index, direction, duration, from, to, workdir, item_opts) do
               {:ok, clip} -> {:clip, clip}
               :error -> {:still, from}
             end
@@ -984,10 +1035,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
       Enum.zip(scenes, clips)
       |> Enum.map(fn {scene, item} -> motion_segment(scene, item, w, h, workdir) end)
 
-    first_at = List.first(frames).at_ms
-
     segments =
-      if first_at > 0,
+      if first_at > 0 and not intro?,
         do: [black_segment(first_at, w, h, workdir) | segments],
         else: segments
 
@@ -1012,10 +1061,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # glitch — and the chain continues from that same frame.
   defp sequential_chain(work, normed, workdir, gen_opts, anchors_real?) do
     {rev, _seed} =
-      Enum.reduce(work, {[], nil}, fn {scene, {direction, duration}}, {acc, seed} ->
+      Enum.reduce(work, {[], nil}, fn %{scene: scene, direction: direction, duration: duration, safe: safe},
+                                      {acc, seed} ->
         from = seed || (anchors_real? && Map.fetch!(normed, scene.from)) || nil
+        item_opts = [safe_direction: safe] ++ gen_opts
 
-        case generate_clip(scene.index, direction, duration, from, nil, workdir, gen_opts) do
+        case generate_clip(scene.index, direction, duration, from, nil, workdir, item_opts) do
           {:ok, clip} ->
             {[{:clip, clip} | acc], extract_last_frame(clip, scene.index, workdir)}
 
@@ -1042,29 +1093,156 @@ defmodule Mix.Tasks.Sinestesia.Video do
     frame
   end
 
-  defp generate_clip(index, direction, duration, from, to, workdir, opts) do
-    engine = Keyword.fetch!(opts, :engine)
-    prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
-    dest = Path.join(workdir, "clip_#{String.pad_leading(to_string(index), 2, "0")}.mp4")
+  # Film direction memoized per song so a rerun replays the SAME film —
+  # required for the clip cache to hit (a re-rolled direction would change
+  # every fingerprint), and it makes the retry-after-interruption flow free
+  # up to the point the last run reached. Only :directed results are saved;
+  # a fallback must stay a loud, retryable condition.
+  defp directed(style, scene_prompts, opts) do
+    cache =
+      if dir = opts[:media_cache] do
+        fingerprint =
+          :crypto.hash(:sha256, Enum.join([style || "", opts[:lyrics_text] || "" | scene_prompts], "\n"))
+          |> Base.encode16(case: :lower)
+          |> binary_part(0, 20)
 
-    submit_opts = [
-      to: to,
-      duration: duration,
-      resolution: opts[:resolution],
-      model: opts[:model],
-      aspect_ratio: opts[:aspect_ratio]
-    ]
+        Path.join(dir, "directions-#{fingerprint}.json")
+      end
 
-    with {:ok, ref} <- engine.submit(prompt, from, submit_opts),
-         {:ok, path} <- engine.await(ref, dest) do
-      Mix.shell().info("[motion] scene #{index} clip ready")
-      {:ok, path}
+    if cache && File.exists?(cache) do
+      Mix.shell().info("[motion] using cached film direction (--fresh to redo)")
+      {:directed, cache |> File.read!() |> Jason.decode!()}
     else
-      {:error, reason} ->
-        Mix.shell().error("[motion] scene #{index} clip failed: #{inspect(reason)}")
-        :error
+      case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text]) do
+        {:directed, directions} ->
+          if cache, do: File.write!(cache, Jason.encode!(directions))
+          {:directed, directions}
+
+        fallback ->
+          fallback
+      end
     end
   end
+
+  # Three-layer recovery, learned from a live run that lost two scenes:
+  # a "high demand" spike is TRANSIENT (wait and retry); a safety refusal
+  # is DETERMINISTIC for the same words (retry once with the scene's
+  # neutral fallback direction — drier language, same journey); anything
+  # still failing freezes the frame, and the CACHE below means the rerun
+  # that fixes it re-pays only the missing scenes.
+  @transient_clip_tries 3
+
+  @doc false
+  # Public for tests; not part of any API.
+  def generate_clip(index, direction, duration, from, to, workdir, opts) do
+    dest = Path.join(workdir, "clip_#{String.pad_leading(to_string(index), 2, "0")}.mp4")
+    attempt_clip(index, direction, duration, from, to, dest, opts, @transient_clip_tries, false)
+  end
+
+  defp attempt_clip(index, direction, duration, from, to, dest, opts, tries, safe_tried?) do
+    engine = Keyword.fetch!(opts, :engine)
+    prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
+    cache = clip_cache_path(opts[:clip_cache_dir], prompt, duration, from, to, opts)
+
+    if cache && File.exists?(cache) do
+      File.cp!(cache, dest)
+      Mix.shell().info("[motion] scene #{index} clip from cache")
+      {:ok, dest}
+    else
+      submit_opts = [
+        to: to,
+        duration: duration,
+        resolution: opts[:resolution],
+        model: opts[:model],
+        aspect_ratio: opts[:aspect_ratio]
+      ]
+
+      result =
+        with {:ok, ref} <- engine.submit(prompt, from, submit_opts),
+             do: engine.await(ref, dest)
+
+      case result do
+        {:ok, path} ->
+          if cache do
+            File.mkdir_p!(Path.dirname(cache))
+            File.cp!(path, cache)
+          end
+
+          Mix.shell().info("[motion] scene #{index} clip ready")
+          {:ok, path}
+
+        {:error, reason} ->
+          cond do
+            transient_clip_error?(reason) and tries > 1 ->
+              wait = Keyword.get(opts, :transient_wait_ms, 20_000)
+
+              Mix.shell().info(
+                "[motion] scene #{index}: provider busy; retrying in #{div(wait, 1000)}s (#{tries - 1} left)"
+              )
+
+              Process.sleep(wait)
+              attempt_clip(index, direction, duration, from, to, dest, opts, tries - 1, safe_tried?)
+
+            refused_clip?(reason) and not safe_tried? and opts[:safe_direction] != nil ->
+              Mix.shell().info(
+                "[motion] scene #{index}: direction was safety-refused; retrying with a neutral direction"
+              )
+
+              attempt_clip(index, opts[:safe_direction], duration, from, to, dest, opts, tries, true)
+
+            true ->
+              Mix.shell().error("[motion] scene #{index} clip failed: #{inspect(reason)}")
+              :error
+          end
+      end
+    end
+  end
+
+  defp transient_clip_error?({:no_video, %{error: %{"code" => 14}}}), do: true
+
+  defp transient_clip_error?({:no_video, %{error: %{"message" => m}}}) when is_binary(m),
+    do: m =~ "high demand" or m =~ "try again"
+
+  defp transient_clip_error?({:submit_rejected, status, _}) when status in [429, 500, 502, 503, 504],
+    do: true
+
+  defp transient_clip_error?({:stuck, _}), do: true
+  defp transient_clip_error?({:stuck, _, _}), do: true
+  defp transient_clip_error?(%Req.TransportError{}), do: true
+  defp transient_clip_error?(_), do: false
+
+  defp refused_clip?({:no_video, %{filtered_count: c}}) when is_integer(c) and c > 0, do: true
+  defp refused_clip?({:no_video, %{filtered_reasons: [_ | _]}}), do: true
+  defp refused_clip?(_), do: false
+
+  # The fingerprint is everything that determines a clip's pixels: model,
+  # output shape, billed length, the exact prompt, and the CONTENT of both
+  # keyframes (paths lie across runs; bytes don't).
+  defp clip_cache_path(nil, _prompt, _duration, _from, _to, _opts), do: nil
+
+  defp clip_cache_path(dir, prompt, duration, from, to, opts) do
+    fingerprint =
+      Enum.join(
+        [
+          to_string(opts[:model]),
+          to_string(opts[:resolution]),
+          to_string(opts[:aspect_ratio]),
+          to_string(duration),
+          prompt,
+          frame_digest(from),
+          frame_digest(to)
+        ],
+        "|"
+      )
+
+    key = :crypto.hash(:sha256, fingerprint) |> Base.encode16(case: :lower) |> binary_part(0, 20)
+    Path.join(dir, "#{key}.mp4")
+  end
+
+  defp frame_digest(nil), do: "none"
+
+  defp frame_digest(path),
+    do: :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower) |> binary_part(0, 16)
 
   # A scene's window on the final timeline, as one segment: the clip (or
   # the frozen frame, when its clip failed) retimed/held to fill the window

@@ -898,15 +898,31 @@ defmodule Mix.Tasks.Sinestesia.Video do
     promo =
       if spec.promo, do: " (launch promo pricing — roughly double after it ends)", else: ""
 
+    # Directions come BEFORE the money gate: they're a cheap text call, and
+    # whether the film director actually answered belongs in the decision
+    # to spend — a run that silently paid for 22 clips on generic fallback
+    # directions is how this lesson was learned.
+    {dir_source, directions} =
+      Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt), opts[:lyrics_text])
+
+    if dir_source == :fallback do
+      Mix.shell().error(
+        "[motion] the film director is unavailable — directions are GENERIC and the video " <>
+          "will be less expressive. Check GOOGLE_API_KEY/network, or just retry."
+      )
+    end
+
     Mix.shell().info(
       "── motion: #{n} scenes, #{total_gen_s}s of #{model_name} #{resolution} ≈ $#{cost}#{promo} ──"
     )
 
-    opts[:yes] || Mix.shell().yes?("Generate #{n} clips with #{model_name} (paid inference)?") ||
-      Mix.raise("aborted — rerun without --motion for the still composition")
+    question =
+      "Generate #{n} clips with #{model_name}" <>
+        if(dir_source == :fallback, do: " under GENERIC directions", else: "") <>
+        " (paid inference)?"
 
-    directions =
-      Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt), opts[:lyrics_text])
+    opts[:yes] || Mix.shell().yes?(question) ||
+      Mix.raise("aborted — rerun without --motion for the still composition")
 
     # Normalize every anchor BEFORE the parallel fan-out: norm/4 writes to a
     # shared path and scene N's `to` is scene N+1's `from` — two tasks

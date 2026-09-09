@@ -55,29 +55,60 @@ defmodule Sinestesia.MotionDirector do
   Director's content notes per scene, in reveal order; `lyrics` is the full
   lyric sheet, given whole so the direction can breathe with the SONG —
   choruses echoing, verses evolving — not just with isolated captions.
+
+  Returns `{:directed, directions}` or `{:fallback, directions}` — the
+  caller decides what a paid run does about generic directions; degrading
+  silently once cost a whole render its expressiveness.
   """
-  @spec direct(String.t() | nil, [String.t()], String.t() | nil) :: [String.t()]
+  @attempts 3
+
+  @spec direct(String.t() | nil, [String.t()], String.t() | nil) ::
+          {:directed | :fallback, [String.t()]}
   def direct(style, scene_prompts, lyrics \\ nil)
 
-  def direct(_style, [], _lyrics), do: []
+  def direct(_style, [], _lyrics), do: {:directed, []}
 
   def direct(style, scene_prompts, lyrics) do
-    case call_gemini(user_message(style, scene_prompts, lyrics)) do
+    case attempt(user_message(style, scene_prompts, lyrics), @attempts) do
       {:ok, raw} ->
         case parse(raw, length(scene_prompts)) do
           {:ok, directions} ->
-            directions
+            {:directed, directions}
 
           {:error, reason} ->
             Logger.warning("[motion_director] bad response (#{inspect(reason)}); using fallback")
-            fallback(scene_prompts)
+            {:fallback, fallback(scene_prompts)}
         end
 
       {:error, reason} ->
         Logger.warning("[motion_director] #{inspect(reason)}; using fallback")
-        fallback(scene_prompts)
+        {:fallback, fallback(scene_prompts)}
     end
   end
+
+  # A run sits at the cost-confirmation prompt for as long as the operator
+  # thinks; the pool's keepalive dies exactly then, so the FIRST call after
+  # a pause fails with :closed — hit live 2026-09-09. Transient failures
+  # get retried before anything is allowed to degrade a paid render.
+  defp attempt(user, tries) do
+    case call_gemini(user) do
+      {:error, reason} when tries > 1 ->
+        if transient?(reason) do
+          Logger.info("[motion_director] #{inspect(reason)}; retrying")
+          Process.sleep(700)
+          attempt(user, tries - 1)
+        else
+          {:error, reason}
+        end
+
+      result ->
+        result
+    end
+  end
+
+  defp transient?(%Req.TransportError{}), do: true
+  defp transient?({:bad_status, s}) when s in [429, 500, 502, 503, 504], do: true
+  defp transient?(_), do: false
 
   @doc """
   The no-LLM direction: gentle continuous motion toward the next anchor.

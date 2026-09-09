@@ -30,6 +30,18 @@ defmodule Sinestesia.MotionDirectorTest do
     end
   end
 
+  describe "direct/3" do
+    test "with no key, labels the result a FALLBACK so paid runs can warn" do
+      # Test env has no google_api_key: direct must degrade — but never
+      # silently. The {:fallback, _} tag is what lets the cost gate say
+      # "GENERIC directions" before money is spent.
+      assert {:fallback, directions} =
+               Sinestesia.MotionDirector.direct("style", ["scene a", "scene b"], "la la")
+
+      assert length(directions) == 2
+    end
+  end
+
   describe "fallback/1" do
     test "each direction travels toward the NEXT scene; the last settles" do
       [d0, d1] = MotionDirector.fallback(["a blue window", "a paper sun"])

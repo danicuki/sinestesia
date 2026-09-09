@@ -58,12 +58,6 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
     if keyframed?, do: 8, else: Enum.min_by(@durations, fn d -> {abs(d - seconds), -d} end)
   end
 
-  @doc """
-  Start one clip. Returns `{:ok, operation_name}` — the awaitable ref.
-
-  Options: `:to` (final-frame path), `:duration` (4|6|8), `:resolution`,
-  `:model` (registry name), `:aspect_ratio` ("16:9"/"9:16"), `:base_url`.
-  """
   # Google's surfaces disagree on how an input image is spelled. Ground
   # truth is the google-genai SDK's mldev converter (read from source,
   # 2026-08-29): `_Image_to_mldev` emits `bytesBase64Encoded` + `mimeType`
@@ -76,6 +70,10 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   @image_shapes [:bytes_base64, :inline_data, :image_bytes]
   @shape_key {__MODULE__, :image_shape}
 
+  @doc """
+  Start one clip; `from` nil means text-to-video (a chain's very first shot
+  when no seed frame exists). Returns `{:ok, operation_name}`.
+  """
   def submit(prompt, from, opts \\ []) do
     name = Keyword.get(opts, :model, "veo-fast")
 
@@ -92,7 +90,8 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
 
   defp try_shapes([shape | rest], prompt, from, model_id, opts, _last) do
     instance =
-      %{prompt: prompt, image: image_payload(from, shape)}
+      %{prompt: prompt}
+      |> then(fn i -> if from, do: Map.put(i, :image, image_payload(from, shape)), else: i end)
       |> then(fn i ->
         case Keyword.get(opts, :to) do
           nil -> i

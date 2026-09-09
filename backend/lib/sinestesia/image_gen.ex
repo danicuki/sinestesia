@@ -9,6 +9,7 @@ defmodule Sinestesia.ImageGen do
     "google"        → Gemini native image gen (t2i + i2i)         (Gemini credits)
     "pollinations"  → Pollinations.ai (Flux)                      (free, no auth)
     "local_sdxl"    → local SDXL Turbo sidecar                    (free, see local-sdxl/)
+    "none"          → an instant black frame                      (timing-only runs)
 
   `RENDER_MODE` — how each frame relates to the last:
 
@@ -57,7 +58,11 @@ defmodule Sinestesia.ImageGen do
     cloudflare: %{t2i: true, i2i: true, inpaint: false},
     local_sdxl: %{t2i: true, i2i: true, inpaint: true},
     google: %{t2i: true, i2i: true, inpaint: false},
-    pollinations: %{t2i: true, i2i: false, inpaint: false}
+    pollinations: %{t2i: true, i2i: false, inpaint: false},
+    # Renders nothing (an instant black frame): timing-only replays —
+    # motion mode's sequential chain wants the pipeline's clock and
+    # direction, not its pixels. Claims both modes so nothing downgrades.
+    none: %{t2i: true, i2i: true, inpaint: false}
   }
 
   def capabilities(provider \\ provider()), do: Map.fetch!(@capabilities, provider)
@@ -171,6 +176,7 @@ defmodule Sinestesia.ImageGen do
       :google -> Sinestesia.ImageGen.GeminiImage.generate(prompt)
       :pollinations -> Sinestesia.ImageGen.Pollinations.generate(prompt)
       :local_sdxl -> Sinestesia.ImageGen.LocalSdxl.generate(prompt, nil)
+      :none -> Sinestesia.ImageGen.None.generate(prompt)
       # fal (img2img-only) renders via Flux Schnell.
       _ -> Sinestesia.ImageGen.Fal.generate(prompt)
     end
@@ -185,6 +191,9 @@ defmodule Sinestesia.ImageGen do
 
   defp do_i2i(prompt, image_url, opts) do
     case {provider(), image_url} do
+      {:none, _} ->
+        Sinestesia.ImageGen.None.generate(prompt)
+
       {:fal, url} when is_binary(url) and url != "" ->
         case Keyword.get(opts, :element) do
           el when is_binary(el) and el != "" ->
@@ -318,6 +327,7 @@ defmodule Sinestesia.ImageGen do
       "local" -> :local_sdxl
       "cloudflare" -> :cloudflare
       "cf" -> :cloudflare
+      "none" -> :none
       _ -> :fal
     end
   end

@@ -215,6 +215,30 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # From here on the pipeline drives itself off the recorded session.
     System.put_env("STT_PROVIDER", "replay")
 
+    # A sequential motion chain generates every pixel itself (each clip
+    # continues the previous one), so the pipeline's per-scene images would
+    # be pure spend — and their render latency would shift reveals later,
+    # contaminating the very timeline this run exists to produce. The
+    # pipeline still runs in full for what motion mode DOES need: the
+    # follower's line-by-line timing, the scene split, and the Director's
+    # scene content. fal's keyframed chain keeps real images (they are its
+    # anchors).
+    if opts[:motion] do
+      model_name = opts[:motion_model] || "veo-fast"
+
+      engine =
+        Sinestesia.VideoGen.engine(model_name) ||
+          Mix.raise("unknown --motion-model #{model_name} (#{Enum.join(Sinestesia.VideoGen.names(), " | ")})")
+
+      if engine.spec(model_name).chain == :drift do
+        System.put_env("IMAGE_PROVIDER", "none")
+
+        Mix.shell().info(
+          "[motion] image generation disabled — the pipeline provides timing and direction; only VIDEO is rendered"
+        )
+      end
+    end
+
     enriched_path = Path.join(System.tmp_dir!(), "sinestesia-video-#{session["name"]}.json")
     File.write!(enriched_path, Jason.encode!(enriched))
     System.put_env("REPLAY_FILE", enriched_path)
@@ -301,6 +325,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       end
 
     if opts[:motion] do
+      opts = Keyword.put(opts, :lyrics_text, song.lyrics_text)
       compose_motion(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out, style, opts)
     else
       compose(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out)
@@ -880,7 +905,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
     opts[:yes] || Mix.shell().yes?("Generate #{n} clips with #{model_name} (paid inference)?") ||
       Mix.raise("aborted — rerun without --motion for the still composition")
 
-    directions = Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt))
+    directions =
+      Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt), opts[:lyrics_text])
 
     # Normalize every anchor BEFORE the parallel fan-out: norm/4 writes to a
     # shared path and scene N's `to` is scene N+1's `from` — two tasks
@@ -903,7 +929,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
           "[motion] sequential chain: each clip opens on the previous clip's final frame"
         )
 
-        sequential_chain(work, normed, workdir, gen_opts)
+        # With the null image provider the "anchors" are placeholder black
+        # frames: the chain must open on text-to-video, not on a black
+        # image. Real anchors (an operator forcing IMAGE_PROVIDER) still
+        # seed and heal the chain.
+        anchors_real? = Sinestesia.ImageGen.provider() != :none
+        sequential_chain(work, normed, workdir, gen_opts, anchors_real?)
       else
         work
         |> Task.async_stream(
@@ -963,10 +994,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # clip FREEZES the chain's current frame for its window instead of
   # cutting to an unrelated anchor — a hold reads as intent, a jump as a
   # glitch — and the chain continues from that same frame.
-  defp sequential_chain(work, normed, workdir, gen_opts) do
+  defp sequential_chain(work, normed, workdir, gen_opts, anchors_real?) do
     {rev, _seed} =
       Enum.reduce(work, {[], nil}, fn {scene, {direction, duration}}, {acc, seed} ->
-        from = seed || Map.fetch!(normed, scene.from)
+        from = seed || (anchors_real? && Map.fetch!(normed, scene.from)) || nil
 
         case generate_clip(scene.index, direction, duration, from, nil, workdir, gen_opts) do
           {:ok, clip} ->
@@ -1029,6 +1060,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # the reveal grid.
   @doc false
   # Public for tests; not part of any API.
+  def motion_segment(scene, {:still, nil}, w, h, workdir) do
+    # A failed clip with no frame to freeze (the chain's very first shot,
+    # opened on text-to-video): black, same as the stage's dark canvas.
+    black_segment(scene.window_ms, w, h, workdir, "seg_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
+  end
+
   def motion_segment(scene, {:still, frame}, w, h, workdir) do
     seg = Path.join(workdir, "seg_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
     still_segment(norm(frame, w, h, workdir), scene.window_ms / 1000, seg)
@@ -1086,8 +1123,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
     seg
   end
 
-  defp black_segment(dur_ms, w, h, workdir) do
-    seg = Path.join(workdir, "seg_black.mp4")
+  defp black_segment(dur_ms, w, h, workdir, name \\ "seg_black.mp4") do
+    seg = Path.join(workdir, name)
 
     {_, 0} =
       System.cmd(

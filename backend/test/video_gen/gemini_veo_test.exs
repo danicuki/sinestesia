@@ -111,6 +111,21 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     refute_receive {:req, :POST, _, _, _}, 100
   end
 
+  test "no opening frame means text-to-video: the instance carries no image at all", ctx do
+    assert {:ok, _op} =
+             GeminiVeo.submit("a watercolor village awakens", nil,
+               duration: 6,
+               model: "veo-fast",
+               base_url: ctx.base
+             )
+
+    assert_receive {:req, :POST, _, _, body}
+    [instance] = Jason.decode!(body)["instances"]
+    assert instance["prompt"] == "a watercolor village awakens"
+    refute Map.has_key?(instance, "image")
+    refute Map.has_key?(instance, "lastFrame")
+  end
+
   test "a drift clip (no end frame) keeps its requested duration", ctx do
     assert {:ok, _op} =
              GeminiVeo.submit("drift", ctx.from,
@@ -196,7 +211,7 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     model = path |> String.split("/models/") |> List.last() |> String.split(":") |> hd()
     decoded = Jason.decode!(body)
     instance = hd(decoded["instances"])
-    image = Map.fetch!(instance, "image")
+    image = Map.get(instance, "image")
 
     # The real API's rule, hit live 2026-08-29: interpolation (lastFrame)
     # only at durationSeconds 8.
@@ -205,9 +220,10 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     end
 
     accepted? =
-      case state.mode do
-        :accept -> true
-        :only_image_bytes -> Map.has_key?(image, "imageBytes")
+      case {state.mode, image} do
+        {:accept, _} -> true
+        {:only_image_bytes, nil} -> true
+        {:only_image_bytes, image} -> Map.has_key?(image, "imageBytes")
       end
 
     if accepted? do

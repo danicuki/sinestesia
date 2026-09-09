@@ -19,20 +19,30 @@ defmodule Sinestesia.MotionDirector do
   require Logger
 
   @system """
-  You are the motion director of a live generative-art music show. The show
-  is a chain of short video shots. Shot N OPENS on image N (already
-  generated — its description is given) and must ARRIVE at image N+1 by its
-  final frame; a video model renders each shot from your direction plus
-  those two keyframes.
+  You are the film director of a continuous one-shot music video. The film
+  is a chain of short generated shots: each shot's FIRST frame is the
+  previous shot's LAST frame (the video model receives that frame plus your
+  direction), so the whole song must read as ONE unbroken take — no cuts,
+  no teleports, every change arrives by motion, transformation, camera
+  movement or light.
 
-  For each shot, write ONE terse direction (max 30 words) for the video
-  model: what moves, what the camera does, how the scene transforms toward
-  the next image. Direct continuous, organic motion — drift, sway, flow,
-  light change, growth — never hard cuts, never new subjects the two images
-  don't contain. The LAST shot has no destination: let it live and slowly
-  settle.
+  You receive the song's full lyrics, the visual style, and the numbered
+  scenes: each scene is what is being SUNG during that shot, with a content
+  note of what the scene should contain. Write ONE direction per shot,
+  30-60 words, cinematic and concrete, for a video generation model:
 
-  You receive the show's visual style and the numbered image descriptions.
+  - SUBJECT and ACTION: what is on screen and what it does — real movement
+    (walking, blooming, waves rolling), not a static tableau.
+  - CAMERA: how the shot moves (push in, drift left, crane up, orbit...)
+    — vary it across the song; a static camera is a wasted shot.
+  - TRANSFORMATION: how this shot grows out of the inherited first frame
+    and travels toward the next scene's world — morph, reveal, ride the
+    motion; never cut.
+  - LIGHT and MOOD: tied to what the lyric FEELS like at that moment; let
+    choruses return with echoed imagery and verses evolve.
+
+  The LAST shot has no destination: let it live, then slowly settle.
+
   Reply with ONLY the directions, one per line, in the form:
 
   N: direction
@@ -41,14 +51,18 @@ defmodule Sinestesia.MotionDirector do
   """
 
   @doc """
-  One direction per scene, in order. `scene_prompts` are the image
-  Director's prompts for the anchors, in reveal order.
+  One direction per scene, in order. `scene_prompts` are the pipeline
+  Director's content notes per scene, in reveal order; `lyrics` is the full
+  lyric sheet, given whole so the direction can breathe with the SONG —
+  choruses echoing, verses evolving — not just with isolated captions.
   """
-  @spec direct(String.t() | nil, [String.t()]) :: [String.t()]
-  def direct(_style, []), do: []
+  @spec direct(String.t() | nil, [String.t()], String.t() | nil) :: [String.t()]
+  def direct(style, scene_prompts, lyrics \\ nil)
 
-  def direct(style, scene_prompts) do
-    case call_gemini(user_message(style, scene_prompts)) do
+  def direct(_style, [], _lyrics), do: []
+
+  def direct(style, scene_prompts, lyrics) do
+    case call_gemini(user_message(style, scene_prompts, lyrics)) do
       {:ok, raw} ->
         case parse(raw, length(scene_prompts)) do
           {:ok, directions} ->
@@ -85,13 +99,15 @@ defmodule Sinestesia.MotionDirector do
     end)
   end
 
-  defp user_message(style, scene_prompts) do
+  defp user_message(style, scene_prompts, lyrics) do
     numbered =
       scene_prompts
       |> Enum.with_index()
       |> Enum.map_join("\n", fn {p, i} -> "#{i}: #{p}" end)
 
-    "STYLE: #{style || "unspecified"}\n\nIMAGES (numbered):\n#{numbered}"
+    lyrics_block = if lyrics, do: "LYRICS:\n#{lyrics}\n\n", else: ""
+
+    "STYLE: #{style || "unspecified"}\n\n#{lyrics_block}SCENES (numbered):\n#{numbered}"
   end
 
   # One numbered direction per scene, tolerating stray blank lines. Anything
@@ -139,7 +155,9 @@ defmodule Sinestesia.MotionDirector do
         body = %{
           systemInstruction: %{parts: [%{text: @system}]},
           contents: [%{role: "user", parts: [%{text: user}]}],
-          generationConfig: %{temperature: 0.2, maxOutputTokens: 4000}
+          # 30-60 words × up to ~50 scenes needs room; richness is the
+          # entire point of this director.
+          generationConfig: %{temperature: 0.3, maxOutputTokens: 10_000}
         }
 
         case Req.post(url, json: body, receive_timeout: 30_000, retry: false) do

@@ -60,8 +60,23 @@ defmodule Sinestesia.MediaSource do
             else: {:error, {:download_produced_no_audio, out_dir}}
 
         {out, status} ->
-          {:error, {:yt_dlp_failed, status, String.slice(out, -800, 800)}}
+          {:error, {:yt_dlp_failed, status, String.slice(out, -800, 800) <> ejs_hint(out)}}
       end
+    end
+  end
+
+  # YouTube's signature/n-parameter challenges are solved by an EXTERNAL JS
+  # runtime since yt-dlp's EJS split — a box without one gets a misleading
+  # "This video is not available" even though the video exists. Name the
+  # real cause and the fix; the operator at the sound desk can't chase a
+  # wiki link mid-setup.
+  defp ejs_hint(out) do
+    if out =~ ~r/challenge solving failed|jsruntime|yt-dlp\/wiki\/EJS/i do
+      "\n\nHINT: yt-dlp needs a JavaScript runtime + solver scripts to unlock " <>
+        "YouTube formats. Fix: `brew install deno` (or apt install deno) and " <>
+        "reinstall yt-dlp with the solver: `uv tool install --force \"yt-dlp[default]\"`."
+    else
+      ""
     end
   end
 

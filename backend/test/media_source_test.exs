@@ -93,6 +93,25 @@ defmodule Sinestesia.MediaSourceTest do
       with_shims([{"yt-dlp", "echo 'ERROR: Video unavailable'; exit 1"}], fn _ ->
         assert {:error, {:yt_dlp_failed, 1, msg}} = MediaSource.download("https://youtu.be/x", out)
         assert msg =~ "Video unavailable"
+        refute msg =~ "HINT", "the EJS hint must not fire on unrelated failures"
+      end)
+    end
+
+    test "a missing-JS-runtime failure names the real cause and the fix" do
+      out = tmp_out()
+
+      # The 2026 EJS failure shape: challenge solving fails, then YouTube's
+      # misleading "not available" — the video exists, the signature didn't
+      # resolve. The error must say what to install, not just relay the lie.
+      shim =
+        "echo 'WARNING: [youtube] x: n challenge solving failed: Some formats may be missing.'; " <>
+          "echo 'ERROR: [youtube] x: This video is not available'; exit 1"
+
+      with_shims([{"yt-dlp", shim}], fn _ ->
+        assert {:error, {:yt_dlp_failed, 1, msg}} = MediaSource.download("https://youtu.be/x", out)
+        assert msg =~ "HINT"
+        assert msg =~ "deno"
+        assert msg =~ "yt-dlp[default]"
       end)
     end
 

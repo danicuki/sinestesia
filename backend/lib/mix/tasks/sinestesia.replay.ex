@@ -5,8 +5,8 @@ defmodule Mix.Tasks.Sinestesia.Replay do
   Director (Gemma), image generation (local SDXL / fal bootstrap) — with no
   browser and no mic, printing every image as it lands.
 
-      mix sinestesia.replay ../tests/sessions/aquarela-tarsila.json
-      REPLAY_SPEED=2 mix sinestesia.replay ../tests/sessions/aquarela-tarsila.json
+      mix sinestesia.replay ../tests/sessions/dinda.json
+      REPLAY_SPEED=2 mix sinestesia.replay ../tests/sessions/dinda.json
 
   Runs on PORT=4999 by default so it can coexist with a live backend on :4000
   (override with REPLAY_PORT). Requires the same services as a live run:

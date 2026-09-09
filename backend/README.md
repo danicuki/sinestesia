@@ -74,7 +74,7 @@ Runs a session JSON from `../tests/sessions/` through the full Director → imag
 chain, with no microphone:
 
 ```bash
-REPLAY_SPEED=20 mix sinestesia.replay ../tests/sessions/garota-de-ipanema.json --slug ipanema
+REPLAY_SPEED=20 mix sinestesia.replay ../tests/sessions/dinda.json --slug dinda
 ```
 
 ## Architecture

@@ -56,16 +56,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
   ## Motion mode (--motion): living scenes instead of stills
 
   The same mechanics — same pipeline, same reveals, same timing — but every
-  scene window becomes a generated VIDEO clip (fal MiniMax H3): scene N's
-  clip opens exactly on scene N's image, revealed on its line, and its
-  final frame IS scene N+1's image, arriving at the next reveal. Adjacent
-  clips share their boundary frame, so the song plays as one continuous
-  living shot. `Sinestesia.MotionDirector` directs each shot's motion —
-  camera, action, transformation — from the whole song's scene list; the
-  image Director's stills become the chain's keyframe anchors.
+  scene window becomes a generated VIDEO clip: scene N's clip opens exactly
+  on scene N's image, revealed on its line, and its final frame IS scene
+  N+1's image, arriving at the next reveal. Adjacent clips share their
+  boundary frame, so the song plays as one continuous living shot.
+  `Sinestesia.MotionDirector` directs each shot's motion — camera, action,
+  transformation — from the whole song's scene list; the image Director's
+  stills become the chain's keyframe anchors.
 
-  This is PAID inference (per generated second — see the rates in
-  `Sinestesia.VideoGen.FalMinimax`): the task prints the total estimate and
+  Engines (`Sinestesia.VideoGen`): Veo 3.1 via the Gemini API is the
+  default — offline rendering can wait, and the Gemini credits make it the
+  run-it-all-day option (veo-fast $0.10/s, veo-lite $0.05/s, veo $0.40/s at
+  720p). MiniMax via fal (h3-max, h3) is kept for realtime experiments —
+  ~3s per 5s clip is a stage property, not an offline one.
+
+  This is PAID inference either way: the task prints the total estimate and
   asks before submitting (`--yes` skips the prompt). A failed clip degrades
   that one window to the held still, never the song.
 
@@ -81,9 +86,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
       --lang CODE       ISO language for transcription (default: auto-detect)
       --no-separate     URL flow: skip Demucs, transcribe the full mix
-      --motion          living-scene mode (paid fal MiniMax clips, see above)
-      --motion-model M  h3-max (default) | h3
-      --motion-resolution R  480P | 768P (default; h3 also 2K | 4K)
+      --motion          living-scene mode (paid generated clips, see above)
+      --motion-model M  veo-fast (default) | veo-lite | veo | h3-max | h3
+      --motion-resolution R  veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
       --yes             skip the motion-mode cost confirmation
 
   Provider selection stays with the environment (.env), same as every other
@@ -727,17 +732,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
     {w, h} = probe_even_dims(List.first(frames).file)
     workdir = Path.dirname(List.first(frames).file)
 
-    model_name = opts[:motion_model] || "h3-max"
+    # Veo by default: offline rendering can wait as long as it likes, and
+    # the Gemini credits make it the run-it-all-day engine. MiniMax via fal
+    # stays available for realtime experiments (--motion-model h3-max).
+    model_name = opts[:motion_model] || "veo-fast"
 
-    model =
-      Sinestesia.VideoGen.FalMinimax.model(model_name) ||
-        Mix.raise("unknown --motion-model #{model_name} (#{Enum.join(Sinestesia.VideoGen.FalMinimax.models(), " | ")})")
+    engine =
+      Sinestesia.VideoGen.engine(model_name) ||
+        Mix.raise("unknown --motion-model #{model_name} (#{Enum.join(Sinestesia.VideoGen.names(), " | ")})")
 
-    resolution = opts[:motion_resolution] || "768P"
+    spec = engine.spec(model_name)
+    resolution = opts[:motion_resolution] || spec.default_resolution
 
     rate =
-      Map.get(model.rates, resolution) ||
-        Mix.raise("#{model_name} has no #{resolution} (options: #{Enum.join(Map.keys(model.rates), " | ")})")
+      Map.get(spec.rates, resolution) ||
+        Mix.raise("#{model_name} has no #{resolution} (options: #{Enum.join(Map.keys(spec.rates), " | ")})")
 
     n = length(frames)
 
@@ -756,14 +765,13 @@ defmodule Mix.Tasks.Sinestesia.Video do
         }
       end)
 
-    durations =
-      Enum.map(scenes, &Sinestesia.VideoGen.FalMinimax.clamp_duration(&1.window_ms / 1000))
+    durations = Enum.map(scenes, &engine.clamp_duration(&1.window_ms / 1000))
 
     total_gen_s = Enum.sum(durations)
     cost = Float.round(total_gen_s * rate, 2)
 
     promo =
-      if model.promo, do: " (launch promo pricing — roughly double after it ends)", else: ""
+      if spec.promo, do: " (launch promo pricing — roughly double after it ends)", else: ""
 
     Mix.shell().info(
       "── motion: #{n} scenes, #{total_gen_s}s of #{model_name} #{resolution} ≈ $#{cost}#{promo} ──"
@@ -785,9 +793,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
       |> Task.async_stream(
         fn {scene, {direction, duration}} ->
           generate_clip(scene, direction, duration, normed, workdir,
+            engine: engine,
             model: model_name,
             resolution: resolution,
-            style_suffix: style
+            style_suffix: style,
+            aspect_ratio: if(w >= h, do: "16:9", else: "9:16")
           )
         end,
         timeout: :infinity,
@@ -829,6 +839,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
   end
 
   defp generate_clip(scene, direction, duration, normed, workdir, opts) do
+    engine = Keyword.fetch!(opts, :engine)
     prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
     dest = Path.join(workdir, "clip_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
 
@@ -836,12 +847,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
       to: scene.to && Map.fetch!(normed, scene.to),
       duration: duration,
       resolution: opts[:resolution],
-      model: opts[:model]
+      model: opts[:model],
+      aspect_ratio: opts[:aspect_ratio]
     ]
 
-    with {:ok, request_url} <-
-           Sinestesia.VideoGen.FalMinimax.submit(prompt, Map.fetch!(normed, scene.from), submit_opts),
-         {:ok, path} <- Sinestesia.VideoGen.FalMinimax.await(request_url, dest) do
+    with {:ok, ref} <- engine.submit(prompt, Map.fetch!(normed, scene.from), submit_opts),
+         {:ok, path} <- engine.await(ref, dest) do
       Mix.shell().info("[motion] scene #{scene.index} clip ready")
       path
     else

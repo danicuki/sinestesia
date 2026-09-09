@@ -39,6 +39,14 @@ defmodule Sinestesia.VideoGen.FalMinimax do
   def model(name), do: Map.get(@models, name)
   def duration_range, do: @duration_range
 
+  @doc "The engine contract shared with the other clip engines (see `Sinestesia.VideoGen`)."
+  def spec(name) do
+    case Map.get(@models, name) do
+      nil -> nil
+      m -> %{rates: m.rates, promo: m.promo, default_resolution: "768P"}
+    end
+  end
+
   @doc "The API's closest billable duration for a scene window."
   def clamp_duration(seconds) when is_number(seconds) do
     seconds |> round() |> min(@duration_range.last) |> max(@duration_range.first)

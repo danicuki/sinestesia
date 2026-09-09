@@ -17,13 +17,13 @@ defmodule Sinestesia.VideoGen.FalMinimax do
 
   @queue "https://queue.fal.run"
 
-  # $/second, from the fal model pages (2026-08-29). h3-max launch promo
-  # ("50% off, doubles September 1st") — callers should surface that a
-  # post-promo run costs double the estimate.
+  # $/second, from the fal model pages (re-checked 2026-09-09). h3-max is
+  # on a "75% off" promo until ~Sep 14 2026; regular pricing is $0.05/480P
+  # and $0.08/768P — callers surface that estimates jump when it ends.
   @models %{
     "h3-max" => %{
       endpoint: "minimax/h3-max/image-to-video",
-      rates: %{"480P" => 0.025, "768P" => 0.04},
+      rates: %{"480P" => 0.0125, "768P" => 0.02},
       promo: true
     },
     "h3" => %{

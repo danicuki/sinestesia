@@ -109,7 +109,7 @@ defmodule Sinestesia.ImageGen do
           error
       end
     else
-      case i2i(prompt, image_url, opts) do
+      case i2i_retrying_offline(prompt, image_url, opts) do
         {:error, reason} when image_url != nil and image_url != "" ->
           # An i2i frame that fails takes the whole rest of the song with it:
           # the canvas doesn't advance, so the next line retries the same call
@@ -184,6 +184,29 @@ defmodule Sinestesia.ImageGen do
 
   defp local_morph? do
     System.get_env("LOCAL_MORPH", "true") in ~w(true 1 yes)
+  end
+
+  # Live, a failed i2i degrades to t2i IMMEDIATELY — a retry would stack
+  # its latency on top and the frame would miss its line. Offline (batch
+  # replay: STT_PROVIDER=replay, set by the video/replay tasks) nobody is
+  # waiting, and a t2i frame breaks the visual chain the keyframed motion
+  # mode is built on — so a TRANSIENT i2i hiccup (Gemini's intermittent
+  # IMAGE_OTHER, seen on every long Dinda render) gets one retry first.
+  # Safety blocks are deterministic and are not retried.
+  defp i2i_retrying_offline(prompt, image_url, opts) do
+    case i2i(prompt, image_url, opts) do
+      {:error, {:no_image_in_response, %{finish_reason: "IMAGE_OTHER"}} = reason}
+      when image_url != nil and image_url != "" ->
+        if System.get_env("STT_PROVIDER") == "replay" do
+          Logger.info("[image_gen] transient i2i hiccup (IMAGE_OTHER); retrying once (offline replay)")
+          i2i(prompt, image_url, opts)
+        else
+          {:error, reason}
+        end
+
+      result ->
+        result
+    end
   end
 
   defp i2i(prompt, image_url, opts),

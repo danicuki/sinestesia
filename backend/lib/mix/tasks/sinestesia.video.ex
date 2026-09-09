@@ -53,6 +53,22 @@ defmodule Mix.Tasks.Sinestesia.Video do
   the reveal times back — the output timeline matches the performance, and
   the buffer behaves the way a real show's would.
 
+  ## Motion mode (--motion): living scenes instead of stills
+
+  The same mechanics — same pipeline, same reveals, same timing — but every
+  scene window becomes a generated VIDEO clip (fal MiniMax H3): scene N's
+  clip opens exactly on scene N's image, revealed on its line, and its
+  final frame IS scene N+1's image, arriving at the next reveal. Adjacent
+  clips share their boundary frame, so the song plays as one continuous
+  living shot. `Sinestesia.MotionDirector` directs each shot's motion —
+  camera, action, transformation — from the whole song's scene list; the
+  image Director's stills become the chain's keyframe anchors.
+
+  This is PAID inference (per generated second — see the rates in
+  `Sinestesia.VideoGen.FalMinimax`): the task prints the total estimate and
+  asks before submitting (`--yes` skips the prompt). A failed clip degrades
+  that one window to the held still, never the song.
+
   ## Options
 
       --session PATH    reuse an existing session JSON (skip transcription)
@@ -65,6 +81,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
       --lang CODE       ISO language for transcription (default: auto-detect)
       --no-separate     URL flow: skip Demucs, transcribe the full mix
+      --motion          living-scene mode (paid fal MiniMax clips, see above)
+      --motion-model M  h3-max (default) | h3
+      --motion-resolution R  480P | 768P (default; h3 also 2K | 4K)
+      --yes             skip the motion-mode cost confirmation
 
   Provider selection stays with the environment (.env), same as every other
   entry point: DIRECTOR_PROVIDER / IMAGE_PROVIDER / OLLAMA_MODEL etc. For a
@@ -148,16 +168,15 @@ defmodule Mix.Tasks.Sinestesia.Video do
     Mix.shell().info("── song: #{song.title}#{if song.artist, do: " — #{song.artist}"} ──")
 
     # ── 3. replay through the real pipeline ────────────────────────────────
+    style = opts[:style] || song.style || session["style"]
+
     enriched =
       session
       |> Map.put("lyrics_text", song.lyrics_text)
       |> Map.update("events", [], fn evs ->
         Enum.map(evs, &Map.update!(&1, "at_ms", fn t -> t + lead_ms end))
       end)
-      |> then(fn s ->
-        style = opts[:style] || song.style || s["style"]
-        if style, do: Map.put(s, "style", style), else: s
-      end)
+      |> then(fn s -> if style, do: Map.put(s, "style", style), else: s end)
 
     # From here on the pipeline drives itself off the recorded session.
     System.put_env("STT_PROVIDER", "replay")
@@ -247,7 +266,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
           opts[:pip] || "br"
       end
 
-    compose(media.compose, acc, lead_ms, fade_ms, pip, out)
+    if opts[:motion] do
+      compose_motion(media.compose, acc, lead_ms, pip, out, style, opts)
+    else
+      compose(media.compose, acc, lead_ms, fade_ms, pip, out)
+    end
+
     Mix.shell().info("\n── done ──\n#{out}")
   end
 
@@ -605,7 +629,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
         collect(deadline_ms, %{
           acc
-          | images: acc.images ++ [%{revealed_at: revealed_at, file: file, subfiles: subfiles}]
+          | images:
+              acc.images ++
+                [%{revealed_at: revealed_at, file: file, subfiles: subfiles, prompt: msg.prompt}]
         })
 
       {:pushed, %{type: "replay_done"}} ->
@@ -630,36 +656,38 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # is overlaid as PIP and provides the audio; total duration is the
   # performance's.
 
+  # Reveal instants on the PERFORMANCE clock: the pipeline's push moment on
+  # the replay clock, minus the artificial pre-load lead. A frame revealed
+  # during the lead (eager bootstrap finishing early) clamps to 0 — on
+  # stage it would have been holding, revealed at the first confirmed
+  # words. A frame revealed AFTER the audio ends is dropped, not clamped
+  # in: on the real stage that render would have landed after the song
+  # too — showing it earlier would falsify the very timing this exists to
+  # reproduce.
+  defp timeline(acc, lead_ms, audio_dur_ms) do
+    acc.images
+    |> Enum.map(fn img ->
+      %{
+        at_ms: max(img.revealed_at - acc.started_at - lead_ms, 0),
+        file: img.file,
+        subfiles: img.subfiles,
+        prompt: img.prompt
+      }
+    end)
+    |> Enum.sort_by(& &1.at_ms)
+    |> Enum.reject(fn f ->
+      late = f.at_ms >= audio_dur_ms - 300
+      if late, do: Mix.shell().info("[compose] dropping a frame revealed after the song ended")
+      late
+    end)
+    # Monotonic, ≥ 100ms apart — two frames revealed in the same instant
+    # would give a zero-length segment.
+    |> Enum.scan(fn f, prev -> %{f | at_ms: max(f.at_ms, prev.at_ms + 100)} end)
+  end
+
   defp compose(video, acc, lead_ms, fade_ms, pip, out) do
     audio_dur_ms = probe_duration_ms(video)
-
-    # Reveal instants on the PERFORMANCE clock: the pipeline's push moment on
-    # the replay clock, minus the artificial pre-load lead. A frame revealed
-    # during the lead (eager bootstrap finishing early) clamps to 0 — on
-    # stage it would have been holding, revealed at the first confirmed
-    # words. A frame revealed AFTER the audio ends is dropped, not clamped
-    # in: on the real stage that render would have landed after the song
-    # too — showing it earlier would falsify the very timing this exists to
-    # reproduce.
-    frames =
-      acc.images
-      |> Enum.map(fn img ->
-        %{
-          at_ms: max(img.revealed_at - acc.started_at - lead_ms, 0),
-          file: img.file,
-          subfiles: img.subfiles
-        }
-      end)
-      |> Enum.sort_by(& &1.at_ms)
-      |> Enum.reject(fn f ->
-        late = f.at_ms >= audio_dur_ms - 300
-        if late, do: Mix.shell().info("[compose] dropping a frame revealed after the song ended")
-        late
-      end)
-      # Monotonic, ≥ 100ms apart — two frames revealed in the same instant
-      # would give a zero-length segment.
-      |> Enum.scan(fn f, prev -> %{f | at_ms: max(f.at_ms, prev.at_ms + 100)} end)
-
+    frames = timeline(acc, lead_ms, audio_dur_ms)
     frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
     {w, h} = probe_even_dims(List.first(frames).file)
 
@@ -677,6 +705,231 @@ defmodule Mix.Tasks.Sinestesia.Video do
       {_, 0} -> :ok
       {output, status} -> Mix.raise("ffmpeg failed (#{status}):\n#{String.slice(output, -3000, 3000)}")
     end
+  end
+
+  # ── motion composition (--motion) ────────────────────────────────────────
+  #
+  # The living-scene chain: scene N's clip OPENS on scene N's anchor image
+  # (revealed exactly on its line — same timing honesty as the still path)
+  # and its FINAL frame is scene N+1's anchor, arriving precisely at the
+  # next reveal. Consecutive clips share their boundary frame by
+  # construction, so the whole song is one continuous camera. Because each
+  # clip is pinned at both ends, all clips generate in PARALLEL — the chain
+  # is in the shared anchors, not in sequential rendering. The last scene
+  # has no destination and drifts freely to the song's end.
+  #
+  # Any clip that fails (refusal, queue error) degrades THAT window to the
+  # held still — one lost scene must never lose the song.
+  defp compose_motion(video, acc, lead_ms, pip, out, style, opts) do
+    audio_dur_ms = probe_duration_ms(video)
+    frames = timeline(acc, lead_ms, audio_dur_ms)
+    frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
+    {w, h} = probe_even_dims(List.first(frames).file)
+    workdir = Path.dirname(List.first(frames).file)
+
+    model_name = opts[:motion_model] || "h3-max"
+
+    model =
+      Sinestesia.VideoGen.FalMinimax.model(model_name) ||
+        Mix.raise("unknown --motion-model #{model_name} (#{Enum.join(Sinestesia.VideoGen.FalMinimax.models(), " | ")})")
+
+    resolution = opts[:motion_resolution] || "768P"
+
+    rate =
+      Map.get(model.rates, resolution) ||
+        Mix.raise("#{model_name} has no #{resolution} (options: #{Enum.join(Map.keys(model.rates), " | ")})")
+
+    n = length(frames)
+
+    scenes =
+      frames
+      |> Enum.with_index()
+      |> Enum.map(fn {f, i} ->
+        next = Enum.at(frames, i + 1)
+
+        %{
+          index: i,
+          window_ms: (if next, do: next.at_ms, else: audio_dur_ms) - f.at_ms,
+          from: f.file,
+          to: next && next.file,
+          prompt: f.prompt
+        }
+      end)
+
+    durations =
+      Enum.map(scenes, &Sinestesia.VideoGen.FalMinimax.clamp_duration(&1.window_ms / 1000))
+
+    total_gen_s = Enum.sum(durations)
+    cost = Float.round(total_gen_s * rate, 2)
+
+    promo =
+      if model.promo, do: " (launch promo pricing — roughly double after it ends)", else: ""
+
+    Mix.shell().info(
+      "── motion: #{n} scenes, #{total_gen_s}s of #{model_name} #{resolution} ≈ $#{cost}#{promo} ──"
+    )
+
+    opts[:yes] || Mix.shell().yes?("Generate #{n} clips on fal.ai (paid)?") ||
+      Mix.raise("aborted — rerun without --motion for the still composition")
+
+    directions = Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt))
+
+    # Normalize every anchor BEFORE the parallel fan-out: norm/4 writes to a
+    # shared path and scene N's `to` is scene N+1's `from` — two tasks
+    # racing to create the same file would corrupt both clips' keyframe.
+    normed = Map.new(frames, fn f -> {f.file, norm(f.file, w, h, workdir)} end)
+
+    clips =
+      scenes
+      |> Enum.zip(Enum.zip(directions, durations))
+      |> Task.async_stream(
+        fn {scene, {direction, duration}} ->
+          generate_clip(scene, direction, duration, normed, workdir,
+            model: model_name,
+            resolution: resolution,
+            style_suffix: style
+          )
+        end,
+        timeout: :infinity,
+        ordered: true,
+        max_concurrency: 8
+      )
+      |> Enum.map(fn {:ok, result} -> result end)
+
+    live = Enum.count(clips, & &1)
+
+    live > 0 ||
+      Mix.raise("every clip failed — check the fal dashboard; rerun without --motion for stills")
+
+    if live < n,
+      do: Mix.shell().info("[motion] #{n - live} of #{n} clips failed — those windows hold stills")
+
+    segments =
+      Enum.zip(scenes, clips)
+      |> Enum.map(fn {scene, clip} -> motion_segment(scene, clip, normed, w, h, workdir) end)
+
+    first_at = List.first(frames).at_ms
+
+    segments =
+      if first_at > 0,
+        do: [black_segment(first_at, w, h, workdir) | segments],
+        else: segments
+
+    Mix.shell().info("── composing #{live}/#{n} living scenes → #{w}x#{h}, pip #{pip} ──")
+
+    concat_path = Path.join(workdir, "concat_motion.txt")
+    File.write!(concat_path, Enum.map_join(segments, "\n", &"file '#{&1}'") <> "\n")
+
+    args = ffmpeg_args(video, concat_path, audio_dur_ms, w, h, pip, out)
+
+    case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {output, status} -> Mix.raise("ffmpeg failed (#{status}):\n#{String.slice(output, -3000, 3000)}")
+    end
+  end
+
+  defp generate_clip(scene, direction, duration, normed, workdir, opts) do
+    prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
+    dest = Path.join(workdir, "clip_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
+
+    submit_opts = [
+      to: scene.to && Map.fetch!(normed, scene.to),
+      duration: duration,
+      resolution: opts[:resolution],
+      model: opts[:model]
+    ]
+
+    with {:ok, request_url} <-
+           Sinestesia.VideoGen.FalMinimax.submit(prompt, Map.fetch!(normed, scene.from), submit_opts),
+         {:ok, path} <- Sinestesia.VideoGen.FalMinimax.await(request_url, dest) do
+      Mix.shell().info("[motion] scene #{scene.index} clip ready")
+      path
+    else
+      {:error, reason} ->
+        Mix.shell().error("[motion] scene #{scene.index} clip failed: #{inspect(reason)}")
+        nil
+    end
+  end
+
+  # One uniform rule instead of hold/speed cases: the clip is retimed to
+  # fill its scene window exactly, so its final frame lands ON the next
+  # reveal. Extreme factors (a 3s window from a 5s minimum clip, a long
+  # instrumental hold) degrade to fast/slow drift rather than breaking the
+  # reveal grid; the factor is logged when it's far from 1.
+  @doc false
+  # Public for tests; not part of any API.
+  def motion_segment(scene, clip, normed, w, h, workdir) do
+    window_s = scene.window_ms / 1000
+    seg = Path.join(workdir, "seg_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
+
+    case clip do
+      nil ->
+        still_segment(Map.fetch!(normed, scene.from), window_s, seg)
+
+      clip ->
+        clip_s = probe_duration_ms(clip) / 1000
+        factor = window_s / clip_s
+
+        if factor < 0.5 or factor > 2.0 do
+          Mix.shell().info(
+            "[motion] scene #{scene.index}: retiming #{Float.round(clip_s, 1)}s clip into a " <>
+              "#{Float.round(window_s, 1)}s window (#{Float.round(factor, 2)}x)"
+          )
+        end
+
+        {_, 0} =
+          System.cmd(
+            "ffmpeg",
+            [
+              "-y", "-v", "error", "-i", clip,
+              "-vf",
+              "setpts=#{:erlang.float_to_binary(factor, decimals: 6)}*PTS," <>
+                "scale=#{w}:#{h}:force_original_aspect_ratio=decrease," <>
+                "pad=#{w}:#{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30",
+              "-t", :erlang.float_to_binary(window_s, decimals: 3),
+              "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+              "-pix_fmt", "yuv420p", seg
+            ],
+            stderr_to_stdout: true
+          )
+
+        seg
+    end
+  end
+
+  defp still_segment(still, window_s, seg) do
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        [
+          "-y", "-v", "error", "-loop", "1", "-i", still,
+          "-t", :erlang.float_to_binary(window_s, decimals: 3),
+          "-vf", "fps=30,setsar=1",
+          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+          "-pix_fmt", "yuv420p", seg
+        ],
+        stderr_to_stdout: true
+      )
+
+    seg
+  end
+
+  defp black_segment(dur_ms, w, h, workdir) do
+    seg = Path.join(workdir, "seg_black.mp4")
+
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        [
+          "-y", "-v", "error", "-f", "lavfi",
+          "-i", "color=c=black:s=#{w}x#{h}:d=#{:erlang.float_to_binary(dur_ms / 1000, decimals: 3)}",
+          "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+          "-pix_fmt", "yuv420p", seg
+        ],
+        stderr_to_stdout: true
+      )
+
+    seg
   end
 
   # The image track as a concat-demuxer script: a sequence of stills with
@@ -938,7 +1191,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
              pip: :string,
              stt: :string,
              lang: :string,
-             no_separate: :boolean
+             no_separate: :boolean,
+             motion: :boolean,
+             motion_model: :string,
+             motion_resolution: :string,
+             yes: :boolean
            ]
          ) do
       {opts, [video], []} ->

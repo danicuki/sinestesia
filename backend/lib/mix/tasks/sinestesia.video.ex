@@ -67,21 +67,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
   song's scene list; the image Director's stills are the chain's anchors.
 
   The whole song is ONE continuous shot — never a crossfade between
-  independent clips (that reads as cuts, not a sequence). How continuity
-  is achieved depends on the engine's chain mode (`Sinestesia.VideoGen`):
+  independent clips (that reads as cuts, not a sequence). The DEFAULT
+  chain on every engine is the founder's scheme, SEQUENTIAL: each clip
+  opens on the previous clip's extracted final frame, fed forward; no
+  per-scene images are generated at all (only video is billed), and a
+  failed clip freezes the current frame so the chain continues. Clip
+  length tracks each scene window, so a song bills roughly its own
+  duration: ~$0.05/s veo-lite (default) at 720p, ~$0.02/s h3-max at
+  768P while fal's promo lasts.
 
-    * Veo 3.1 (default — the Gemini credits make it the run-it-all-day
-      option): `:drift`, a SEQUENTIAL chain. Each clip opens on the
-      previous clip's extracted final frame; anchors seed the start and
-      heal failures (a failed clip freezes the current frame, and the
-      chain continues from it). Veo's own first→last interpolation was
-      ruled out: it only runs at 8s of billing per scene. Clip length
-      tracks each scene window (4|6|8s), so a 3-min song bills roughly
-      its own duration: ~$0.05/s veo-lite (default), ~$0.10/s veo-fast at 720p.
-    * MiniMax via fal (h3-max, h3): `:keyframed`, parallel. First AND
-      last frame pinned at any duration, so adjacent clips share the
-      boundary frame natively. Kept for realtime experiments too (~3s
-      per 5s clip is a stage property).
+  `--motion-chain keyframed` (MiniMax only — it pins first AND last
+  frame at any billable length, where Veo interpolation forces 8s per
+  scene) is the alternative grammar: clips generate in PARALLEL, pinned
+  scene-image to scene-image, so the Director's stills are what appears
+  at every reveal — at the cost of running the image pipeline for the
+  anchors.
 
   An instrumental introduction (2s or longer before the first verse) gets
   its own OPENING SHOT on the sequential chain — text-to-video, directed
@@ -116,6 +116,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
                         directed, rendered or billed (cheap --motion tests)
       --motion          living-scene mode (paid generated clips, see above)
       --motion-model M  veo-lite (default) | veo-fast | veo | h3-max | h3
+      --motion-chain C  sequential (default) | keyframed (fal engines only)
       --motion-resolution R  veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
       --yes             skip the motion-mode cost confirmation
 
@@ -241,7 +242,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
         Sinestesia.VideoGen.engine(model_name) ||
           Mix.raise("unknown --motion-model #{model_name} (#{Enum.join(Sinestesia.VideoGen.names(), " | ")})")
 
-      if engine.spec(model_name).chain == :drift do
+      if motion_chain(opts, engine, model_name) == :sequential do
         System.put_env("IMAGE_PROVIDER", "none")
 
         Mix.shell().info(
@@ -874,6 +875,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
       Map.get(spec.rates, resolution) ||
         Mix.raise("#{model_name} has no #{resolution} (options: #{Enum.join(Map.keys(spec.rates), " | ")})")
 
+    # Fail BEFORE the money gate, not mid-chain: a missing key used to
+    # surface as a crash on scene 0's submit, after the operator said yes.
+    engine.key?() ||
+      Mix.raise("#{model_name} needs #{engine.key_env()} set — refusing to start a paid run that cannot submit")
+
     scenes =
       frames
       |> Enum.with_index()
@@ -898,7 +904,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # and fed forward, which is what makes the whole song one continuous
     # shot (crossfading independent clips reads as cuts, not a sequence —
     # founder-rejected). Anchors seed the start and heal failures.
-    drift? = spec.chain == :drift
+    sequential? = motion_chain(opts, engine, model_name) == :sequential
     first_at = List.first(frames).at_ms
 
     # The founder's ask: an instrumental introduction deserves an OPENING
@@ -906,7 +912,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # more scene — text-to-video, no words yet — and its final frame seeds
     # the first verse's clip, so the film flows out of its own opening.
     {scenes, intro?} =
-      if drift? and first_at >= 2_000 do
+      if sequential? and first_at >= 2_000 do
         intro = %{
           index: 0,
           window_ms: first_at,
@@ -926,7 +932,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     durations =
       Enum.map(scenes, fn scene ->
-        engine.billable_duration(scene.window_ms / 1000, not drift? and scene.to != nil)
+        engine.billable_duration(scene.window_ms / 1000, not sequential? and scene.to != nil)
       end)
 
     total_gen_s = Enum.sum(durations)
@@ -990,7 +996,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       end)
 
     clips =
-      if drift? do
+      if sequential? do
         Mix.shell().info(
           "[motion] sequential chain: each clip opens on the previous clip's final frame"
         )
@@ -1059,6 +1065,30 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # clip FREEZES the chain's current frame for its window instead of
   # cutting to an unrelated anchor — a hold reads as intent, a jump as a
   # glitch — and the chain continues from that same frame.
+  # The founder's scheme — last frame of clip N feeds clip N+1 — works on
+  # ANY image-to-video engine, so it is the default everywhere. Keyframed
+  # is the opt-in exception, and only MiniMax can afford it: it pins both
+  # frames at any billable length, where Veo's interpolation forces 8s of
+  # billing per scene.
+  defp motion_chain(opts, engine, model_name) do
+    case opts[:motion_chain] || "sequential" do
+      "sequential" ->
+        :sequential
+
+      "keyframed" ->
+        engine.spec(model_name).keyframes? ||
+          Mix.raise(
+            "--motion-chain keyframed needs first+last-frame control at scene lengths " <>
+              "(h3-max | h3) — #{model_name} only interpolates at a flat 8s per scene"
+          )
+
+        :keyframed
+
+      other ->
+        Mix.raise("unknown --motion-chain #{other} (sequential | keyframed)")
+    end
+  end
+
   defp sequential_chain(work, normed, workdir, gen_opts, anchors_real?) do
     {rev, _seed} =
       Enum.reduce(work, {[], nil}, fn %{scene: scene, direction: direction, duration: duration, safe: safe},
@@ -1141,7 +1171,17 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   defp attempt_clip(index, direction, duration, from, to, dest, opts, tries, safe_tried?) do
     engine = Keyword.fetch!(opts, :engine)
-    prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
+
+    # The safe attempt after a refusal drops the style suffix too: a style
+    # naming a real artist ("Tarsila do Amaral...") trips Veo's likeness
+    # filter no matter how neutral the direction is — hit live 2026-09-09.
+    # The aesthetic survives regardless: the opening frame carries it.
+    prompt =
+      if safe_tried? do
+        "#{direction}, keeping the established visual style of the opening frame"
+      else
+        if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
+      end
     cache = clip_cache_path(opts[:clip_cache_dir], prompt, duration, from, to, opts)
 
     if cache && File.exists?(cache) do
@@ -1599,6 +1639,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
              limit: :float,
              motion: :boolean,
              motion_model: :string,
+             motion_chain: :string,
              motion_resolution: :string,
              yes: :boolean
            ]

@@ -36,16 +36,21 @@ defmodule Sinestesia.VideoGen.FalMinimax do
   @duration_range 5..15
 
   def models, do: Map.keys(@models)
+
+  @doc "Whether the engine's API key is configured — checked before any paid run starts."
+  def key?, do: is_binary(Application.fetch_env!(:sinestesia, :config)[:fal_api_key])
+  def key_env, do: "FAL_API_KEY"
+
   def model(name), do: Map.get(@models, name)
   def duration_range, do: @duration_range
 
   @doc "The engine contract shared with the other clip engines (see `Sinestesia.VideoGen`)."
-  # chain: :keyframed — MiniMax H3 pins first AND last frame at any
-  # duration, so adjacent scene clips share their boundary frame natively.
+  # keyframes?: MiniMax H3 pins first AND last frame at ANY duration — the
+  # one engine where --motion-chain keyframed is billable per scene window.
   def spec(name) do
     case Map.get(@models, name) do
       nil -> nil
-      m -> %{rates: m.rates, promo: m.promo, default_resolution: "768P", chain: :keyframed}
+      m -> %{rates: m.rates, promo: m.promo, default_resolution: "768P", keyframes?: true}
     end
   end
 
@@ -71,6 +76,11 @@ defmodule Sinestesia.VideoGen.FalMinimax do
     %{endpoint: endpoint} =
       model(model_name) || raise ArgumentError, "unknown MiniMax model #{inspect(model_name)}"
 
+    # No opening frame = a chain's very first shot: it routes to the
+    # sibling text-to-video endpoint (the i2v one rejects a missing image).
+    endpoint =
+      if from, do: endpoint, else: String.replace(endpoint, "image-to-video", "text-to-video")
+
     # `:base_url` (tests) and the :fal_queue_base app env (offline e2e runs
     # against a stub queue) both exist so this module's callers can be
     # exercised end to end without paid inference. Neither is an operator
@@ -85,11 +95,11 @@ defmodule Sinestesia.VideoGen.FalMinimax do
     body =
       %{
         prompt: prompt,
-        image_url: data_uri(from),
         duration: Keyword.get(opts, :duration, @duration_range.first),
         resolution: Keyword.get(opts, :resolution, "768P"),
         prompt_expansion_mode: "balanced"
       }
+      |> then(fn b -> if from, do: Map.put(b, :image_url, data_uri(from)), else: b end)
       |> then(fn b ->
         case Keyword.get(opts, :to) do
           nil -> b
@@ -98,8 +108,19 @@ defmodule Sinestesia.VideoGen.FalMinimax do
       end)
 
     case Req.post("#{base}/#{endpoint}", json: body, headers: auth(), retry: false) do
-      {:ok, %{status: 200, body: %{"request_id" => id}}} ->
-        {:ok, "#{base}/#{endpoint}/requests/#{id}"}
+      {:ok, %{status: 200, body: %{"request_id" => id} = resp_body}} ->
+        # Use the queue's OWN status/response URLs. Constructing them from
+        # the endpoint is a trap fal explicitly guards against: apps with a
+        # subpath (minimax/h3-max/image-to-video) serve requests/* on the
+        # ROOT app id — the hand-built path 405s on every poll, which
+        # killed a real 10-clip run on 2026-09-09.
+        fallback = "#{base}/#{endpoint}/requests/#{id}"
+
+        {:ok,
+         %{
+           status_url: resp_body["status_url"] || fallback <> "/status",
+           response_url: resp_body["response_url"] || fallback
+         }}
 
       {:ok, resp} ->
         {:error, {:queue_rejected, resp.status, resp.body}}
@@ -114,22 +135,30 @@ defmodule Sinestesia.VideoGen.FalMinimax do
   `dest`. Generation time is minutes at worst; the deadline is a give-up
   point for a stuck queue, not a render budget.
   """
-  def await(request_url, dest, opts \\ []) do
+  def await(ref, dest, opts \\ [])
+
+  def await(%{status_url: status_url, response_url: response_url}, dest, opts) do
     deadline = now_ms() + Keyword.get(opts, :timeout_ms, 600_000)
-    poll(request_url, dest, deadline)
+    poll(status_url, response_url, dest, deadline)
   end
 
-  defp poll(request_url, dest, deadline) do
-    case Req.get(request_url <> "/status", headers: auth(), retry: false) do
+  # Older refs were a bare request URL; keep them working for callers that
+  # stored one.
+  def await(request_url, dest, opts) when is_binary(request_url) do
+    await(%{status_url: request_url <> "/status", response_url: request_url}, dest, opts)
+  end
+
+  defp poll(status_url, response_url, dest, deadline) do
+    case Req.get(status_url, headers: auth(), retry: false) do
       {:ok, %{status: 200, body: %{"status" => "COMPLETED"}}} ->
-        fetch_result(request_url, dest)
+        fetch_result(response_url, dest)
 
       {:ok, %{status: 200, body: %{"status" => status}}} when status in ["IN_QUEUE", "IN_PROGRESS"] ->
         if now_ms() > deadline do
-          {:error, {:stuck, status, request_url}}
+          {:error, {:stuck, status, status_url}}
         else
           Process.sleep(2_000)
-          poll(request_url, dest, deadline)
+          poll(status_url, response_url, dest, deadline)
         end
 
       {:ok, %{status: 200, body: body}} ->

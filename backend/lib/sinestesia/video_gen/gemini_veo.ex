@@ -33,19 +33,21 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   # The API's only billable clip lengths.
   @durations [4, 6, 8]
 
-  # chain: :drift — scene clips animate FROM their anchor without an end
-  # pin. Veo CAN interpolate first→last frame, but only at durationSeconds
-  # 8 (the API rejects 4/6s interpolation with "Your use case is currently
-  # not supported", hit live 2026-08-29), and 8s of billing per scene was
-  # ruled out by the founder ("8s é muito"). Drift clips run at the 4s
-  # minimum; the composition blends each scene's tail into the next anchor
-  # instead — the stage's own crossfade, leaving a living scene.
+  # keyframes?: false — Veo CAN interpolate first→last frame, but only at
+  # durationSeconds 8 (the API rejects 4/6s interpolation, hit live
+  # 2026-08-29), and 8s of billing per scene was ruled out by the founder
+  # ("8s é muito"). So on Veo the chain is always sequential.
   def spec(name) do
     case Map.get(@models, name) do
       nil -> nil
-      m -> %{rates: m.rates, promo: false, default_resolution: "720p", chain: :drift}
+      m -> %{rates: m.rates, promo: false, default_resolution: "720p", keyframes?: false}
     end
   end
+
+  @doc "Whether the engine's API key is configured — checked before any paid run starts."
+  def key?, do: is_binary(Application.fetch_env!(:sinestesia, :config)[:google_api_key])
+  def key_env, do: "GOOGLE_API_KEY"
+
 
   @doc """
   The billable duration for a clip. A KEYFRAMED request (first + last

@@ -44,9 +44,19 @@ defmodule Sinestesia.MediaSourceTest do
     end
   end
 
+  # os_time in the name: unique_integer RESTARTS with each BEAM and these
+  # dirs outlive the run, so two suite runs could collide on the same path
+  # — and once download/2 grew a cache, a leftover dir with a completion
+  # marker made an unrelated test flake ~50% (found 2026-09-09).
   defp tmp_out do
-    dir = Path.join(System.tmp_dir!(), "media-out-#{:erlang.unique_integer([:positive])}")
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "media-out-#{System.os_time(:nanosecond)}-#{:erlang.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
     dir
   end
 

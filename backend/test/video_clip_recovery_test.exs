@@ -54,7 +54,7 @@ defmodule Mix.Tasks.Sinestesia.VideoClipRecoveryTest do
       model: "fake",
       resolution: "720p",
       aspect_ratio: "16:9",
-      style_suffix: nil,
+      style_suffix: "Tarsila do Amaral brazilian modernist",
       safe_direction: "gentle neutral drift",
       transient_wait_ms: 0,
       clip_cache_dir: nil
@@ -68,14 +68,23 @@ defmodule Mix.Tasks.Sinestesia.VideoClipRecoveryTest do
     Process.put(:script, [@high_demand, :ok])
 
     assert {:ok, _} = generate("waves roll in", ctx.dir, ctx.opts)
-    assert Process.get(:prompts) == ["waves roll in", "waves roll in"]
+
+    suffixed = "waves roll in. Tarsila do Amaral brazilian modernist"
+    assert Process.get(:prompts) == [suffixed, suffixed]
   end
 
-  test "a safety refusal retries ONCE with the neutral direction", ctx do
+  test "a safety refusal retries with the neutral direction AND without the style suffix", ctx do
     Process.put(:script, [@refusal, :ok])
 
+    # The style itself can be the offender: "Tarsila do Amaral" is a real
+    # person's name and trips Veo's likeness filter regardless of the
+    # direction — the safe attempt must not carry it.
     assert {:ok, _} = generate("something too spicy", ctx.dir, ctx.opts)
-    assert Process.get(:prompts) == ["something too spicy", "gentle neutral drift"]
+
+    assert Process.get(:prompts) == [
+             "something too spicy. Tarsila do Amaral brazilian modernist",
+             "gentle neutral drift, keeping the established visual style of the opening frame"
+           ]
   end
 
   test "a refusal of the neutral direction too gives up (freeze, not loop)", ctx do
@@ -103,7 +112,7 @@ defmodule Mix.Tasks.Sinestesia.VideoClipRecoveryTest do
     Process.put(:script, [])
     assert {:ok, clip} = generate("waves roll in", ctx.dir, opts)
     assert File.read!(clip) == "a-clip"
-    assert Process.get(:prompts) == ["waves roll in"]
+    assert Process.get(:prompts) == ["waves roll in. Tarsila do Amaral brazilian modernist"]
   end
 
   test "a different direction is a different cache entry", ctx do

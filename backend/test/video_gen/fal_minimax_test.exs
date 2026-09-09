@@ -37,7 +37,7 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     File.write!(from, "opening-frame")
     File.write!(to, "final-frame")
 
-    assert {:ok, request_url} =
+    assert {:ok, ref} =
              FalMinimax.submit("gentle drift toward the window", from,
                to: to,
                duration: 7,
@@ -45,10 +45,15 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
                base_url: "http://127.0.0.1:#{port}"
              )
 
-    assert request_url == "http://127.0.0.1:#{port}/minimax/h3-max/image-to-video/requests/r1"
+    # The queue's OWN urls, verbatim — on the ROOT app id, NOT under the
+    # endpoint subpath. Hand-building them 405'd every poll on the real
+    # API (2026-09-09); the stub answers 405 on the old spelling too, so a
+    # regression fails here instead of on stage.
+    assert ref.status_url == "http://127.0.0.1:#{port}/minimax/h3-max/requests/r1/status"
+    assert ref.response_url == "http://127.0.0.1:#{port}/minimax/h3-max/requests/r1"
 
     dest = Path.join(dir, "clip.mp4")
-    assert {:ok, ^dest} = FalMinimax.await(request_url, dest)
+    assert {:ok, ^dest} = FalMinimax.await(ref, dest)
     assert File.read!(dest) == @clip_bytes
 
     assert_receive {:req, :POST, "/minimax/h3-max/image-to-video", headers, body}
@@ -60,6 +65,23 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     assert decoded["resolution"] == "768P"
     assert decoded["image_url"] == "data:image/jpeg;base64," <> Base.encode64("opening-frame")
     assert decoded["end_image_url"] == "data:image/jpeg;base64," <> Base.encode64("final-frame")
+  end
+
+  test "no opening frame routes to the text-to-video endpoint", %{port: port, dir: dir} do
+    assert {:ok, ref} =
+             FalMinimax.submit("a watercolor village awakens", nil,
+               duration: 5,
+               base_url: "http://127.0.0.1:#{port}"
+             )
+
+    dest = Path.join(dir, "clip.mp4")
+    assert {:ok, ^dest} = FalMinimax.await(ref, dest)
+
+    assert_receive {:req, :POST, "/minimax/h3-max/text-to-video", _headers, body}
+    decoded = Jason.decode!(body)
+    refute Map.has_key?(decoded, "image_url")
+    refute Map.has_key?(decoded, "end_image_url")
+    assert decoded["prompt"] == "a watercolor village awakens"
   end
 
   test "billable_duration maps windows onto 5-15s; keyframing changes nothing here" do
@@ -84,11 +106,16 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
       end
 
     send(parent, {:req, method, path, headers, body})
-    {payload, state} = respond(method, path, port, state)
+
+    {status, payload, state} =
+      case respond(method, path, port, state) do
+        {:error_405, state} -> {405, "", state}
+        {payload, state} -> {200, payload, state}
+      end
 
     :gen_tcp.send(
       sock,
-      "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n" <>
+      "HTTP/1.1 #{status} X\r\ncontent-type: application/json\r\n" <>
         "content-length: #{byte_size(payload)}\r\nconnection: close\r\n\r\n" <> payload
     )
 
@@ -115,17 +142,29 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     read_exact(sock, n - byte_size(chunk), acc <> chunk)
   end
 
-  defp respond(:POST, "/minimax/h3-max/image-to-video", _port, state),
-    do: {~s({"request_id":"r1"}), state}
+  defp respond(:POST, "/minimax/h3-max/" <> kind, port, state)
+       when kind in ["image-to-video", "text-to-video"] do
+    body =
+      ~s({"request_id":"r1",) <>
+        ~s("status_url":"http://127.0.0.1:#{port}/minimax/h3-max/requests/r1/status",) <>
+        ~s("response_url":"http://127.0.0.1:#{port}/minimax/h3-max/requests/r1"})
 
-  defp respond(:GET, "/minimax/h3-max/image-to-video/requests/r1/status", _port, %{status_calls: 0} = state),
+    {body, state}
+  end
+
+  defp respond(:GET, "/minimax/h3-max/requests/r1/status", _port, %{status_calls: 0} = state),
     do: {~s({"status":"IN_QUEUE","queue_position":0}), %{state | status_calls: 1}}
 
-  defp respond(:GET, "/minimax/h3-max/image-to-video/requests/r1/status", _port, state),
+  defp respond(:GET, "/minimax/h3-max/requests/r1/status", _port, state),
     do: {~s({"status":"COMPLETED"}), state}
 
-  defp respond(:GET, "/minimax/h3-max/image-to-video/requests/r1", port, state),
+  defp respond(:GET, "/minimax/h3-max/requests/r1", port, state),
     do: {~s({"video":{"url":"http://127.0.0.1:#{port}/video.mp4"}}), state}
 
   defp respond(:GET, "/video.mp4", _port, state), do: {@clip_bytes, state}
+
+  # The trap itself: anything under the endpoint SUBPATH is not a request
+  # route on fal's queue.
+  defp respond(:GET, "/minimax/h3-max/image-to-video/requests/" <> _, _port, state),
+    do: {:error_405, state}
 end

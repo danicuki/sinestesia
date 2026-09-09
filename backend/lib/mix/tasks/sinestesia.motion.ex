@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Sinestesia.Motion do
         --prompt "the leaves sway as the camera drifts toward the window" \\
         --out transition.mp4
 
-  Engines (`Sinestesia.VideoGen`): veo-fast (default), veo-lite, veo — Veo
+  Engines (`Sinestesia.VideoGen`): veo-lite (default), veo-fast, veo — Veo
   3.1 through the Gemini API and its credits (GOOGLE_API_KEY) — and
   h3-max, h3 — MiniMax through fal (FAL_API_KEY). This is PAID inference,
   deliberately off every live path: one explicit clip per invocation, cost
@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Sinestesia.Motion do
       --from PATH        opening frame (required)
       --to PATH          final frame (optional — omit for plain i2v drift)
       --prompt TEXT      motion direction (required)
-      --model NAME       veo-fast (default) | veo-lite | veo | h3-max | h3
+      --model NAME       veo-lite (default) | veo-fast | veo | h3-max | h3
       --duration S       veo: 4|6|8, but 8 only with --to · fal: 5-15
                          (default: the engine's minimum for the mode)
       --resolution R     veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
@@ -38,7 +38,7 @@ defmodule Mix.Tasks.Sinestesia.Motion do
     to = if opts[:to], do: require_file(opts[:to])
     prompt = opts[:prompt] || Mix.raise("--prompt is required (the motion direction)")
 
-    model_name = opts[:model] || "veo-fast"
+    model_name = opts[:model] || "veo-lite"
 
     engine =
       Sinestesia.VideoGen.engine(model_name) ||

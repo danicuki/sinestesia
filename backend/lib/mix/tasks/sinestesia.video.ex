@@ -77,7 +77,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       chain continues from it). Veo's own first→last interpolation was
       ruled out: it only runs at 8s of billing per scene. Clip length
       tracks each scene window (4|6|8s), so a 3-min song bills roughly
-      its own duration: ~$0.10/s veo-fast, ~$0.05/s veo-lite at 720p.
+      its own duration: ~$0.05/s veo-lite (default), ~$0.10/s veo-fast at 720p.
     * MiniMax via fal (h3-max, h3): `:keyframed`, parallel. First AND
       last frame pinned at any duration, so adjacent clips share the
       boundary frame natively. Kept for realtime experiments too (~3s
@@ -104,7 +104,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
                         past the mark never replay, so nothing beyond it is
                         directed, rendered or billed (cheap --motion tests)
       --motion          living-scene mode (paid generated clips, see above)
-      --motion-model M  veo-fast (default) | veo-lite | veo | h3-max | h3
+      --motion-model M  veo-lite (default) | veo-fast | veo | h3-max | h3
       --motion-resolution R  veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
       --yes             skip the motion-mode cost confirmation
 
@@ -224,7 +224,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # scene content. fal's keyframed chain keeps real images (they are its
     # anchors).
     if opts[:motion] do
-      model_name = opts[:motion_model] || "veo-fast"
+      model_name = opts[:motion_model] || "veo-lite"
 
       engine =
         Sinestesia.VideoGen.engine(model_name) ||
@@ -846,7 +846,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # Veo by default: offline rendering can wait as long as it likes, and
     # the Gemini credits make it the run-it-all-day engine. MiniMax via fal
     # stays available for realtime experiments (--motion-model h3-max).
-    model_name = opts[:motion_model] || "veo-fast"
+    model_name = opts[:motion_model] || "veo-lite"
 
     engine =
       Sinestesia.VideoGen.engine(model_name) ||

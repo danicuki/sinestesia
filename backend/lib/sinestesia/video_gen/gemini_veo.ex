@@ -75,7 +75,7 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   when no seed frame exists). Returns `{:ok, operation_name}`.
   """
   def submit(prompt, from, opts \\ []) do
-    name = Keyword.get(opts, :model, "veo-fast")
+    name = Keyword.get(opts, :model, "veo-lite")
 
     %{id: model_id} =
       Map.get(@models, name) || raise ArgumentError, "unknown Veo model #{inspect(name)}"

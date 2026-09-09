@@ -809,7 +809,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       "── motion: #{n} scenes, #{total_gen_s}s of #{model_name} #{resolution} ≈ $#{cost}#{promo} ──"
     )
 
-    opts[:yes] || Mix.shell().yes?("Generate #{n} clips on fal.ai (paid)?") ||
+    opts[:yes] || Mix.shell().yes?("Generate #{n} clips with #{model_name} (paid inference)?") ||
       Mix.raise("aborted — rerun without --motion for the still composition")
 
     directions = Sinestesia.MotionDirector.direct(style, Enum.map(scenes, & &1.prompt))
@@ -841,7 +841,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
     live = Enum.count(clips, & &1)
 
     live > 0 ||
-      Mix.raise("every clip failed — check the fal dashboard; rerun without --motion for stills")
+      Mix.raise(
+        "every clip failed — the per-scene errors above name the cause; rerun without --motion for stills"
+      )
 
     if live < n,
       do: Mix.shell().info("[motion] #{n - live} of #{n} clips failed — those windows hold stills")

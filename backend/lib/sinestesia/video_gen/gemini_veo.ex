@@ -51,20 +51,39 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   Options: `:to` (final-frame path), `:duration` (4|6|8), `:resolution`,
   `:model` (registry name), `:aspect_ratio` ("16:9"/"9:16"), `:base_url`.
   """
+  # Google's own surfaces disagree on how an input image is spelled: the
+  # docs show generateContent's `inlineData`, the live veo-3.1 endpoint
+  # rejected exactly that ("`inlineData` isn't supported by this model",
+  # 2026-08-29), the google-genai SDK serializes `imageBytes` for the
+  # Gemini API, and Vertex wants `bytesBase64Encoded`. Rather than betting
+  # on whichever dialect this week's deploy speaks, submit negotiates: try
+  # each shape on a 400, remember the first one accepted, use it for every
+  # clip after that. A rejected submit is free; a wrong hardcode killed a
+  # whole run.
+  @image_shapes [:image_bytes, :inline_data, :bytes_base64]
+  @shape_key {__MODULE__, :image_shape}
+
   def submit(prompt, from, opts \\ []) do
     name = Keyword.get(opts, :model, "veo-fast")
 
     %{id: model_id} =
       Map.get(@models, name) || raise ArgumentError, "unknown Veo model #{inspect(name)}"
 
-    base = base_url(opts)
+    preferred = :persistent_term.get(@shape_key, hd(@image_shapes))
+    shapes = [preferred | @image_shapes -- [preferred]]
 
+    try_shapes(shapes, prompt, from, model_id, opts, nil)
+  end
+
+  defp try_shapes([], _prompt, _from, _model_id, _opts, last_error), do: last_error
+
+  defp try_shapes([shape | rest], prompt, from, model_id, opts, _last) do
     instance =
-      %{prompt: prompt, image: inline_data(from)}
+      %{prompt: prompt, image: image_payload(from, shape)}
       |> then(fn i ->
         case Keyword.get(opts, :to) do
           nil -> i
-          to -> Map.put(i, :lastFrame, inline_data(to))
+          to -> Map.put(i, :lastFrame, image_payload(to, shape))
         end
       end)
 
@@ -77,17 +96,36 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
       }
     }
 
-    case Req.post("#{base}/models/#{model_id}:predictLongRunning",
+    case Req.post("#{base_url(opts)}/models/#{model_id}:predictLongRunning",
            json: body,
            headers: auth(),
            retry: false,
            receive_timeout: 60_000
          ) do
-      {:ok, %{status: 200, body: %{"name" => op}}} -> {:ok, op}
-      {:ok, resp} -> {:error, {:submit_rejected, resp.status, resp.body}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: 200, body: %{"name" => op}}} ->
+        :persistent_term.put(@shape_key, shape)
+        {:ok, op}
+
+      {:ok, %{status: 400, body: body}} when rest != [] ->
+        Logger.info("[veo] image shape #{shape} rejected; trying #{hd(rest)}")
+        try_shapes(rest, prompt, from, model_id, opts, {:error, {:submit_rejected, 400, body}})
+
+      {:ok, resp} ->
+        {:error, {:submit_rejected, resp.status, resp.body}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp image_payload(path, :image_bytes),
+    do: %{imageBytes: Base.encode64(File.read!(path)), mimeType: mime(path)}
+
+  defp image_payload(path, :bytes_base64),
+    do: %{bytesBase64Encoded: Base.encode64(File.read!(path)), mimeType: mime(path)}
+
+  defp image_payload(path, :inline_data),
+    do: %{inlineData: %{mimeType: mime(path), data: Base.encode64(File.read!(path))}}
 
   @doc """
   Poll the operation until done, then download the clip to `dest`. Veo
@@ -169,16 +207,13 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
     [{"x-goog-api-key", key}]
   end
 
-  defp inline_data(path) do
-    mime =
-      case path |> Path.extname() |> String.downcase() do
-        ".png" -> "image/png"
-        ext when ext in [".jpg", ".jpeg"] -> "image/jpeg"
-        ".webp" -> "image/webp"
-        ext -> raise ArgumentError, "unsupported frame format #{ext} (jpg/png/webp)"
-      end
-
-    %{inlineData: %{mimeType: mime, data: Base.encode64(File.read!(path))}}
+  defp mime(path) do
+    case path |> Path.extname() |> String.downcase() do
+      ".png" -> "image/png"
+      ext when ext in [".jpg", ".jpeg"] -> "image/jpeg"
+      ".webp" -> "image/webp"
+      ext -> raise ArgumentError, "unsupported frame format #{ext} (jpg/png/webp)"
+    end
   end
 
   defp now_ms, do: System.system_time(:millisecond)

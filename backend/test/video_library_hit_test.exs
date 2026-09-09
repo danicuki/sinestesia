@@ -14,10 +14,17 @@ defmodule Mix.Tasks.Sinestesia.VideoLibraryHitTest do
     dir = Path.join(System.tmp_dir!(), "songs-#{:erlang.unique_integer([:positive])}")
     File.mkdir_p!(dir)
 
-    # The REAL library file, verbatim — a hand-tuned fixture scored above the
-    # strict threshold and silently stopped exercising the loose pass, which
-    # is the entire point of this test.
-    File.cp!(Path.expand("../songs/aquarela.json", File.cwd!()), Path.join(dir, "aquarela.json"))
+    # A six-line EXCERPT of the real library file (short quotation — full
+    # copyrighted lyrics can't ship in an open-source repo). Verified when
+    # extracted (2026-08-29) to preserve the original file's behavior for
+    # this transcript: strict identify misses, loose identify hits. The
+    # first hand-tuned fixture scored above the strict threshold and
+    # silently stopped exercising the loose pass, which is the entire point
+    # of this test — if you regenerate this fixture, re-verify both scores.
+    File.cp!(
+      Path.expand("test/fixtures/songs/aquarela.json", File.cwd!()),
+      Path.join(dir, "aquarela.json")
+    )
 
     System.put_env("SONGS_DIR", dir)
     on_exit(fn -> System.delete_env("SONGS_DIR") end)

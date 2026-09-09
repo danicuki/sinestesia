@@ -29,7 +29,7 @@ demo video · live judging (4 min demo + 3 min Q&A).
 
 ### 1. License — needs your call
 
-The repo has **no license**, and you have commercial plans (`PITCH_DECK.md`),
+The repo has **no license**, and you have commercial plans,
 so this is not a rubber-stamp:
 
 - **MIT / Apache-2.0** — maximum goodwill, judges and sponsors love it. Anyone

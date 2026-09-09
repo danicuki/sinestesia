@@ -23,7 +23,8 @@ defmodule Mix.Tasks.Sinestesia.Motion do
       --to PATH          final frame (optional — omit for plain i2v drift)
       --prompt TEXT      motion direction (required)
       --model NAME       veo-fast (default) | veo-lite | veo | h3-max | h3
-      --duration S       veo: 4|6|8 · fal: 5-15 (default: the engine's minimum)
+      --duration S       veo: 4|6|8, but 8 only with --to · fal: 5-15
+                         (default: the engine's minimum for the mode)
       --resolution R     veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
       --out PATH         output mp4 (default: motion-<timestamp>.mp4)
   """
@@ -45,10 +46,16 @@ defmodule Mix.Tasks.Sinestesia.Motion do
 
     spec = engine.spec(model_name)
 
-    duration = opts[:duration] || engine.clamp_duration(0)
+    # An end frame changes the billing rules on Veo: interpolation only
+    # runs at 8s (the API rejects 4/6s), so a keyframed probe costs 8s.
+    keyframed? = to != nil
+    duration = opts[:duration] || engine.billable_duration(0, keyframed?)
 
-    engine.clamp_duration(duration) == duration ||
-      Mix.raise("--duration #{duration}s is not billable on #{model_name}")
+    engine.billable_duration(duration, keyframed?) == duration ||
+      Mix.raise(
+        "--duration #{duration}s is not billable on #{model_name}" <>
+          if(keyframed?, do: " with --to (Veo interpolation runs only at 8s)", else: "")
+      )
 
     resolution = opts[:resolution] || spec.default_resolution
 

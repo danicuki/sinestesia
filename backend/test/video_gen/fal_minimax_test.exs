@@ -62,10 +62,10 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     assert decoded["end_image_url"] == "data:image/jpeg;base64," <> Base.encode64("final-frame")
   end
 
-  test "clamp_duration maps scene windows onto the API's billable range" do
-    assert FalMinimax.clamp_duration(0.4) == 5
-    assert FalMinimax.clamp_duration(6.7) == 7
-    assert FalMinimax.clamp_duration(31.0) == 15
+  test "billable_duration maps windows onto 5-15s; keyframing changes nothing here" do
+    assert FalMinimax.billable_duration(0.4, false) == 5
+    assert FalMinimax.billable_duration(6.7, true) == 7
+    assert FalMinimax.billable_duration(31.0, true) == 15
   end
 
   # ── stub fal queue ────────────────────────────────────────────────────────

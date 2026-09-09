@@ -40,12 +40,17 @@ defmodule Sinestesia.VideoGen.FalMinimax do
   def duration_range, do: @duration_range
 
   @doc "The engine contract shared with the other clip engines (see `Sinestesia.VideoGen`)."
+  # chain: :keyframed — MiniMax H3 pins first AND last frame at any
+  # duration, so adjacent scene clips share their boundary frame natively.
   def spec(name) do
     case Map.get(@models, name) do
       nil -> nil
-      m -> %{rates: m.rates, promo: m.promo, default_resolution: "768P"}
+      m -> %{rates: m.rates, promo: m.promo, default_resolution: "768P", chain: :keyframed}
     end
   end
+
+  @doc "The billable duration for a clip: the window rounded into the API's 5-15s range (keyframing is free at any length here)."
+  def billable_duration(seconds, _keyframed?) when is_number(seconds), do: clamp_duration(seconds)
 
   @doc "The API's closest billable duration for a scene window."
   def clamp_duration(seconds) when is_number(seconds) do

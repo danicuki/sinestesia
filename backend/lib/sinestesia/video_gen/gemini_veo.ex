@@ -33,16 +33,29 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   # The API's only billable clip lengths.
   @durations [4, 6, 8]
 
+  # chain: :drift — scene clips animate FROM their anchor without an end
+  # pin. Veo CAN interpolate first→last frame, but only at durationSeconds
+  # 8 (the API rejects 4/6s interpolation with "Your use case is currently
+  # not supported", hit live 2026-08-29), and 8s of billing per scene was
+  # ruled out by the founder ("8s é muito"). Drift clips run at the 4s
+  # minimum; the composition blends each scene's tail into the next anchor
+  # instead — the stage's own crossfade, leaving a living scene.
   def spec(name) do
     case Map.get(@models, name) do
       nil -> nil
-      m -> %{rates: m.rates, promo: false, default_resolution: "720p"}
+      m -> %{rates: m.rates, promo: false, default_resolution: "720p", chain: :drift}
     end
   end
 
-  @doc "Nearest billable duration to the scene window (ties go longer — retiming a slightly-long clip beats speeding one up)."
-  def clamp_duration(seconds) when is_number(seconds) do
-    Enum.min_by(@durations, fn d -> {abs(d - seconds), -d} end)
+  @doc """
+  The billable duration for a clip. A KEYFRAMED request (first + last
+  frame, used by `mix sinestesia.motion --to`) is always 8s — the API
+  rejects interpolation at 4/6s. A drift clip picks the nearest of 4|6|8
+  to the requested seconds, ties preferring longer (slowing a clip beats
+  speeding it up).
+  """
+  def billable_duration(seconds, keyframed?) when is_number(seconds) do
+    if keyframed?, do: 8, else: Enum.min_by(@durations, fn d -> {abs(d - seconds), -d} end)
   end
 
   @doc """
@@ -51,16 +64,16 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
   Options: `:to` (final-frame path), `:duration` (4|6|8), `:resolution`,
   `:model` (registry name), `:aspect_ratio` ("16:9"/"9:16"), `:base_url`.
   """
-  # Google's own surfaces disagree on how an input image is spelled: the
-  # docs show generateContent's `inlineData`, the live veo-3.1 endpoint
-  # rejected exactly that ("`inlineData` isn't supported by this model",
-  # 2026-08-29), the google-genai SDK serializes `imageBytes` for the
-  # Gemini API, and Vertex wants `bytesBase64Encoded`. Rather than betting
-  # on whichever dialect this week's deploy speaks, submit negotiates: try
-  # each shape on a 400, remember the first one accepted, use it for every
-  # clip after that. A rejected submit is free; a wrong hardcode killed a
-  # whole run.
-  @image_shapes [:image_bytes, :inline_data, :bytes_base64]
+  # Google's surfaces disagree on how an input image is spelled. Ground
+  # truth is the google-genai SDK's mldev converter (read from source,
+  # 2026-08-29): `_Image_to_mldev` emits `bytesBase64Encoded` + `mimeType`
+  # — NOT the `inlineData` the docs page shows (the live endpoint rejects
+  # that: "`inlineData` isn't supported by this model"), and not
+  # generateContent's `imageBytes`. The SDK spelling goes first; the
+  # negotiation stays as a safety net for the next silent surface change,
+  # remembering whichever shape the API accepts. A rejected submit is
+  # free; a wrong hardcode killed a whole run.
+  @image_shapes [:bytes_base64, :inline_data, :image_bytes]
   @shape_key {__MODULE__, :image_shape}
 
   def submit(prompt, from, opts \\ []) do
@@ -87,11 +100,16 @@ defmodule Sinestesia.VideoGen.GeminiVeo do
         end
       end)
 
+    # Belt and braces on the 8s rule: even if a caller computed its own
+    # duration, a keyframed request at 4/6s is a guaranteed rejection.
+    duration =
+      if Keyword.get(opts, :to), do: 8, else: Keyword.get(opts, :duration, 8)
+
     body = %{
       instances: [instance],
       parameters: %{
         aspectRatio: Keyword.get(opts, :aspect_ratio, "16:9"),
-        durationSeconds: Keyword.get(opts, :duration, 8),
+        durationSeconds: duration,
         resolution: Keyword.get(opts, :resolution, "720p")
       }
     }

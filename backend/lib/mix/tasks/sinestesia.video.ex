@@ -56,19 +56,24 @@ defmodule Mix.Tasks.Sinestesia.Video do
   ## Motion mode (--motion): living scenes instead of stills
 
   The same mechanics — same pipeline, same reveals, same timing — but every
-  scene window becomes a generated VIDEO clip: scene N's clip opens exactly
-  on scene N's image, revealed on its line, and its final frame IS scene
-  N+1's image, arriving at the next reveal. Adjacent clips share their
-  boundary frame, so the song plays as one continuous living shot.
-  `Sinestesia.MotionDirector` directs each shot's motion — camera, action,
-  transformation — from the whole song's scene list; the image Director's
-  stills become the chain's keyframe anchors.
+  scene window becomes a generated VIDEO clip opening exactly on that
+  scene's image, revealed on its line. `Sinestesia.MotionDirector` directs
+  each shot's motion — camera, action, transformation — from the whole
+  song's scene list; the image Director's stills are the chain's anchors.
 
-  Engines (`Sinestesia.VideoGen`): Veo 3.1 via the Gemini API is the
-  default — offline rendering can wait, and the Gemini credits make it the
-  run-it-all-day option (veo-fast $0.10/s, veo-lite $0.05/s, veo $0.40/s at
-  720p). MiniMax via fal (h3-max, h3) is kept for realtime experiments —
-  ~3s per 5s clip is a stage property, not an offline one.
+  How a scene ARRIVES at the next anchor depends on the engine's chain
+  mode (`Sinestesia.VideoGen`):
+
+    * Veo 3.1 (default — the Gemini credits make it the run-it-all-day
+      option): `:drift`. Clips are 4s from the anchor, no end pin — Veo
+      only interpolates first→last frame at 8s of billing per scene,
+      ruled out on cost — and the composition blends each scene's tail
+      into the next anchor, the stage's own crossfade out of a living
+      scene. veo-fast ≈ $0.40/scene, veo-lite ≈ $0.20/scene at 720p.
+    * MiniMax via fal (h3-max, h3): `:keyframed`. First AND last frame
+      pinned at any duration, so adjacent clips share the boundary frame
+      natively — one continuous generated shot. Kept for realtime
+      experiments too (~3s per 5s clip is a stage property).
 
   This is PAID inference either way: the task prints the total estimate and
   asks before submitting (`--yes` skips the prompt). A failed clip degrades
@@ -287,7 +292,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       end
 
     if opts[:motion] do
-      compose_motion(media.compose, acc, lead_ms, limit_ms, pip, out, style, opts)
+      compose_motion(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out, style, opts)
     else
       compose(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out)
     end
@@ -757,7 +762,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
   #
   # Any clip that fails (refusal, queue error) degrades THAT window to the
   # held still — one lost scene must never lose the song.
-  defp compose_motion(video, acc, lead_ms, limit_ms, pip, out, style, opts) do
+  defp compose_motion(video, acc, lead_ms, limit_ms, fade_ms, pip, out, style, opts) do
     audio_dur_ms = song_end_ms(video, limit_ms)
     frames = timeline(acc, lead_ms, audio_dur_ms)
     frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
@@ -797,7 +802,21 @@ defmodule Mix.Tasks.Sinestesia.Video do
         }
       end)
 
-    durations = Enum.map(scenes, &engine.clamp_duration(&1.window_ms / 1000))
+    # Two chain modes (spec.chain). :keyframed (fal): each clip is pinned
+    # at both ends on the anchors, sized to its window — adjacent clips
+    # share the boundary frame natively. :drift (Veo): end pins would force
+    # 8s of billing per scene (the API's interpolation rule), so clips run
+    # at the MINIMUM billable length from their anchor and the composition
+    # blends each scene's tail into the next anchor — the stage's own
+    # crossfade, out of a living scene instead of a still.
+    drift? = spec.chain == :drift
+
+    durations =
+      Enum.map(scenes, fn scene ->
+        if drift?,
+          do: engine.billable_duration(0, false),
+          else: engine.billable_duration(scene.window_ms / 1000, scene.to != nil)
+      end)
 
     total_gen_s = Enum.sum(durations)
     cost = Float.round(total_gen_s * rate, 2)
@@ -829,6 +848,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
             model: model_name,
             resolution: resolution,
             style_suffix: style,
+            keyframed?: not drift?,
             aspect_ratio: if(w >= h, do: "16:9", else: "9:16")
           )
         end,
@@ -850,7 +870,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     segments =
       Enum.zip(scenes, clips)
-      |> Enum.map(fn {scene, clip} -> motion_segment(scene, clip, normed, w, h, workdir) end)
+      |> Enum.flat_map(fn {scene, clip} ->
+        motion_segment(scene, clip, normed, w, h, workdir, fade_ms, drift?)
+      end)
 
     first_at = List.first(frames).at_ms
 
@@ -877,8 +899,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
     prompt = if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
     dest = Path.join(workdir, "clip_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
 
+    to = if opts[:keyframed?], do: scene.to && Map.fetch!(normed, scene.to)
+
     submit_opts = [
-      to: scene.to && Map.fetch!(normed, scene.to),
+      to: to,
       duration: duration,
       resolution: opts[:resolution],
       model: opts[:model],
@@ -896,50 +920,108 @@ defmodule Mix.Tasks.Sinestesia.Video do
     end
   end
 
-  # One uniform rule instead of hold/speed cases: the clip is retimed to
-  # fill its scene window exactly, so its final frame lands ON the next
-  # reveal. Extreme factors (a 3s window from a 5s minimum clip, a long
-  # instrumental hold) degrade to fast/slow drift rather than breaking the
-  # reveal grid; the factor is logged when it's far from 1.
+  # A scene's window on the final timeline, as a LIST of segments. The clip
+  # is retimed to fill its share exactly, so what's on screen at the next
+  # reveal is deterministic. Keyframed chains fill the whole window (the
+  # clip already ends ON the next anchor). Drift chains reserve the tail of
+  # the window for a synthetic blend from the clip's final frame into the
+  # next anchor — the stage's crossfade, leaving a living scene — because
+  # their clips have no end pin. Extreme retime factors degrade to
+  # fast/slow drift rather than breaking the reveal grid.
   @doc false
   # Public for tests; not part of any API.
-  def motion_segment(scene, clip, normed, w, h, workdir) do
-    window_s = scene.window_ms / 1000
+  def motion_segment(scene, clip, normed, w, h, workdir, fade_ms \\ 1_500, drift? \\ false)
+
+  def motion_segment(scene, nil, normed, _w, _h, workdir, _fade_ms, _drift?) do
     seg = Path.join(workdir, "seg_#{String.pad_leading(to_string(scene.index), 2, "0")}.mp4")
+    [still_segment(Map.fetch!(normed, scene.from), scene.window_ms / 1000, seg)]
+  end
 
-    case clip do
-      nil ->
-        still_segment(Map.fetch!(normed, scene.from), window_s, seg)
+  def motion_segment(scene, clip, normed, w, h, workdir, fade_ms, drift?) do
+    window_s = scene.window_ms / 1000
 
-      clip ->
-        clip_s = probe_duration_ms(clip) / 1000
-        factor = window_s / clip_s
+    blend_s =
+      if drift? and scene.to, do: min(fade_ms / 1000, window_s / 3), else: 0.0
 
-        if factor < 0.5 or factor > 2.0 do
-          Mix.shell().info(
-            "[motion] scene #{scene.index}: retiming #{Float.round(clip_s, 1)}s clip into a " <>
-              "#{Float.round(window_s, 1)}s window (#{Float.round(factor, 2)}x)"
-          )
-        end
-
-        {_, 0} =
-          System.cmd(
-            "ffmpeg",
-            [
-              "-y", "-v", "error", "-i", clip,
-              "-vf",
-              "setpts=#{:erlang.float_to_binary(factor, decimals: 6)}*PTS," <>
-                "scale=#{w}:#{h}:force_original_aspect_ratio=decrease," <>
-                "pad=#{w}:#{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30",
-              "-t", :erlang.float_to_binary(window_s, decimals: 3),
-              "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-              "-pix_fmt", "yuv420p", seg
-            ],
-            stderr_to_stdout: true
-          )
-
-        seg
+    if blend_s < 0.2 do
+      [clip_segment(clip, window_s, scene.index, w, h, workdir)]
+    else
+      body = clip_segment(clip, window_s - blend_s, scene.index, w, h, workdir)
+      [body, tail_blend_segment(body, Map.fetch!(normed, scene.to), blend_s, scene.index, w, h, workdir)]
     end
+  end
+
+  defp clip_segment(clip, target_s, index, w, h, workdir) do
+    seg = Path.join(workdir, "seg_#{String.pad_leading(to_string(index), 2, "0")}.mp4")
+    clip_s = probe_duration_ms(clip) / 1000
+    factor = target_s / clip_s
+
+    if factor < 0.5 or factor > 2.0 do
+      Mix.shell().info(
+        "[motion] scene #{index}: retiming #{Float.round(clip_s, 1)}s clip into " <>
+          "#{Float.round(target_s, 1)}s (#{Float.round(factor, 2)}x)"
+      )
+    end
+
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        [
+          "-y", "-v", "error", "-i", clip,
+          "-vf",
+          "setpts=#{:erlang.float_to_binary(factor, decimals: 6)}*PTS," <>
+            "scale=#{w}:#{h}:force_original_aspect_ratio=decrease," <>
+            "pad=#{w}:#{h}:(ow-iw)/2:(oh-ih)/2:black,setsar=1,fps=30",
+          "-t", :erlang.float_to_binary(target_s, decimals: 3),
+          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+          "-pix_fmt", "yuv420p", seg
+        ],
+        stderr_to_stdout: true
+      )
+
+    seg
+  end
+
+  # The drift chain's landing: last frame of the retimed scene body,
+  # blended into the next anchor over the fade window, ending exactly ON
+  # the anchor — so the next reveal still opens on its own image.
+  defp tail_blend_segment(body_seg, next_anchor, blend_s, index, w, h, workdir) do
+    pad = String.pad_leading(to_string(index), 2, "0")
+    last = Path.join(workdir, "last_#{pad}.jpg")
+
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        ~w(-y -v error -sseof -0.2 -i) ++ [body_seg] ++ ~w(-frames:v 1 -update 1 -q:v 2) ++ [last],
+        stderr_to_stdout: true
+      )
+
+    stills = blend_steps(last, next_anchor, "tail#{index}", 12, w, h, workdir)
+    per = blend_s / length(stills)
+
+    list = Path.join(workdir, "tail_#{pad}.txt")
+
+    File.write!(
+      list,
+      Enum.map_join(stills, "\n", &"file '#{&1}'\nduration #{:erlang.float_to_binary(per, decimals: 4)}") <>
+        "\nfile '#{List.last(stills)}'\n"
+    )
+
+    seg = Path.join(workdir, "seg_#{pad}_tail.mp4")
+
+    {_, 0} =
+      System.cmd(
+        "ffmpeg",
+        [
+          "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", list,
+          "-vf", "fps=30,setsar=1",
+          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
+          "-pix_fmt", "yuv420p", seg
+        ],
+        stderr_to_stdout: true
+      )
+
+    seg
   end
 
   defp still_segment(still, window_s, seg) do

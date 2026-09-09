@@ -43,7 +43,7 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     %{port: port, dir: dir, from: from, to: to, base: "http://127.0.0.1:#{port}"}
   end
 
-  test "submit → poll → download; the default shape is the SDK's imageBytes", ctx do
+  test "submit → poll → download; SDK shape by default, keyframes force 8s", ctx do
     assert {:ok, op} =
              GeminiVeo.submit("gentle drift toward the window", ctx.from,
                to: ctx.to,
@@ -68,48 +68,61 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     decoded = Jason.decode!(body)
     [instance] = decoded["instances"]
     assert instance["prompt"] == "gentle drift toward the window"
-    assert instance["image"]["imageBytes"] == Base.encode64("opening-frame")
+    assert instance["image"]["bytesBase64Encoded"] == Base.encode64("opening-frame")
     assert instance["image"]["mimeType"] == "image/jpeg"
-    assert instance["lastFrame"]["imageBytes"] == Base.encode64("final-frame")
+    assert instance["lastFrame"]["bytesBase64Encoded"] == Base.encode64("final-frame")
     assert instance["lastFrame"]["mimeType"] == "image/png"
 
+    # duration: 6 was REQUESTED, but a keyframed clip bills 8s — the API
+    # rejects interpolation at any other length, and the stub enforces it.
     assert decoded["parameters"] == %{
              "aspectRatio" => "16:9",
-             "durationSeconds" => 6,
+             "durationSeconds" => 8,
              "resolution" => "720p"
            }
   end
 
-  @tag mode: :only_bytes_base64
+  @tag mode: :only_image_bytes
   test "a rejected shape walks the alternatives, and the winner sticks", ctx do
     assert {:ok, _op} =
              GeminiVeo.submit("drift", ctx.from, model: "veo-fast", base_url: ctx.base)
 
-    # The negotiation: imageBytes rejected, inlineData rejected, Vertex
-    # spelling accepted.
+    # The negotiation: SDK spelling rejected, docs spelling rejected, the
+    # third accepted.
     assert_receive {:req, :POST, _, _, b1}
-    assert Jason.decode!(b1)["instances"] |> hd() |> Map.fetch!("image") |> Map.has_key?("imageBytes")
-    assert_receive {:req, :POST, _, _, b2}
-    assert Jason.decode!(b2)["instances"] |> hd() |> Map.fetch!("image") |> Map.has_key?("inlineData")
-    assert_receive {:req, :POST, _, _, b3}
 
-    assert Jason.decode!(b3)["instances"]
+    assert Jason.decode!(b1)["instances"]
            |> hd()
            |> Map.fetch!("image")
            |> Map.has_key?("bytesBase64Encoded")
+
+    assert_receive {:req, :POST, _, _, b2}
+    assert Jason.decode!(b2)["instances"] |> hd() |> Map.fetch!("image") |> Map.has_key?("inlineData")
+    assert_receive {:req, :POST, _, _, b3}
+    assert Jason.decode!(b3)["instances"] |> hd() |> Map.fetch!("image") |> Map.has_key?("imageBytes")
 
     # The next clip skips straight to the remembered winner: ONE post.
     assert {:ok, _op} =
              GeminiVeo.submit("drift again", ctx.from, model: "veo-fast", base_url: ctx.base)
 
     assert_receive {:req, :POST, _, _, b4}
-
-    assert Jason.decode!(b4)["instances"]
-           |> hd()
-           |> Map.fetch!("image")
-           |> Map.has_key?("bytesBase64Encoded")
+    assert Jason.decode!(b4)["instances"] |> hd() |> Map.fetch!("image") |> Map.has_key?("imageBytes")
 
     refute_receive {:req, :POST, _, _, _}, 100
+  end
+
+  test "a drift clip (no end frame) keeps its requested duration", ctx do
+    assert {:ok, _op} =
+             GeminiVeo.submit("drift", ctx.from,
+               duration: 4,
+               model: "veo-fast",
+               base_url: ctx.base
+             )
+
+    assert_receive {:req, :POST, _, _, body}
+    decoded = Jason.decode!(body)
+    refute decoded["instances"] |> hd() |> Map.has_key?("lastFrame")
+    assert decoded["parameters"]["durationSeconds"] == 4
   end
 
   test "a done operation with no video is a NAMED refusal", ctx do
@@ -122,12 +135,14 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
     assert details.filtered_reasons == ["Responsible AI practices"]
   end
 
-  test "clamp_duration snaps to 4|6|8, ties preferring the longer clip" do
-    assert GeminiVeo.clamp_duration(1.0) == 4
-    assert GeminiVeo.clamp_duration(5.0) == 6
-    assert GeminiVeo.clamp_duration(7.0) == 8
-    assert GeminiVeo.clamp_duration(6.4) == 6
-    assert GeminiVeo.clamp_duration(40.0) == 8
+  test "billable_duration: drift snaps to 4|6|8 (ties longer); keyframed is always 8" do
+    assert GeminiVeo.billable_duration(1.0, false) == 4
+    assert GeminiVeo.billable_duration(5.0, false) == 6
+    assert GeminiVeo.billable_duration(7.0, false) == 8
+    assert GeminiVeo.billable_duration(6.4, false) == 6
+    assert GeminiVeo.billable_duration(40.0, false) == 8
+    assert GeminiVeo.billable_duration(4.0, true) == 8
+    assert GeminiVeo.billable_duration(40.0, true) == 8
   end
 
   # ── stub Gemini API ───────────────────────────────────────────────────────
@@ -179,12 +194,20 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
 
   defp respond(:POST, "/models/" <> _ = path, body, _port, state) do
     model = path |> String.split("/models/") |> List.last() |> String.split(":") |> hd()
-    image = Jason.decode!(body)["instances"] |> hd() |> Map.fetch!("image")
+    decoded = Jason.decode!(body)
+    instance = hd(decoded["instances"])
+    image = Map.fetch!(instance, "image")
+
+    # The real API's rule, hit live 2026-08-29: interpolation (lastFrame)
+    # only at durationSeconds 8.
+    if Map.has_key?(instance, "lastFrame") and decoded["parameters"]["durationSeconds"] != 8 do
+      throw(:use_case)
+    end
 
     accepted? =
       case state.mode do
         :accept -> true
-        :only_bytes_base64 -> Map.has_key?(image, "bytesBase64Encoded")
+        :only_image_bytes -> Map.has_key?(image, "imageBytes")
       end
 
     if accepted? do
@@ -196,6 +219,11 @@ defmodule Sinestesia.VideoGen.GeminiVeoTest do
        ~s({"error":{"code":400,"message":"`#{shape}` isn't supported by this model.","status":"INVALID_ARGUMENT"}}),
        "application/json", state}
     end
+  catch
+    :use_case ->
+      {400,
+       ~s({"error":{"code":400,"message":"Your use case is currently not supported.","status":"INVALID_ARGUMENT"}}),
+       "application/json", state}
   end
 
   defp respond(:GET, "/models/x/operations/filtered", _body, _port, state) do

@@ -86,6 +86,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
       --lang CODE       ISO language for transcription (default: auto-detect)
       --no-separate     URL flow: skip Demucs, transcribe the full mix
+      --limit S         render only the first S seconds of the song — events
+                        past the mark never replay, so nothing beyond it is
+                        directed, rendered or billed (cheap --motion tests)
       --motion          living-scene mode (paid generated clips, see above)
       --motion-model M  veo-fast (default) | veo-lite | veo | h3-max | h3
       --motion-resolution R  veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
@@ -120,6 +123,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     fade_ms = opts[:fade] || 1_500
     lead_ms = round((opts[:lead] || 15.0) * 1_000)
+    limit_ms = opts[:limit] && round(opts[:limit] * 1_000)
 
     # Boot FIRST. Two things depend on it and both bit us: Req/Finch has to be
     # running before any HTTP call, and `config/runtime.exs` is what loads
@@ -179,9 +183,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
       session
       |> Map.put("lyrics_text", song.lyrics_text)
       |> Map.update("events", [], fn evs ->
-        Enum.map(evs, &Map.update!(&1, "at_ms", fn t -> t + lead_ms end))
+        evs
+        |> limit_events(limit_ms)
+        |> Enum.map(&Map.update!(&1, "at_ms", fn t -> t + lead_ms end))
       end)
       |> then(fn s -> if style, do: Map.put(s, "style", style), else: s end)
+
+    enriched["events"] != [] ||
+      Mix.raise("--limit #{opts[:limit]}s leaves no sung events — the first final lands later than that")
+
+    if limit_ms do
+      kept = length(enriched["events"])
+      total = length(session["events"])
+      Mix.shell().info("── limiting to the first #{opts[:limit]}s: #{kept} of #{total} events ──")
+    end
 
     # From here on the pipeline drives itself off the recorded session.
     System.put_env("STT_PROVIDER", "replay")
@@ -272,9 +287,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
       end
 
     if opts[:motion] do
-      compose_motion(media.compose, acc, lead_ms, pip, out, style, opts)
+      compose_motion(media.compose, acc, lead_ms, limit_ms, pip, out, style, opts)
     else
-      compose(media.compose, acc, lead_ms, fade_ms, pip, out)
+      compose(media.compose, acc, lead_ms, limit_ms, fade_ms, pip, out)
     end
 
     Mix.shell().info("\n── done ──\n#{out}")
@@ -415,6 +430,15 @@ defmodule Mix.Tasks.Sinestesia.Video do
         transcript_song(session, title_hint)
     end
   end
+
+  # `--limit` cuts on the PERFORMANCE clock (before the lead shift): only
+  # events sung inside the first N seconds replay, so nothing past the mark
+  # is ever directed, rendered, or billed — the whole point when testing
+  # motion mode on paid credits.
+  @doc false
+  # Public for tests; not part of any API.
+  def limit_events(events, nil), do: events
+  def limit_events(events, limit_ms), do: Enum.filter(events, &(&1["at_ms"] <= limit_ms))
 
   # Batch STT of a studio mix mangles words the live mic doesn't ("Numa
   # folha" → "Uma folha é"), which eats the margin under the live matcher's
@@ -690,8 +714,16 @@ defmodule Mix.Tasks.Sinestesia.Video do
     |> Enum.scan(fn f, prev -> %{f | at_ms: max(f.at_ms, prev.at_ms + 100)} end)
   end
 
-  defp compose(video, acc, lead_ms, fade_ms, pip, out) do
-    audio_dur_ms = probe_duration_ms(video)
+  # The cut happens at BOTH ends on purpose: `--limit` already kept the
+  # replay from generating past the mark (that's where the money goes), and
+  # here the audio/composition clock stops at the same mark so the output
+  # ends when the last rendered scene does, instead of freezing over the
+  # rest of the song.
+  defp song_end_ms(video, nil), do: probe_duration_ms(video)
+  defp song_end_ms(video, limit_ms), do: min(probe_duration_ms(video), limit_ms)
+
+  defp compose(video, acc, lead_ms, limit_ms, fade_ms, pip, out) do
+    audio_dur_ms = song_end_ms(video, limit_ms)
     frames = timeline(acc, lead_ms, audio_dur_ms)
     frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
     {w, h} = probe_even_dims(List.first(frames).file)
@@ -725,8 +757,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
   #
   # Any clip that fails (refusal, queue error) degrades THAT window to the
   # held still — one lost scene must never lose the song.
-  defp compose_motion(video, acc, lead_ms, pip, out, style, opts) do
-    audio_dur_ms = probe_duration_ms(video)
+  defp compose_motion(video, acc, lead_ms, limit_ms, pip, out, style, opts) do
+    audio_dur_ms = song_end_ms(video, limit_ms)
     frames = timeline(acc, lead_ms, audio_dur_ms)
     frames != [] || Mix.raise("every frame was revealed after the song ended — nothing to compose")
     {w, h} = probe_even_dims(List.first(frames).file)
@@ -1203,6 +1235,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
              stt: :string,
              lang: :string,
              no_separate: :boolean,
+             limit: :float,
              motion: :boolean,
              motion_model: :string,
              motion_resolution: :string,
@@ -1215,8 +1248,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
       _ ->
         Mix.raise(
           "usage: mix sinestesia.video <video-or-url> [--session S] [--song-url URL] " <>
-            "[--style S] [--out PATH] [--fade MS] [--lead S] [--pip br|bl|tr|tl|off] " <>
-            "[--stt elevenlabs|local_whisper] [--lang CODE] [--no-separate]"
+            "[--style S] [--out PATH] [--fade MS] [--lead S] [--limit S] [--pip br|bl|tr|tl|off] " <>
+            "[--stt elevenlabs|local_whisper] [--lang CODE] [--no-separate] " <>
+            "[--motion] [--motion-model M] [--motion-resolution R] [--yes]"
         )
     end
   end

@@ -241,4 +241,5 @@ HANDOFF.md                     Decisions, gotchas, onboarding
 
 ## License
 
-Proprietary — all rights reserved. The source is closed for now.
+MIT. PRs welcome — especially anything that pushes the predictive stack and
+motion mode further.

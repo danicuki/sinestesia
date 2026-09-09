@@ -24,6 +24,11 @@ defmodule Mix.Tasks.Sinestesia.Video do
   take. `DEMUCS_DEVICE=mps` makes separation several times faster on Apple
   Silicon; `--no-separate` skips Demucs and transcribes the full mix.
 
+  Download, vocal stem and transcription are CACHED per URL (under the OS
+  user-cache dir, surviving reboots), so iterating on `--style`, `--motion`
+  or `--limit` re-pays only the image/clip generation. `--fresh` redoes
+  everything for the given URL.
+
   The steps mirror the live flow exactly:
 
     1. transcribe the video's audio with word timings
@@ -91,6 +96,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --stt PROVIDER    elevenlabs|local_whisper (default: STT_PROVIDER)
       --lang CODE       ISO language for transcription (default: auto-detect)
       --no-separate     URL flow: skip Demucs, transcribe the full mix
+      --fresh           URL flow: ignore the per-URL cache (download, vocal
+                        stem and transcription are cached across runs)
       --limit S         render only the first S seconds of the song — events
                         past the mark never replay, so nothing beyond it is
                         directed, rendered or billed (cheap --motion tests)
@@ -304,7 +311,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   defp resolve_media(input, opts) do
     if Sinestesia.MediaSource.url?(input) do
-      out_dir = Path.join(System.tmp_dir!(), "sinestesia-video-dl-#{:erlang.phash2(input)}")
+      # Persistent per-URL cache: download, vocal stem and transcription of
+      # a song survive across runs (and reboots), so iterating on --style /
+      # --motion / --limit only pays for what actually changed. --fresh
+      # wipes this URL's entry.
+      out_dir = Sinestesia.MediaSource.cache_dir(input)
+
+      out_dir =
+        if opts[:fresh] do
+          Mix.shell().info("[media] --fresh: clearing the cache for this URL")
+          File.rm_rf!(out_dir)
+          Sinestesia.MediaSource.cache_dir(input)
+        else
+          out_dir
+        end
 
       %{audio: audio, title: title} =
         case Sinestesia.MediaSource.download(input, out_dir) do
@@ -331,9 +351,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
           end
         end
 
-      %{compose: audio, stt: stt_media, title: title, has_video?: false}
+      %{compose: audio, stt: stt_media, title: title, has_video?: false, cache: out_dir}
     else
-      %{compose: input, stt: input, title: nil, has_video?: true}
+      %{compose: input, stt: input, title: nil, has_video?: true, cache: nil}
     end
   end
 
@@ -375,32 +395,59 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── session ──────────────────────────────────────────────────────────────
 
-  defp load_or_build_session(media, opts) do
-    case opts[:session] do
-      nil ->
-        out_dir = Path.join(System.tmp_dir!(), "sinestesia-video")
+  @doc false
+  # Public for tests; not part of any API.
+  def load_or_build_session(media, opts) do
+    cache = session_cache_path(media, opts)
 
-        stt_opts = [lang: opts[:lang] || "", provider: opts[:stt_provider]]
-
-        case Sinestesia.BatchStt.session_from_video(media.stt, out_dir, stt_opts) do
-          {:ok, session} ->
-            # The session transcribed the STT medium (a vocal stem, for a
-            # URL), but everything downstream that touches "audio" or the
-            # name must see the PERFORMANCE: the original mix, named after
-            # the source title — "vocals" is what the file is, not what the
-            # song is.
-            session
-            |> Map.put("audio", Path.expand(media.compose))
-            |> then(fn s ->
-              if media.title, do: Map.put(s, "name", slugify(media.title)), else: s
-            end)
-
-          {:error, reason} ->
-            Mix.raise("transcription failed: #{inspect(reason)}")
-        end
-
-      path ->
+    cond do
+      path = opts[:session] ->
         path |> Path.expand() |> File.read!() |> Jason.decode!()
+
+      cache && File.exists?(cache) ->
+        Mix.shell().info("[media] using cached transcription: #{cache} (--fresh to redo)")
+        cache |> File.read!() |> Jason.decode!()
+
+      true ->
+        session = build_session(media, opts)
+        if cache, do: File.write!(cache, Jason.encode!(session))
+        session
+    end
+  end
+
+  # Transcription is the paid step of every URL run's front half; its
+  # output for the same stem/provider/language never changes. Keyed on
+  # provider+lang so switching either transcribes anew instead of serving
+  # the other setup's words.
+  @doc false
+  # Public for tests; not part of any API.
+  def session_cache_path(%{cache: nil}, _opts), do: nil
+
+  def session_cache_path(%{cache: dir}, opts) do
+    lang = if opts[:lang] in [nil, ""], do: "auto", else: opts[:lang]
+    Path.join(dir, "session-#{opts[:stt_provider]}-#{lang}.json")
+  end
+
+  defp build_session(media, opts) do
+    out_dir = Path.join(System.tmp_dir!(), "sinestesia-video")
+
+    stt_opts = [lang: opts[:lang] || "", provider: opts[:stt_provider]]
+
+    case Sinestesia.BatchStt.session_from_video(media.stt, out_dir, stt_opts) do
+      {:ok, session} ->
+        # The session transcribed the STT medium (a vocal stem, for a
+        # URL), but everything downstream that touches "audio" or the
+        # name must see the PERFORMANCE: the original mix, named after
+        # the source title — "vocals" is what the file is, not what the
+        # song is.
+        session
+        |> Map.put("audio", Path.expand(media.compose))
+        |> then(fn s ->
+          if media.title, do: Map.put(s, "name", slugify(media.title)), else: s
+        end)
+
+      {:error, reason} ->
+        Mix.raise("transcription failed: #{inspect(reason)}")
     end
   end
 
@@ -1319,6 +1366,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
              stt: :string,
              lang: :string,
              no_separate: :boolean,
+             fresh: :boolean,
              limit: :float,
              motion: :boolean,
              motion_model: :string,

@@ -24,6 +24,28 @@ defmodule Sinestesia.MediaSource do
   def url?(arg), do: String.match?(arg, ~r{^https?://})
 
   @doc """
+  The persistent cache directory for a URL's downloaded/derived media.
+
+  Keyed by the URL's hash under the OS user-cache dir (XDG-aware via
+  `:filename.basedir/2`), so a song processed once is never re-downloaded,
+  re-separated or re-transcribed on later runs — `/tmp` dies on reboot and
+  those three steps are the slow/paid part of every test iteration.
+  `mix sinestesia.video --fresh` wipes one URL's entry.
+  """
+  @spec cache_dir(String.t()) :: Path.t()
+  def cache_dir(url) do
+    key = :crypto.hash(:sha256, url) |> Base.encode16(case: :lower) |> binary_part(0, 16)
+    dir = Path.join(:filename.basedir(:user_cache, "sinestesia"), "media-#{key}")
+    File.mkdir_p!(dir)
+
+    # The hash is for the filesystem; the URL is for the human wondering
+    # what this cache entry holds.
+    url_file = Path.join(dir, "source.url")
+    File.exists?(url_file) || File.write!(url_file, url <> "\n")
+    dir
+  end
+
+  @doc """
   Download the audio track of `url` into `out_dir`.
 
   Returns `{:ok, %{audio: path, title: title | nil}}`. The title comes from
@@ -36,7 +58,21 @@ defmodule Sinestesia.MediaSource do
   @spec download(String.t(), Path.t()) :: {:ok, %{audio: Path.t(), title: String.t() | nil}} | {:error, term()}
   def download(url, out_dir) do
     File.mkdir_p!(out_dir)
+    audio = Path.join(out_dir, "source.m4a")
+    done = Path.join(out_dir, "download.done")
 
+    # The marker, not the file, is what says "complete": a killed run can
+    # leave a partial-looking tree, and a partial download fed to Demucs
+    # would waste minutes before failing strangely.
+    if File.exists?(done) and File.exists?(audio) do
+      Logger.info("[media] using cached audio: #{audio} (--fresh to re-download)")
+      {:ok, %{audio: audio, title: read_title(Path.join(out_dir, "source.info.json"))}}
+    else
+      run_download(url, out_dir, audio, done)
+    end
+  end
+
+  defp run_download(url, out_dir, audio, done) do
     with :ok <- ensure_tool("yt-dlp", "brew install yt-dlp  (or: pipx install yt-dlp)") do
       template = Path.join(out_dir, "source.%(ext)s")
 
@@ -53,11 +89,12 @@ defmodule Sinestesia.MediaSource do
 
       case System.cmd("yt-dlp", args, stderr_to_stdout: true) do
         {_, 0} ->
-          audio = Path.join(out_dir, "source.m4a")
-
-          if File.exists?(audio),
-            do: {:ok, %{audio: audio, title: read_title(Path.join(out_dir, "source.info.json"))}},
-            else: {:error, {:download_produced_no_audio, out_dir}}
+          if File.exists?(audio) do
+            File.write!(done, "")
+            {:ok, %{audio: audio, title: read_title(Path.join(out_dir, "source.info.json"))}}
+          else
+            {:error, {:download_produced_no_audio, out_dir}}
+          end
 
         {out, status} ->
           {:error, {:yt_dlp_failed, status, String.slice(out, -800, 800) <> ejs_hint(out)}}
@@ -89,6 +126,22 @@ defmodule Sinestesia.MediaSource do
   """
   @spec separate_vocals(Path.t(), Path.t()) :: {:ok, Path.t()} | {:error, term()}
   def separate_vocals(audio, out_dir) do
+    done = Path.join(out_dir, "vocals.done")
+
+    # Demucs is the slowest step of a URL run (minutes on CPU) and its
+    # output for the same audio never changes — the marker gates the cache
+    # because a killed run leaves a partial vocals.wav in place.
+    case {File.exists?(done), Path.wildcard(Path.join(out_dir, "*/*/vocals.wav"))} do
+      {true, [vocals | _]} ->
+        Logger.info("[media] using cached vocal stem: #{vocals} (--fresh to re-separate)")
+        {:ok, vocals}
+
+      _ ->
+        run_separate(audio, out_dir, done)
+    end
+  end
+
+  defp run_separate(audio, out_dir, done) do
     with :ok <- ensure_tool("demucs", "pipx install demucs  (or: pip install demucs)") do
       device = System.get_env("DEMUCS_DEVICE", "cpu")
       Logger.info("[media] isolating vocals with demucs (device: #{device}) — first run downloads the model")
@@ -98,8 +151,12 @@ defmodule Sinestesia.MediaSource do
       case System.cmd("demucs", args, stderr_to_stdout: true) do
         {_, 0} ->
           case Path.wildcard(Path.join(out_dir, "*/*/vocals.wav")) do
-            [vocals | _] -> {:ok, vocals}
-            [] -> {:error, {:demucs_produced_no_vocals, out_dir}}
+            [vocals | _] ->
+              File.write!(done, "")
+              {:ok, vocals}
+
+            [] ->
+              {:error, {:demucs_produced_no_vocals, out_dir}}
           end
 
         {out, status} ->

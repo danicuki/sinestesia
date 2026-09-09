@@ -75,6 +75,31 @@ defmodule Sinestesia.MediaSourceTest do
         assert argv =~ "--no-playlist"
         assert argv =~ "--audio-format m4a"
         assert argv =~ "https://youtu.be/abc"
+
+        assert File.exists?(Path.join(out, "download.done")),
+               "a completed download must leave the cache marker"
+      end)
+    end
+
+    test "a completed download is served from cache without invoking the tool" do
+      out = tmp_out()
+      File.write!(Path.join(out, "source.m4a"), "x")
+      File.write!(Path.join(out, "source.info.json"), ~s({"title": "Dinda"}))
+      File.write!(Path.join(out, "download.done"), "")
+
+      # The shim would fail loudly — the cache hit must never reach it.
+      with_shims([{"yt-dlp", "echo BOOM; exit 1"}], fn _ ->
+        assert {:ok, %{title: "Dinda"}} = MediaSource.download("https://youtu.be/abc", out)
+      end)
+    end
+
+    test "files without the marker are a killed run, not a cache" do
+      out = tmp_out()
+      # Audio present but no marker: the previous run died mid-write.
+      File.write!(Path.join(out, "source.m4a"), "partial")
+
+      with_shims([{"yt-dlp", "echo BOOM; exit 1"}], fn _ ->
+        assert {:error, {:yt_dlp_failed, 1, _}} = MediaSource.download("https://youtu.be/abc", out)
       end)
     end
 
@@ -146,6 +171,31 @@ defmodule Sinestesia.MediaSourceTest do
         argv = File.read!(Path.join(out, "argv"))
         assert argv =~ "--two-stems=vocals"
         assert argv =~ "-d cpu"
+
+        assert File.exists?(Path.join(out, "vocals.done")),
+               "a completed separation must leave the cache marker"
+      end)
+    end
+
+    test "a completed separation is served from cache without invoking the tool" do
+      out = tmp_out()
+      File.mkdir_p!(Path.join(out, "htdemucs/source"))
+      File.write!(Path.join(out, "htdemucs/source/vocals.wav"), "x")
+      File.write!(Path.join(out, "vocals.done"), "")
+
+      with_shims([{"demucs", "echo BOOM; exit 1"}], fn _ ->
+        assert {:ok, vocals} = MediaSource.separate_vocals("/x/source.m4a", out)
+        assert String.ends_with?(vocals, "htdemucs/source/vocals.wav")
+      end)
+    end
+
+    test "a stem without the marker is a killed run, not a cache" do
+      out = tmp_out()
+      File.mkdir_p!(Path.join(out, "htdemucs/source"))
+      File.write!(Path.join(out, "htdemucs/source/vocals.wav"), "partial")
+
+      with_shims([{"demucs", "echo BOOM; exit 1"}], fn _ ->
+        assert {:error, {:demucs_failed, 1, _}} = MediaSource.separate_vocals("/x/source.m4a", out)
       end)
     end
 

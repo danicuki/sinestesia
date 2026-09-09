@@ -1,12 +1,12 @@
 defmodule Mix.Tasks.Sinestesia.VideoMotionSegmentTest do
   use ExUnit.Case, async: true
 
-  # Real ffmpeg, real files. A scene window becomes a LIST of segments that
-  # must fill it exactly on the canvas: a keyframed clip fills it alone (it
-  # already ends on the next anchor); a drift clip reserves the window's
-  # tail for the blend into the next anchor; a failed clip degrades to the
-  # held still — all on the canvas even when the provider returned other
-  # dimensions (the Gemini lesson).
+  # Real ffmpeg, real files. Each scene window becomes exactly ONE segment
+  # — a retimed clip, or a held frame when its clip failed — normalized to
+  # the canvas even when the provider returned other dimensions (the
+  # Gemini lesson). No blending between scenes: continuity is the chain's
+  # job, and a synthetic crossfade between independent clips reads as
+  # cuts (founder-rejected on the first real Veo render).
 
   @canvas_w 1024
   @canvas_h 576
@@ -25,65 +25,35 @@ defmodule Mix.Tasks.Sinestesia.VideoMotionSegmentTest do
         stderr_to_stdout: true
       )
 
-    anchor = Path.join(dir, "norm_anchor.jpg")
+    frame = Path.join(dir, "frame.jpg")
 
     {_, 0} =
       System.cmd(
         "ffmpeg",
-        ~w(-y -v error -f lavfi -i color=c=teal:s=#{@canvas_w}x#{@canvas_h} -frames:v 1) ++ [anchor],
+        ~w(-y -v error -f lavfi -i color=c=teal:s=1280x720 -frames:v 1) ++ [frame],
         stderr_to_stdout: true
       )
 
-    %{dir: dir, clip: clip, anchor: anchor}
+    %{dir: dir, clip: clip, frame: frame}
   end
 
-  test "keyframed: one segment, retimed onto the window and the canvas", ctx do
-    scene = %{index: 0, window_ms: 3_200, from: "unused", to: "next.jpg", prompt: "x"}
+  test "a clip fills its window on the canvas, retimed", ctx do
+    scene = %{index: 0, window_ms: 3_200, from: "unused", to: nil, prompt: "x"}
 
-    [seg] =
-      Mix.Tasks.Sinestesia.Video.motion_segment(scene, ctx.clip, %{}, @canvas_w, @canvas_h, ctx.dir, 1_500, false)
+    seg =
+      Mix.Tasks.Sinestesia.Video.motion_segment(scene, {:clip, ctx.clip}, @canvas_w, @canvas_h, ctx.dir)
 
     assert probe_dims(seg) == {@canvas_w, @canvas_h}
     assert_in_delta probe_duration_s(seg), 3.2, 0.15
   end
 
-  test "drift: the window's tail becomes the blend into the next anchor", ctx do
-    scene = %{index: 0, window_ms: 3_200, from: "unused", to: "next.jpg", prompt: "x"}
-    normed = %{"next.jpg" => ctx.anchor}
+  test "a frozen frame (failed clip) holds its window, normalized to the canvas", ctx do
+    # The frame is a RAW chain frame (1280x720, provider-sized) — the
+    # segment must still come out on the canvas.
+    scene = %{index: 1, window_ms: 2_000, from: "unused", to: nil, prompt: "x"}
 
-    [body, tail] =
-      Mix.Tasks.Sinestesia.Video.motion_segment(scene, ctx.clip, normed, @canvas_w, @canvas_h, ctx.dir, 1_500, true)
-
-    # blend = min(1.5s, window/3 ≈ 1.07s) — the rest is the living clip.
-    assert_in_delta probe_duration_s(body), 3.2 - 1.0667, 0.15
-    assert_in_delta probe_duration_s(tail), 1.0667, 0.2
-    assert probe_dims(body) == {@canvas_w, @canvas_h}
-    assert probe_dims(tail) == {@canvas_w, @canvas_h}
-  end
-
-  test "drift without a next anchor (last scene) fills the window alone", ctx do
-    scene = %{index: 1, window_ms: 2_400, from: "unused", to: nil, prompt: "x"}
-
-    [seg] =
-      Mix.Tasks.Sinestesia.Video.motion_segment(scene, ctx.clip, %{}, @canvas_w, @canvas_h, ctx.dir, 1_500, true)
-
-    assert_in_delta probe_duration_s(seg), 2.4, 0.15
-  end
-
-  test "a failed clip degrades to the held still for the window", ctx do
-    scene = %{index: 2, window_ms: 2_000, from: "anchor.jpg", to: "next.jpg", prompt: "x"}
-
-    [seg] =
-      Mix.Tasks.Sinestesia.Video.motion_segment(
-        scene,
-        nil,
-        %{"anchor.jpg" => ctx.anchor},
-        @canvas_w,
-        @canvas_h,
-        ctx.dir,
-        1_500,
-        true
-      )
+    seg =
+      Mix.Tasks.Sinestesia.Video.motion_segment(scene, {:still, ctx.frame}, @canvas_w, @canvas_h, ctx.dir)
 
     assert probe_dims(seg) == {@canvas_w, @canvas_h}
     assert_in_delta probe_duration_s(seg), 2.0, 0.15

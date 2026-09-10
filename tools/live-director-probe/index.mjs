@@ -62,6 +62,16 @@ const pcmPath = join(tmpdir(), `probe-${Date.now()}.pcm`);
 const audioFilter = args.includes('--no-norm') ? 'anull' : 'loudnorm=I=-16:TP=-1.5';
 execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', audioPath, '-af', audioFilter, '-ac', '1', '-ar', '16000', '-f', 's16le', pcmPath]);
 const pcm = readFileSync(pcmPath);
+
+// Prove the signal is actually there after conversion — a silent stream
+// and a deaf server look identical from the outside.
+const stats = execFileSync(
+  'ffmpeg',
+  ['-f', 's16le', '-ar', '16000', '-ac', '1', '-i', pcmPath, '-af', 'volumedetect', '-f', 'null', '-'],
+  {stdio: ['ignore', 'ignore', 'pipe']},
+).toString();
+const vol = stats.match(/mean_volume: [^\n]+|max_volume: [^\n]+/g);
+console.log(`audio after conversion: ${vol ? vol.join(', ') : 'volumedetect failed'}`);
 rmSync(pcmPath);
 
 const BYTES_PER_SEC = 16000 * 2;
@@ -74,7 +84,11 @@ const stamp = () => {
   return `[${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(1).padStart(4, '0')}]`;
 };
 
-const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY});
+// EAP Live models live on the alpha channel — AI Studio speaks v1alpha
+// to them, and a v1beta session can half-work (opens, then hears
+// nothing). --api-version v1beta to compare.
+const apiVersion = flag('api-version', 'v1alpha');
+const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY, httpOptions: {apiVersion}});
 
 let calls = 0;
 let closed = false;
@@ -115,7 +129,7 @@ const session = await ai.live.connect({
     ],
   },
   callbacks: {
-    onopen: () => console.log(`${stamp()} session open (${model})`),
+    onopen: () => console.log(`${stamp()} session open (${model}, ${apiVersion})`),
     onmessage: (msg) => {
       if (msg.toolCall?.functionCalls?.length) {
         for (const fc of msg.toolCall.functionCalls) {
@@ -140,10 +154,12 @@ const session = await ai.live.connect({
       if (msg.serverContent?.interrupted) console.log(`${stamp()} (interrupted)`);
       if (msg.serverContent?.turnComplete) console.log(`${stamp()} (turnComplete)`);
 
-      // Anything we didn't decode: name its shape, never swallow it — a
-      // mute probe taught us nothing on its first run.
+      // Anything we didn't decode: dump it truncated, never swallow it — a
+      // mute probe taught us nothing on its first run, and Object.keys
+      // hid the contents of several message kinds on the second.
       if (!msg.toolCall && !msg.serverContent && !msg.setupComplete) {
-        console.log(`${stamp()} msg: ${JSON.stringify(Object.keys(msg))}`);
+        const raw = JSON.stringify(msg, (k, v) => (k === 'data' ? `<${(v?.length ?? 0)} bytes>` : v));
+        console.log(`${stamp()} msg: ${raw?.slice(0, 300)}`);
       }
     },
     onerror: (e) => console.error(`${stamp()} error:`, e?.message ?? e),

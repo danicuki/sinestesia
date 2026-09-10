@@ -207,7 +207,13 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     gemini =
       case Application.fetch_env!(:sinestesia, :config)[:google_api_key] do
         key when is_binary(key) and key != "" ->
-          [{:gemini, "gemini-3.1-flash-lite"}, {:gemini, "gemini-3.6-flash"}]
+          [
+            {:gemini, "gemini-3.1-flash-lite"},
+            # The newer lite tier — already the LyricsChunker/MotionDirector
+            # default, so its latency curve matters most.
+            {:gemini, "gemini-3.5-flash-lite"},
+            {:gemini, "gemini-3.6-flash"}
+          ]
 
         _ ->
           Mix.shell().info("(GOOGLE_API_KEY unset — skipping gemini models)")

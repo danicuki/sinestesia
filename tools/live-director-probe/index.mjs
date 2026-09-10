@@ -69,6 +69,7 @@ const stamp = () => {
 const ai = new GoogleGenAI({apiKey: process.env.GOOGLE_API_KEY});
 
 let calls = 0;
+let closed = false;
 
 const session = await ai.live.connect({
   model,
@@ -138,7 +139,10 @@ const session = await ai.live.connect({
       }
     },
     onerror: (e) => console.error(`${stamp()} error:`, e?.message ?? e),
-    onclose: (e) => console.log(`${stamp()} closed`, e?.reason ?? ''),
+    onclose: (e) => {
+      closed = true;
+      console.log(`${stamp()} closed`, e?.reason ?? '');
+    },
   },
 });
 
@@ -164,7 +168,7 @@ console.log(`${stamp()} streaming ${(pcm.length / BYTES_PER_SEC).toFixed(1)}s of
 let sent = 0;
 let inActivity = false;
 
-for (let off = 0; off < pcm.length; off += CHUNK_BYTES) {
+for (let off = 0; off < pcm.length && !closed; off += CHUNK_BYTES) {
   if (!autoVad && !inActivity) {
     session.sendRealtimeInput({activityStart: {}});
     inActivity = true;
@@ -188,6 +192,11 @@ for (let off = 0; off < pcm.length; off += CHUNK_BYTES) {
   }
 
   await new Promise((r) => setTimeout(r, CHUNK_MS));
+}
+
+if (closed) {
+  console.log(`${stamp()} server closed the session mid-stream — stopping (${calls} draw_scene)`);
+  process.exit(1);
 }
 
 if (!autoVad && inActivity) session.sendRealtimeInput({activityEnd: {}});

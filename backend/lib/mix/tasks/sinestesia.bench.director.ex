@@ -11,17 +11,22 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   plus the longest direction that fits common budgets.
 
       mix sinestesia.bench.director
-      mix sinestesia.bench.director --runs 5 --models ollama:gemma4:12b-mlx
-      mix sinestesia.bench.director --models gemini:gemini-3.1-flash-lite,gemini:gemini-3.6-flash
+      mix sinestesia.bench.director --runs 3 --targets 15,30,60,100
+      mix sinestesia.bench.director --models gemini:gemini-3.1-flash-lite
 
   Defaults: every model it has credentials for — the configured
-  OLLAMA_MODEL, plus gemini flash-lite/flash when GOOGLE_API_KEY is set.
-  `--runs` (default 3) samples per point; medians are reported. Nothing
-  here is a paid video call — text only.
+  OLLAMA_MODEL, plus gemini flash-lite/flash when GOOGLE_API_KEY is set —
+  at TWO target lengths, ONE run each (2 calls per model + 1 warmup per
+  provider): a fixed-cost + per-word line needs exactly two points, and
+  samples are someone's quota. `--runs`/`--targets` deepen the sweep.
+  Nothing here is a paid video call — text only.
   """
   use Mix.Task
 
-  @targets [15, 30, 60, 100]
+  # Two points per model by default — a fixed-cost + per-word line needs
+  # exactly two, and every extra sample is real quota on someone's key
+  # (founder: "Basta um ou dois"). --targets/--runs deepen it when wanted.
+  @default_targets [20, 100]
   @budgets_ms [500, 1000, 2000]
 
   @line "Queria que a verdade fosse como um fruto, que a gente alcançasse a qualquer minuto"
@@ -30,25 +35,42 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   @impl true
   def run(args) do
     {opts, [], []} =
-      OptionParser.parse(args, strict: [models: :string, runs: :integer])
+      OptionParser.parse(args, strict: [models: :string, runs: :integer, targets: :string])
 
     System.put_env("PORT", System.get_env("REPLAY_PORT", "4999"))
     Mix.Task.run("app.start")
 
-    runs = opts[:runs] || 3
+    runs = opts[:runs] || 1
+
+    targets =
+      case opts[:targets] do
+        nil -> @default_targets
+        spec -> spec |> String.split(",") |> Enum.map(&String.to_integer(String.trim(&1)))
+      end
+
     models = parse_models(opts[:models]) || available_models()
 
     models == [] &&
       Mix.raise("no models available — set GOOGLE_API_KEY and/or run ollama, or pass --models")
 
+    calls = length(models) * length(targets) * runs
+
     Mix.shell().info(
-      "── director bench: #{length(models)} model(s) × #{length(@targets)} lengths × #{runs} run(s) ──\n"
+      "── director bench: #{length(models)} model(s) × #{length(targets)} lengths × #{runs} run(s) = #{calls} calls (+1 warmup per provider) ──\n"
     )
+
+    # One untimed warmup per provider KIND: the first request pays TLS
+    # setup (and ollama pays model load) — without this the fixed cost of
+    # whichever model runs first is inflated by infrastructure.
+    for kind <- models |> Enum.map(&elem(&1, 0)) |> Enum.uniq() do
+      {_kind, model} = Enum.find(models, &(elem(&1, 0) == kind))
+      complete(kind, model, "Reply with the single word: ready", "warmup")
+    end
 
     results =
       for {kind, model} <- models do
         rows =
-          for target <- @targets do
+          for target <- targets do
             samples =
               for _ <- 1..runs do
                 {ms, text} = time_completion(kind, model, target)
@@ -96,19 +118,26 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     end
   end
 
-  defp complete(:gemini, model, system, user) do
+  defp complete(:gemini, model, system, user), do: gemini_call(model, system, user, true)
+
+  # Mirrors the live Director's gemini call: thinking OFF — on stage the
+  # model answers, it does not deliberate. Some models REFUSE a zero
+  # thinking budget with a 400 whose message says so; those get one retry
+  # with thinking left on, flagged in the log, so the row measures what
+  # that model can actually do rather than failing eight times in a row.
+  defp gemini_call(model, system, user, thinking_off?) do
     key = Application.fetch_env!(:sinestesia, :config)[:google_api_key]
 
-    # Mirrors the live Director's gemini call: thinking OFF — on stage the
-    # model answers, it does not deliberate (director.ex does the same).
+    generation =
+      %{temperature: 0.3, maxOutputTokens: 4_000}
+      |> then(fn g ->
+        if thinking_off?, do: Map.put(g, :thinkingConfig, %{thinkingBudget: 0}), else: g
+      end)
+
     body = %{
       systemInstruction: %{parts: [%{text: system}]},
       contents: [%{role: "user", parts: [%{text: user}]}],
-      generationConfig: %{
-        temperature: 0.3,
-        maxOutputTokens: 1_000,
-        thinkingConfig: %{thinkingBudget: 0}
-      }
+      generationConfig: generation
     }
 
     url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
@@ -120,8 +149,22 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
           _ -> {:error, {:empty, body["promptFeedback"]}}
         end
 
-      {:ok, resp} -> {:error, {:bad_status, resp.status}}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{status: 400, body: body}} ->
+        message = get_in(body, ["error", "message"]) || inspect(body)
+
+        if thinking_off? and message =~ ~r/think/i do
+          Mix.shell().info("  (#{model} refuses thinkingBudget 0 — measuring WITH thinking)")
+          gemini_call(model, system, user, false)
+        else
+          {:error, {:bad_status, 400, String.slice(message, 0, 200)}}
+        end
+
+      {:ok, resp} ->
+        message = get_in(resp.body, ["error", "message"]) || ""
+        {:error, {:bad_status, resp.status, String.slice(message, 0, 200)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

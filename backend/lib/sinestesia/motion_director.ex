@@ -118,7 +118,7 @@ defmodule Sinestesia.MotionDirector do
 
   def direct(style, scene_prompts, lyrics, opts) do
     model = Keyword.get(opts, :model, @default_model)
-    user = user_message(style, scene_prompts, lyrics)
+    user = user_message(style, scene_prompts, lyrics, Keyword.get(opts, :note))
 
     case try_direct(user, model, length(scene_prompts), 2) do
       {:ok, film, directions} ->
@@ -201,7 +201,7 @@ defmodule Sinestesia.MotionDirector do
     end)
   end
 
-  defp user_message(style, scene_prompts, lyrics) do
+  defp user_message(style, scene_prompts, lyrics, note \\ nil) do
     numbered =
       scene_prompts
       |> Enum.with_index()
@@ -209,7 +209,10 @@ defmodule Sinestesia.MotionDirector do
 
     lyrics_block = if lyrics, do: "LYRICS:\n#{lyrics}\n\n", else: ""
 
-    "STYLE: #{style || "unspecified"}\n\n#{lyrics_block}SCENES (numbered):\n#{numbered}"
+    note_block =
+      if note, do: "PRODUCER'S NOTE (binding — overrides your own reading):\n#{note}\n\n", else: ""
+
+    "STYLE: #{style || "unspecified"}\n\n#{note_block}#{lyrics_block}SCENES (numbered):\n#{numbered}"
   end
 
   # One numbered direction per scene, tolerating stray blank lines. Anything

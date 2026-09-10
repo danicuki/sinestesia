@@ -117,6 +117,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --motion          living-scene mode (paid generated clips, see above)
       --motion-model M  veo-lite (default) | veo-fast | veo | h3-max | h3
       --motion-chain C  sequential (default) | keyframed (fal engines only)
+      --film-note TEXT  a producer's note the film director must honor —
+                        casting, point of view, what the film is REALLY
+                        about ("the beloved is a man", "no people at all")
       --motion-director M  gemini model that writes the film direction
                         (default gemini-3.5-flash-lite; try gemini-3.6-flash
                         for more interpretive muscle — offline, so latency
@@ -957,6 +960,8 @@ defmodule Mix.Tasks.Sinestesia.Video do
     {dir_source, film, directions} =
       directed(style, Enum.map(scenes, & &1.prompt), director_model, opts)
 
+    if opts[:film_note], do: Mix.shell().info("[motion] producer's note applied to the direction")
+
     if film, do: Mix.shell().info("[motion] film treatment: #{film}")
 
     if dir_source == :fallback do
@@ -1154,7 +1159,13 @@ defmodule Mix.Tasks.Sinestesia.Video do
           :crypto.hash(
             :sha256,
             Enum.join(
-              [Sinestesia.MotionDirector.revision(), model, style || "", opts[:lyrics_text] || "" | scene_prompts],
+              [
+                Sinestesia.MotionDirector.revision(),
+                model,
+                opts[:film_note] || "",
+                style || "",
+                opts[:lyrics_text] || "" | scene_prompts
+              ],
               "\n"
             )
           )
@@ -1173,7 +1184,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
         %{"film" => film, "directions" => directions} -> {:directed, film, directions}
       end
     else
-      case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text], model: model) do
+      case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text],
+             model: model,
+             note: opts[:film_note]
+           ) do
         {:directed, film, directions} ->
           if cache,
             do: File.write!(cache, Jason.encode!(%{film: film, directions: directions}))
@@ -1699,6 +1713,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
              motion_model: :string,
              motion_chain: :string,
              motion_director: :string,
+             film_note: :string,
              motion_resolution: :string,
              yes: :boolean
            ]

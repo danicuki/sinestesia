@@ -207,8 +207,12 @@ for (let off = 0; off < pcm.length && !closed; off += CHUNK_BYTES) {
     inActivity = true;
   }
 
+  // `audio:` — NOT `media:`. The SDK serializes media into the LEGACY
+  // mediaChunks protocol field, which the EAP servers ignore: 90s of
+  // healthy -19 dBFS singing got "<no speech detected>" because the audio
+  // pipeline never saw a byte. audio: lands in the dedicated field.
   session.sendRealtimeInput({
-    media: {data: pcm.subarray(off, off + CHUNK_BYTES).toString('base64'), mimeType: 'audio/pcm;rate=16000'},
+    audio: {data: pcm.subarray(off, off + CHUNK_BYTES).toString('base64'), mimeType: 'audio/pcm;rate=16000'},
   });
 
   sent += CHUNK_MS;

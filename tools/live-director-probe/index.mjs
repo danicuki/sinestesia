@@ -63,16 +63,25 @@ const audioFilter = args.includes('--no-norm') ? 'anull' : 'loudnorm=I=-16:TP=-1
 execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', audioPath, '-af', audioFilter, '-ac', '1', '-ar', '16000', '-f', 's16le', pcmPath]);
 const pcm = readFileSync(pcmPath);
 
-// Prove the signal is actually there after conversion — a silent stream
-// and a deaf server look identical from the outside.
-const stats = execFileSync(
-  'ffmpeg',
-  ['-f', 's16le', '-ar', '16000', '-ac', '1', '-i', pcmPath, '-af', 'volumedetect', '-f', 'null', '-'],
-  {stdio: ['ignore', 'ignore', 'pipe']},
-).toString();
-const vol = stats.match(/mean_volume: [^\n]+|max_volume: [^\n]+/g);
-console.log(`audio after conversion: ${vol ? vol.join(', ') : 'volumedetect failed'}`);
 rmSync(pcmPath);
+
+// Prove the signal is actually there after conversion — a silent stream
+// and a deaf server look identical from the outside. Straight from the
+// PCM samples: no subprocess, no stderr-capture traps.
+{
+  let peak = 0;
+  let sumSq = 0;
+  const samples = pcm.length / 2;
+  for (let i = 0; i < pcm.length; i += 2) {
+    const v = pcm.readInt16LE(i);
+    const a = Math.abs(v);
+    if (a > peak) peak = a;
+    sumSq += v * v;
+  }
+  const rmsDb = 10 * Math.log10(sumSq / samples / (32768 * 32768));
+  const peakDb = 20 * Math.log10(Math.max(peak, 1) / 32768);
+  console.log(`audio after conversion: rms ${rmsDb.toFixed(1)} dBFS, peak ${peakDb.toFixed(1)} dBFS`);
+}
 
 const BYTES_PER_SEC = 16000 * 2;
 const CHUNK_MS = 200;

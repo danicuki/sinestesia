@@ -150,10 +150,15 @@ defmodule Sinestesia.VideoGen.FalMinimax do
 
   defp poll(status_url, response_url, dest, deadline) do
     case Req.get(status_url, headers: auth(), retry: false) do
-      {:ok, %{status: 200, body: %{"status" => "COMPLETED"}}} ->
+      {:ok, %{status: http, body: %{"status" => "COMPLETED"}}} when http in [200, 202] ->
         fetch_result(response_url, dest)
 
-      {:ok, %{status: 200, body: %{"status" => status}}} when status in ["IN_QUEUE", "IN_PROGRESS"] ->
+      # fal answers the status poll with HTTP 202 while the request is
+      # still queued/running — treating that as an error insta-failed
+      # every scene of a real run (2026-09-10). The queue state lives in
+      # the BODY; 200 vs 202 is just transport mood.
+      {:ok, %{status: http, body: %{"status" => status}}}
+      when http in [200, 202] and status in ["IN_QUEUE", "IN_PROGRESS"] ->
         if now_ms() > deadline do
           {:error, {:stuck, status, status_url}}
         else

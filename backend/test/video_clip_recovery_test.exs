@@ -115,6 +115,17 @@ defmodule Mix.Tasks.Sinestesia.VideoClipRecoveryTest do
     assert Process.get(:prompts) == ["waves roll in. Tarsila do Amaral brazilian modernist"]
   end
 
+  test "strip_style removes the suffix wherever the Director echoed it" do
+    style = "Tarsila do Amaral brazilian modernist"
+
+    assert Mix.Tasks.Sinestesia.Video.strip_style(
+             "A runner poised at the starting line. #{style}. #{style}",
+             style
+           ) == "A runner poised at the starting line"
+
+    assert Mix.Tasks.Sinestesia.Video.strip_style("plain note", nil) == "plain note"
+  end
+
   test "a different direction is a different cache entry", ctx do
     cache_dir = Path.join(ctx.dir, "clips")
     opts = Keyword.put(ctx.opts, :clip_cache_dir, cache_dir)

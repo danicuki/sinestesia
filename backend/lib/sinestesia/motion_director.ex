@@ -43,6 +43,12 @@ defmodule Sinestesia.MotionDirector do
 
   The LAST shot has no destination: let it live, then slowly settle.
 
+  NEVER name a real person in a direction — not celebrities, not the
+  artist whose style is referenced (video models refuse real people's
+  names and likenesses outright, and one refused shot is a hole in the
+  film). When the style cites an artist, describe the LOOK in plain
+  visual terms — brushwork, palette, shapes — without the name.
+
   Reply with ONLY the directions, one per line, in the form:
 
   N: direction

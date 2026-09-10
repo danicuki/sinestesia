@@ -110,6 +110,7 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     {status, payload, state} =
       case respond(method, path, port, state) do
         {:error_405, state} -> {405, "", state}
+        {:with_status, code, payload, state} -> {code, payload, state}
         {payload, state} -> {200, payload, state}
       end
 
@@ -152,8 +153,10 @@ defmodule Sinestesia.VideoGen.FalMinimaxTest do
     {body, state}
   end
 
+  # The real queue answers 202 while the request is pending — a poll that
+  # only accepts 200 insta-fails every scene (hit live 2026-09-10).
   defp respond(:GET, "/minimax/h3-max/requests/r1/status", _port, %{status_calls: 0} = state),
-    do: {~s({"status":"IN_QUEUE","queue_position":0}), %{state | status_calls: 1}}
+    do: {:with_status, 202, ~s({"status":"IN_PROGRESS","queue_position":0}), %{state | status_calls: 1}}
 
   defp respond(:GET, "/minimax/h3-max/requests/r1/status", _port, state),
     do: {~s({"status":"COMPLETED"}), state}

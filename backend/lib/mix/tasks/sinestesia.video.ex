@@ -986,7 +986,12 @@ defmodule Mix.Tasks.Sinestesia.Video do
       clip_cache_dir: opts[:media_cache] && Path.join(opts[:media_cache], "clips")
     ]
 
-    safes = Sinestesia.MotionDirector.fallback(Enum.map(scenes, & &1.prompt))
+    # The Director's content notes carry the style suffix — including any
+    # real artist's name in it — and the neutral fallback direction quotes
+    # the NEXT scene's note verbatim, which smuggled "Tarsila do Amaral"
+    # right back into the safety retry (refused live, 2026-09-10).
+    safes =
+      Sinestesia.MotionDirector.fallback(Enum.map(scenes, &strip_style(&1.prompt, style)))
 
     work =
       [scenes, directions, durations, safes]
@@ -1225,17 +1230,39 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
             refused_clip?(reason) and not safe_tried? and opts[:safe_direction] != nil ->
               Mix.shell().info(
-                "[motion] scene #{index}: direction was safety-refused; retrying with a neutral direction"
+                "[motion] scene #{index}: direction was safety-refused; retrying with a neutral direction\n" <>
+                  "  refused prompt: #{inspect(prompt)}"
               )
 
               attempt_clip(index, opts[:safe_direction], duration, from, to, dest, opts, tries, true)
 
             true ->
-              Mix.shell().error("[motion] scene #{index} clip failed: #{inspect(reason)}")
+              Mix.shell().error(
+                "[motion] scene #{index} clip failed: #{inspect(reason)}\n" <>
+                  "  prompt was: #{inspect(prompt)}"
+              )
+
               :error
           end
       end
     end
+  end
+
+  # Remove every occurrence of the style suffix from a Director content
+  # note (it can appear twice — the Director sometimes echoes it), leaving
+  # clean scene content for safety-sensitive uses.
+  @doc false
+  # Public for tests; not part of any API.
+  def strip_style(text, nil), do: text
+
+  def strip_style(text, style) do
+    text
+    |> String.replace(style, "")
+    |> String.replace(~r/\s+/, " ")
+    |> String.replace(~r/(\.\s*)+/, ". ")
+    |> String.trim()
+    |> String.trim_trailing(".")
+    |> String.trim()
   end
 
   defp transient_clip_error?({:no_video, %{error: %{"code" => 14}}}), do: true

@@ -26,10 +26,23 @@ defmodule Sinestesia.MotionDirector do
   no teleports, every change arrives by motion, transformation, camera
   movement or light.
 
+  FIRST, interpret the SONG — read the whole lyric before directing a
+  single shot, and invent the film's TREATMENT: one world, one
+  protagonist or point of view, one palette and mood, one system of
+  images that carries what the song MEANS. When the lyrics are
+  metaphorical or abstract, film the feeling — the longing, the memory,
+  the person being sung to — inside that world; NEVER illustrate the
+  metaphor's noun ("wishing truth were a fruit" is not a picture of
+  fruit — it is the protagonist reaching for something in the film's own
+  language; "sweet" is not honey). Literal staging of figurative lines
+  reads as comedy and kills the art. A song that is genuinely concrete
+  and visual may be filmed as written.
+
   You receive the song's full lyrics, the visual style, and the numbered
   scenes: each scene is what is being SUNG during that shot, with a content
-  note of what the scene should contain. Write ONE direction per shot,
-  30-60 words, cinematic and concrete, for a video generation model:
+  note of what the scene should contain — treat the note as raw material,
+  subordinate to your treatment, not as an order. Write ONE direction per
+  shot, 30-60 words, cinematic and concrete, for a video generation model:
 
   - SUBJECT and ACTION: what is on screen and what it does — real movement
     (walking, blooming, waves rolling), not a static tableau.
@@ -49,11 +62,13 @@ defmodule Sinestesia.MotionDirector do
   film). When the style cites an artist, describe the LOOK in plain
   visual terms — brushwork, palette, shapes — without the name.
 
-  Reply with ONLY the directions, one per line, in the form:
+  Reply with the treatment first, then the directions, one per line:
 
+  FILM: <one sentence — the world, protagonist/POV, palette, mood>
   N: direction
 
-  exactly one line per shot, 0-indexed, no other text, no markdown.
+  exactly one FILM line and one direction line per shot, 0-indexed, no
+  other text, no markdown.
   """
 
   @doc """
@@ -62,33 +77,35 @@ defmodule Sinestesia.MotionDirector do
   lyric sheet, given whole so the direction can breathe with the SONG —
   choruses echoing, verses evolving — not just with isolated captions.
 
-  Returns `{:directed, directions}` or `{:fallback, directions}` — the
-  caller decides what a paid run does about generic directions; degrading
-  silently once cost a whole render its expressiveness.
+  Returns `{:directed | :fallback, film, directions}` — `film` is the
+  director's one-line treatment (nil on fallback), which callers prepend
+  to every clip prompt so the world stays coherent even when a chain link
+  breaks. The source tag exists because degrading silently once cost a
+  whole render its expressiveness.
   """
   @attempts 3
 
   @spec direct(String.t() | nil, [String.t()], String.t() | nil) ::
-          {:directed | :fallback, [String.t()]}
+          {:directed | :fallback, String.t() | nil, [String.t()]}
   def direct(style, scene_prompts, lyrics \\ nil)
 
-  def direct(_style, [], _lyrics), do: {:directed, []}
+  def direct(_style, [], _lyrics), do: {:directed, nil, []}
 
   def direct(style, scene_prompts, lyrics) do
     case attempt(user_message(style, scene_prompts, lyrics), @attempts) do
       {:ok, raw} ->
         case parse(raw, length(scene_prompts)) do
-          {:ok, directions} ->
-            {:directed, directions}
+          {:ok, film, directions} ->
+            {:directed, film, directions}
 
           {:error, reason} ->
             Logger.warning("[motion_director] bad response (#{inspect(reason)}); using fallback")
-            {:fallback, fallback(scene_prompts)}
+            {:fallback, nil, fallback(scene_prompts)}
         end
 
       {:error, reason} ->
         Logger.warning("[motion_director] #{inspect(reason)}; using fallback")
-        {:fallback, fallback(scene_prompts)}
+        {:fallback, nil, fallback(scene_prompts)}
     end
   end
 
@@ -151,12 +168,23 @@ defmodule Sinestesia.MotionDirector do
   # short of exact coverage is a bad answer — the fallback is always safe.
   @doc false
   def parse(raw, count) do
-    lines =
+    trimmed =
       raw
       |> String.split("\n", trim: true)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == "" or String.starts_with?(&1, "```")))
-      |> Enum.map(fn line ->
+
+    # The treatment line is the film's identity; a model that skipped it
+    # still yields a usable answer (film nil), never a rejection — the
+    # numbered contract below stays the strict part.
+    {film, rest} =
+      case trimmed do
+        ["FILM:" <> film | rest] -> {String.trim(film), rest}
+        rest -> {nil, rest}
+      end
+
+    lines =
+      Enum.map(rest, fn line ->
         case Regex.run(~r/^(\d+)\s*[:.\-]\s*(.+)$/, line) do
           [_, n, text] -> {String.to_integer(n), text}
           _ -> :error
@@ -171,7 +199,7 @@ defmodule Sinestesia.MotionDirector do
         {:error, {:bad_coverage, Enum.map(lines, &elem(&1, 0))}}
 
       true ->
-        {:ok, Enum.map(lines, &elem(&1, 1))}
+        {:ok, film, Enum.map(lines, &elem(&1, 1))}
     end
   end
 

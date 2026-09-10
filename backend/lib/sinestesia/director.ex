@@ -61,6 +61,7 @@ defmodule Sinestesia.Director do
 
     Rules:
     - LEAD with the concrete imagery from the NEW line: landscape, objects, weather, motion.
+    - Figurative lines are feelings, not objects: never depict a metaphor's noun literally — translate the emotion into the scene's light, weather and motion instead.
     - End with the literal style note: "#{style}"
     - No people. No faces. No text. No logos. No quotes. No preamble.
     - Output ONE prompt in English, max 22 words.
@@ -93,6 +94,7 @@ defmodule Sinestesia.Director do
     - PEOPLE ARE WELCOME and should be painted when the lyrics are about them: as stylized full-body figures or silhouettes with a pose, clothing and color that express the lyric. Never close-up faces, never photorealistic portraits.
     - When the lyric describes a type or quality of person ("mulher atrevida", "solteira feliz"), paint ONE distinct figure embodying it — each new type is a NEW different figure, so the picture becomes a gallery.
     - ATMOS only when there is truly nothing to draw (pure feelings, time passing) or when the line just repeats imagery already painted.
+    - METAPHORS ARE NOT OBJECTS: when a line uses imagery figuratively ("queria que a verdade fosse como um fruto" is longing, not fruit; "fosse como um doce" is tenderness, not honey), do NOT draw the metaphor's noun — express the feeling through what is already painted (light, weather, a figure's posture) via ATMOS, or add an element that belongs to the song's WORLD. Draw a noun only when the song actually places it in its world; a genuinely visual song ("eu desenho um sol amarelo") is drawn as written.
     - Name elements plainly ("a sailboat", "a yellow sun"). NEVER use minimizers like "small", "tiny", "distant", "in the background" — but don't force size words either.
     - Choose a POS likely to be EMPTY space. VARY the position across the song — never repeat the previous POS.
     - The FIRST line of a song is always NEW, POS top or center.
@@ -125,6 +127,7 @@ defmodule Sinestesia.Director do
     - Give the NEW element a placement into empty space (e.g. "a castle on the right"). Don't force size words.
     - The FIRST line of a song has no scene yet: reply with just the opening element in a wide airy scene.
     - If the line is abstract with no concrete imagery, the new element is a subtle atmospheric shift (deeper shadows, drifting light, wind).
+    - METAPHORS ARE NOT OBJECTS: a figurative line ("queria que a verdade fosse como um fruto" = longing, not fruit) must NOT contribute the metaphor's noun — express the feeling through the existing scene (light, weather, posture) or an element of the song's WORLD. Draw a noun only when the song truly places it; a genuinely visual song ("eu desenho um sol amarelo") is drawn as written.
     - Do NOT mention any art style, medium or technique (no "sketch", "painting", "watercolor", artist names) — style is handled elsewhere. Content only.
     - NEVER ask the singer for input. NEVER write meta-commentary. No text. No logos. No quotes. English only. Max 30 words.
 

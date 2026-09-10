@@ -947,7 +947,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # directions is how this lesson was learned. Directed results are
     # CACHED per song: rerunning after an interruption must reuse the same
     # directions, or the clip cache below could never hit.
-    {dir_source, directions} = directed(style, Enum.map(scenes, & &1.prompt), opts)
+    {dir_source, film, directions} = directed(style, Enum.map(scenes, & &1.prompt), opts)
+
+    if film, do: Mix.shell().info("[motion] film treatment: #{film}")
 
     if dir_source == :fallback do
       Mix.shell().error(
@@ -978,6 +980,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
       model: model_name,
       resolution: resolution,
       style_suffix: style,
+      film: film,
       aspect_ratio: if(w >= h, do: "16:9", else: "9:16"),
       # A safety-refused direction gets ONE retry with this scene's neutral
       # fallback direction — drier language, same journey. And finished
@@ -1146,12 +1149,19 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
     if cache && File.exists?(cache) do
       Mix.shell().info("[motion] using cached film direction (--fresh to redo)")
-      {:directed, cache |> File.read!() |> Jason.decode!()}
+
+      case cache |> File.read!() |> Jason.decode!() do
+        # Pre-treatment cache entries were a bare list of directions.
+        directions when is_list(directions) -> {:directed, nil, directions}
+        %{"film" => film, "directions" => directions} -> {:directed, film, directions}
+      end
     else
       case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text]) do
-        {:directed, directions} ->
-          if cache, do: File.write!(cache, Jason.encode!(directions))
-          {:directed, directions}
+        {:directed, film, directions} ->
+          if cache,
+            do: File.write!(cache, Jason.encode!(%{film: film, directions: directions}))
+
+          {:directed, film, directions}
 
         fallback ->
           fallback
@@ -1177,16 +1187,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
   defp attempt_clip(index, direction, duration, from, to, dest, opts, tries, safe_tried?) do
     engine = Keyword.fetch!(opts, :engine)
 
-    # The safe attempt after a refusal drops the style suffix too: a style
-    # naming a real artist ("Tarsila do Amaral...") trips Veo's likeness
-    # filter no matter how neutral the direction is — hit live 2026-09-09.
-    # The aesthetic survives regardless: the opening frame carries it.
-    prompt =
+    # Every prompt opens with the film treatment — the world survives even
+    # when a chain link breaks and a clip generates with a weak seed. The
+    # safe attempt after a refusal drops the style suffix: a style naming
+    # a real artist ("Tarsila do Amaral...") trips Veo's likeness filter
+    # no matter how neutral the direction is — hit live 2026-09-09. The
+    # aesthetic survives regardless: treatment + opening frame carry it.
+    shot =
       if safe_tried? do
         "#{direction}, keeping the established visual style of the opening frame"
       else
         if s = opts[:style_suffix], do: "#{direction}. #{s}", else: direction
       end
+
+    prompt = if f = opts[:film], do: "#{f} — #{shot}", else: shot
     cache = clip_cache_path(opts[:clip_cache_dir], prompt, duration, from, to, opts)
 
     if cache && File.exists?(cache) do

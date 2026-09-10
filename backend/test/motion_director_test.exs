@@ -14,7 +14,7 @@ defmodule Sinestesia.MotionDirectorTest do
       ```
       """
 
-      assert {:ok, directions} = MotionDirector.parse(raw, 3)
+      assert {:ok, nil, directions} = MotionDirector.parse(raw, 3)
       assert length(directions) == 3
       assert hd(directions) =~ "drifts"
     end
@@ -33,12 +33,30 @@ defmodule Sinestesia.MotionDirectorTest do
   describe "direct/3" do
     test "with no key, labels the result a FALLBACK so paid runs can warn" do
       # Test env has no google_api_key: direct must degrade — but never
-      # silently. The {:fallback, _} tag is what lets the cost gate say
+      # silently. The {:fallback, _, _} tag is what lets the cost gate say
       # "GENERIC directions" before money is spent.
-      assert {:fallback, directions} =
+      assert {:fallback, nil, directions} =
                Sinestesia.MotionDirector.direct("style", ["scene a", "scene b"], "la la")
 
       assert length(directions) == 2
+    end
+  end
+
+  describe "the film treatment line" do
+    test "FILM: opens the answer and rides along with the directions" do
+      raw = """
+      FILM: A lone sailor's dusk reverie — ochre coast, deep blue sea, longing.
+      0: the camera drifts across the harbor
+      1: the boat leans into the wind, sails filling
+      """
+
+      assert {:ok, film, [d0, _d1]} = Sinestesia.MotionDirector.parse(raw, 2)
+      assert film =~ "sailor"
+      assert d0 =~ "harbor"
+    end
+
+    test "an answer without FILM still parses — film is nil, never a rejection" do
+      assert {:ok, nil, ["a", "b"]} = Sinestesia.MotionDirector.parse("0: a\n1: b", 2)
     end
   end
 

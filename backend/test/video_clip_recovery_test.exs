@@ -115,6 +115,17 @@ defmodule Mix.Tasks.Sinestesia.VideoClipRecoveryTest do
     assert Process.get(:prompts) == ["waves roll in. Tarsila do Amaral brazilian modernist"]
   end
 
+  test "the film treatment opens every prompt", ctx do
+    opts = Keyword.put(ctx.opts, :film, "A dusk reverie in ochre and blue")
+    Process.put(:script, [:ok])
+
+    assert {:ok, _} = generate("waves roll in", ctx.dir, opts)
+
+    assert Process.get(:prompts) == [
+             "A dusk reverie in ochre and blue — waves roll in. Tarsila do Amaral brazilian modernist"
+           ]
+  end
+
   test "strip_style removes the suffix wherever the Director echoed it" do
     style = "Tarsila do Amaral brazilian modernist"
 

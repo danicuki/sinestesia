@@ -67,6 +67,9 @@ const session = await ai.live.connect({
   config: {
     responseModalities: [Modality.AUDIO],
     outputAudioTranscription: {},
+    // What the model HEARS, verbatim — answers the sung-word-comprehension
+    // question even if it never fires a tool call.
+    inputAudioTranscription: {},
     systemInstruction:
       'You are the silent visual director of a live music performance. You LISTEN to the ' +
       'singer and, for each sung line or phrase, immediately call draw_scene with one vivid, ' +
@@ -110,8 +113,20 @@ const session = await ai.live.connect({
         }
       }
 
-      const heard = msg.serverContent?.outputTranscription?.text;
-      if (heard) console.log(`${stamp()} (model spoke: ${JSON.stringify(heard)})`);
+      const heardIn = msg.serverContent?.inputTranscription?.text;
+      if (heardIn) console.log(`${stamp()} heard: ${JSON.stringify(heardIn)}`);
+
+      const spoke = msg.serverContent?.outputTranscription?.text;
+      if (spoke) console.log(`${stamp()} (model spoke: ${JSON.stringify(spoke)})`);
+
+      if (msg.serverContent?.interrupted) console.log(`${stamp()} (interrupted)`);
+      if (msg.serverContent?.turnComplete) console.log(`${stamp()} (turnComplete)`);
+
+      // Anything we didn't decode: name its shape, never swallow it — a
+      // mute probe taught us nothing on its first run.
+      if (!msg.toolCall && !msg.serverContent && !msg.setupComplete) {
+        console.log(`${stamp()} msg: ${JSON.stringify(Object.keys(msg))}`);
+      }
     },
     onerror: (e) => console.error(`${stamp()} error:`, e?.message ?? e),
     onclose: (e) => console.log(`${stamp()} closed`, e?.reason ?? ''),
@@ -120,9 +135,12 @@ const session = await ai.live.connect({
 
 if (lyricsPath) {
   const lyrics = readFileSync(lyricsPath, 'utf8');
+  // turnComplete: true — WITHOUT it the server sits waiting for more
+  // client content before generating anything (EAP doc), which muted the
+  // whole first probe run. At t=0 there is nothing to interrupt.
   session.sendClientContent({
     turns: `CONTEXT — the full lyrics of the song about to be performed (for interpretation; direct only what is actually sung):\n${lyrics}`,
-    turnComplete: false,
+    turnComplete: true,
   });
   console.log(`${stamp()} lyrics injected as client content`);
 }
@@ -131,10 +149,18 @@ if (lyricsPath) {
 // the file must not arrive faster than a singer would sing it.
 console.log(`${stamp()} streaming ${(pcm.length / BYTES_PER_SEC).toFixed(1)}s of audio in real time…`);
 
+let sent = 0;
+
 for (let off = 0; off < pcm.length; off += CHUNK_BYTES) {
   session.sendRealtimeInput({
     media: {data: pcm.subarray(off, off + CHUNK_BYTES).toString('base64'), mimeType: 'audio/pcm;rate=16000'},
   });
+
+  sent += CHUNK_MS;
+  if (sent % 15000 === 0) {
+    console.log(`${stamp()} …streaming (${sent / 1000}s sent, ${calls} draw_scene so far)`);
+  }
+
   await new Promise((r) => setTimeout(r, CHUNK_MS));
 }
 

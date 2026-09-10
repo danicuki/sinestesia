@@ -55,6 +55,17 @@ const lyricsPath = flag('lyrics', null);
 const autoVad = !args.includes('--manual-vad');
 const segmentMs = Number(flag('segment', '8')) * 1000;
 
+// The validated run answered ONE direction for 34s of continuous singing:
+// sung phrases flow over breath pauses, so the default VAD only closes a
+// turn at a long instrumental gap. Tightened end-of-speech + a short
+// silence window make each breath a turn boundary — direction per phrase.
+const silenceMs = Number(flag('silence-ms', '400'));
+
+// Fallback pacer for songs with NO usable gaps: every N seconds, force a
+// turn with a client-content nudge (turnComplete unconditionally closes
+// the turn). 0 = off.
+const nudgeMs = Number(flag('nudge', '0')) * 1000;
+
 // The Live API wants 16 kHz mono PCM16. loudnorm lifts the input to
 // speech-typical loudness first: a Demucs vocal stem can sit far below
 // what a mic delivers, and a too-quiet signal never wakes the VAD.
@@ -106,7 +117,14 @@ const session = await ai.live.connect({
   model,
   config: {
     responseModalities: [Modality.AUDIO],
-    ...(autoVad ? {} : {realtimeInputConfig: {automaticActivityDetection: {disabled: true}}}),
+    realtimeInputConfig: {
+      automaticActivityDetection: autoVad
+        ? {
+            endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
+            silenceDurationMs: silenceMs,
+          }
+        : {disabled: true},
+    },
     outputAudioTranscription: {},
     // What the model HEARS, verbatim — answers the sung-word-comprehension
     // question even if it never fires a tool call.
@@ -222,6 +240,13 @@ for (let off = 0; off < pcm.length && !closed; off += CHUNK_BYTES) {
   if (!autoVad && inActivity && sent % segmentMs === 0) {
     session.sendRealtimeInput({activityEnd: {}});
     inActivity = false;
+  }
+
+  if (nudgeMs > 0 && sent % nudgeMs === 0) {
+    session.sendClientContent({
+      turns: '[direct the scene for what was just sung — call draw_scene now]',
+      turnComplete: true,
+    });
   }
 
   if (sent % 15000 === 0) {

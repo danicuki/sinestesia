@@ -99,10 +99,16 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   defp complete(:gemini, model, system, user) do
     key = Application.fetch_env!(:sinestesia, :config)[:google_api_key]
 
+    # Mirrors the live Director's gemini call: thinking OFF — on stage the
+    # model answers, it does not deliberate (director.ex does the same).
     body = %{
       systemInstruction: %{parts: [%{text: system}]},
       contents: [%{role: "user", parts: [%{text: user}]}],
-      generationConfig: %{temperature: 0.3, maxOutputTokens: 1_000}
+      generationConfig: %{
+        temperature: 0.3,
+        maxOutputTokens: 1_000,
+        thinkingConfig: %{thinkingBudget: 0}
+      }
     }
 
     url = "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
@@ -122,16 +128,19 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   defp complete(:ollama, model, system, user) do
     url = System.get_env("OLLAMA_URL", "http://localhost:11434")
 
+    # Mirrors the live Director's ollama call (/api/chat, think: false) —
+    # the first bench draft used /api/generate without it and measured 44s
+    # of hidden deliberation instead of the 1-2s the stage actually sees.
     body = %{
       model: model,
-      system: system,
-      prompt: user,
+      messages: [%{role: "system", content: system}, %{role: "user", content: user}],
       stream: false,
+      think: false,
       options: %{temperature: 0.3, num_predict: 1_000}
     }
 
-    case Req.post(url <> "/api/generate", json: body, receive_timeout: 120_000, retry: false) do
-      {:ok, %{status: 200, body: %{"response" => text}}} -> {:ok, text}
+    case Req.post(url <> "/api/chat", json: body, receive_timeout: 120_000, retry: false) do
+      {:ok, %{status: 200, body: %{"message" => %{"content" => text}}}} -> {:ok, text}
       {:ok, resp} -> {:error, {:bad_status, resp.status}}
       {:error, reason} -> {:error, reason}
     end

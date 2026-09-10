@@ -152,8 +152,13 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
       {:ok, %{status: 400, body: body}} ->
         message = get_in(body, ["error", "message"]) || inspect(body)
 
-        if thinking_off? and message =~ ~r/think/i do
-          Mix.shell().info("  (#{model} refuses thinkingBudget 0 — measuring WITH thinking)")
+        # thinkingConfig is the only exotic thing in this request, and
+        # models that reject it don't always say so (3.5-flash-lite answers
+        # a generic "invalid argument") — so ANY 400 gets one retry without
+        # it. That also mirrors production: the chunker and motion director
+        # call these models with no thinkingConfig at all.
+        if thinking_off? do
+          Mix.shell().info("  (#{model} rejected thinkingConfig — measuring without it)")
           gemini_call(model, system, user, false)
         else
           {:error, {:bad_status, 400, String.slice(message, 0, 200)}}

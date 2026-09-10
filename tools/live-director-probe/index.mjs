@@ -66,6 +66,11 @@ const silenceMs = Number(flag('silence-ms', '400'));
 // the turn). 0 = off.
 const nudgeMs = Number(flag('nudge', '0')) * 1000;
 
+// The count-in misheard as Spanish seeded a Spanish prior that stuck for
+// thirty seconds of Portuguese singing — the injected lyrics don't
+// condition the ASR layer, but the system instruction does.
+const lang = flag('lang', 'Brazilian Portuguese');
+
 // The Live API wants 16 kHz mono PCM16. loudnorm lifts the input to
 // speech-typical loudness first: a Demucs vocal stem can sit far below
 // what a mic delivers, and a too-quiet signal never wakes the VAD.
@@ -134,9 +139,9 @@ const session = await ai.live.connect({
       'singer and, for each sung line or phrase, immediately call draw_scene with one vivid, ' +
       'concrete scene direction (15-30 words, English): subject, action, light — expressing ' +
       'what the line MEANS, never illustrating metaphors literally. Interpret songs in any ' +
-      'language. You are MUTE: you have no voice. The ONLY way you can express a direction ' +
+      `language; this performance is sung in ${lang}. You are MUTE: you have no voice. The ONLY way you can express a direction ' +
       'is the draw_scene function call — a direction spoken aloud is LOST and the stage goes ' +
-      'dark. Never speak, never narrate, never reply in audio. Only call draw_scene.',
+      'dark. Never speak, never narrate, never reply in audio. Only call draw_scene.`,
     tools: [
       {
         functionDeclarations: [

@@ -134,7 +134,9 @@ const session = await ai.live.connect({
       'singer and, for each sung line or phrase, immediately call draw_scene with one vivid, ' +
       'concrete scene direction (15-30 words, English): subject, action, light — expressing ' +
       'what the line MEANS, never illustrating metaphors literally. Interpret songs in any ' +
-      'language. NEVER speak or produce audio commentary. Only call draw_scene.',
+      'language. You are MUTE: you have no voice. The ONLY way you can express a direction ' +
+      'is the draw_scene function call — a direction spoken aloud is LOST and the stage goes ' +
+      'dark. Never speak, never narrate, never reply in audio. Only call draw_scene.',
     tools: [
       {
         functionDeclarations: [
@@ -175,8 +177,11 @@ const session = await ai.live.connect({
       const heardIn = msg.serverContent?.inputTranscription?.text;
       if (heardIn) console.log(`${stamp()} heard: ${JSON.stringify(heardIn)}`);
 
+      // A spoken direction is a protocol miss but not a lost one: the
+      // output transcription hands us the text — a real integration can
+      // harvest it as a fallback direction.
       const spoke = msg.serverContent?.outputTranscription?.text;
-      if (spoke) console.log(`${stamp()} (model spoke: ${JSON.stringify(spoke)})`);
+      if (spoke) console.log(`${stamp()} (SPOKEN direction — should be draw_scene: ${JSON.stringify(spoke)})`);
 
       if (msg.serverContent?.interrupted) console.log(`${stamp()} (interrupted)`);
       if (msg.serverContent?.turnComplete) console.log(`${stamp()} (turnComplete)`);

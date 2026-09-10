@@ -17,6 +17,8 @@
 //   GOOGLE_API_KEY=... node index.mjs ~/Library/Caches/sinestesia/media-*/htdemucs/source/vocals.wav
 //   GOOGLE_API_KEY=... node index.mjs vocals.wav --model clever-chatter --lyrics letra.txt
 //
+// Flags: --manual-vad (EAP refuses it today), --segment N, --no-norm.
+//
 // --lyrics injects the full lyric sheet mid-session via send_client_content
 // (supported throughout the session in this EAP) — the preloaded-song
 // context the live pipeline would provide.
@@ -42,17 +44,23 @@ if (!audioPath || !process.env.GOOGLE_API_KEY) {
 const model = `models/${flag('model', 'walkie-talkie')}`;
 const lyricsPath = flag('lyrics', null);
 
-// Server VAD is trained on SPEECH: 45s of real singing produced zero
-// activity on the first live run — no input transcription, no turns, no
-// tool calls. Singing is not something to detect anyway: on stage WE know
-// when the song is happening. Default is manual activity signals in
-// phrase-sized segments; --auto-vad restores detection for comparison.
-const autoVad = args.includes('--auto-vad');
+// The EAP servers REFUSE manual activity signals today ("Precondition
+// check failed" on both models at the first activityEnd), so automatic
+// VAD is the default; --manual-vad keeps the phrase-segment protocol
+// ready for the day they honor it. Meanwhile the founder SANG at the
+// AI Studio mic and walkie-talkie transcribed the lyrics almost
+// perfectly — singing IS understood, so the earlier zero-activity run
+// points at our audio (a quiet, artifact-laden Demucs stem), hence the
+// loudness normalization below.
+const autoVad = !args.includes('--manual-vad');
 const segmentMs = Number(flag('segment', '8')) * 1000;
 
-// The Live API wants 16 kHz mono PCM16; ffmpeg converts whatever we have.
+// The Live API wants 16 kHz mono PCM16. loudnorm lifts the input to
+// speech-typical loudness first: a Demucs vocal stem can sit far below
+// what a mic delivers, and a too-quiet signal never wakes the VAD.
 const pcmPath = join(tmpdir(), `probe-${Date.now()}.pcm`);
-execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', audioPath, '-ac', '1', '-ar', '16000', '-f', 's16le', pcmPath]);
+const audioFilter = args.includes('--no-norm') ? 'anull' : 'loudnorm=I=-16:TP=-1.5';
+execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', audioPath, '-af', audioFilter, '-ac', '1', '-ar', '16000', '-f', 's16le', pcmPath]);
 const pcm = readFileSync(pcmPath);
 rmSync(pcmPath);
 

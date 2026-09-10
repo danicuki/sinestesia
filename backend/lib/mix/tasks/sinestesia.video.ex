@@ -117,6 +117,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
       --motion          living-scene mode (paid generated clips, see above)
       --motion-model M  veo-lite (default) | veo-fast | veo | h3-max | h3
       --motion-chain C  sequential (default) | keyframed (fal engines only)
+      --motion-director M  gemini model that writes the film direction
+                        (default gemini-3.5-flash-lite; try gemini-3.6-flash
+                        for more interpretive muscle — offline, so latency
+                        is free)
       --motion-resolution R  veo: 720p (default) | 1080p | 4k · fal: 480P | 768P
       --yes             skip the motion-mode cost confirmation
 
@@ -947,7 +951,10 @@ defmodule Mix.Tasks.Sinestesia.Video do
     # directions is how this lesson was learned. Directed results are
     # CACHED per song: rerunning after an interruption must reuse the same
     # directions, or the clip cache below could never hit.
-    {dir_source, film, directions} = directed(style, Enum.map(scenes, & &1.prompt), opts)
+    director_model = opts[:motion_director] || Sinestesia.MotionDirector.default_model()
+
+    {dir_source, film, directions} =
+      directed(style, Enum.map(scenes, & &1.prompt), director_model, opts)
 
     if film, do: Mix.shell().info("[motion] film treatment: #{film}")
 
@@ -1136,11 +1143,20 @@ defmodule Mix.Tasks.Sinestesia.Video do
   # every fingerprint), and it makes the retry-after-interruption flow free
   # up to the point the last run reached. Only :directed results are saved;
   # a fallback must stay a loud, retryable condition.
-  defp directed(style, scene_prompts, opts) do
+  defp directed(style, scene_prompts, model, opts) do
     cache =
       if dir = opts[:media_cache] do
+        # Revision + model belong in the fingerprint: a richer direction
+        # contract or a stronger director must MISS the cache, or the old
+        # short directions get served silently forever.
         fingerprint =
-          :crypto.hash(:sha256, Enum.join([style || "", opts[:lyrics_text] || "" | scene_prompts], "\n"))
+          :crypto.hash(
+            :sha256,
+            Enum.join(
+              [Sinestesia.MotionDirector.revision(), model, style || "", opts[:lyrics_text] || "" | scene_prompts],
+              "\n"
+            )
+          )
           |> Base.encode16(case: :lower)
           |> binary_part(0, 20)
 
@@ -1156,7 +1172,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
         %{"film" => film, "directions" => directions} -> {:directed, film, directions}
       end
     else
-      case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text]) do
+      case Sinestesia.MotionDirector.direct(style, scene_prompts, opts[:lyrics_text], model: model) do
         {:directed, film, directions} ->
           if cache,
             do: File.write!(cache, Jason.encode!(%{film: film, directions: directions}))
@@ -1681,6 +1697,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
              motion: :boolean,
              motion_model: :string,
              motion_chain: :string,
+             motion_director: :string,
              motion_resolution: :string,
              yes: :boolean
            ]

@@ -42,7 +42,9 @@ defmodule Sinestesia.MotionDirector do
   scenes: each scene is what is being SUNG during that shot, with a content
   note of what the scene should contain — treat the note as raw material,
   subordinate to your treatment, not as an order. Write ONE direction per
-  shot, 30-60 words, cinematic and concrete, for a video generation model:
+  shot, 50-90 words, cinematic and concrete, for a video generation model.
+  This film renders OFFLINE — there is no latency budget, and video models
+  reward generous detail, so spend words on:
 
   - SUBJECT and ACTION: what is on screen and what it does — real movement
     (walking, blooming, waves rolling), not a static tableau.
@@ -53,6 +55,8 @@ defmodule Sinestesia.MotionDirector do
     motion; never cut.
   - LIGHT and MOOD: tied to what the lyric FEELS like at that moment; let
     choruses return with echoed imagery and verses evolve.
+  - TEXTURE and DETAIL: surfaces, weather, particles, depth of field — the
+    concrete sensory specifics that make a generated shot feel authored.
 
   The LAST shot has no destination: let it live, then slowly settle.
 
@@ -85,23 +89,30 @@ defmodule Sinestesia.MotionDirector do
   """
   @attempts 3
 
-  @spec direct(String.t() | nil, [String.t()], String.t() | nil) ::
+  @default_model "gemini-3.5-flash-lite"
+
+  @doc """
+  Bump when the direction CONTRACT changes (word budget, treatment, system
+  prompt shape) — it feeds the caller's cache fingerprint, so stale
+  directions from an older contract are never silently served.
+  """
+  def revision, do: "v4-rich"
+
+  def default_model, do: @default_model
+
+  @spec direct(String.t() | nil, [String.t()], String.t() | nil, keyword()) ::
           {:directed | :fallback, String.t() | nil, [String.t()]}
-  def direct(style, scene_prompts, lyrics \\ nil)
+  def direct(style, scene_prompts, lyrics \\ nil, opts \\ [])
 
-  def direct(_style, [], _lyrics), do: {:directed, nil, []}
+  def direct(_style, [], _lyrics, _opts), do: {:directed, nil, []}
 
-  def direct(style, scene_prompts, lyrics) do
-    case attempt(user_message(style, scene_prompts, lyrics), @attempts) do
-      {:ok, raw} ->
-        case parse(raw, length(scene_prompts)) do
-          {:ok, film, directions} ->
-            {:directed, film, directions}
+  def direct(style, scene_prompts, lyrics, opts) do
+    model = Keyword.get(opts, :model, @default_model)
+    user = user_message(style, scene_prompts, lyrics)
 
-          {:error, reason} ->
-            Logger.warning("[motion_director] bad response (#{inspect(reason)}); using fallback")
-            {:fallback, nil, fallback(scene_prompts)}
-        end
+    case try_direct(user, model, length(scene_prompts), 2) do
+      {:ok, film, directions} ->
+        {:directed, film, directions}
 
       {:error, reason} ->
         Logger.warning("[motion_director] #{inspect(reason)}; using fallback")
@@ -109,17 +120,44 @@ defmodule Sinestesia.MotionDirector do
     end
   end
 
+  # A miscounted or truncated answer (a real run lost scene 17 of 18 and
+  # paid the fallback for it) gets one fresh roll before degrading — and
+  # the finish reason is NAMED, so truncation (MAX_TOKENS) is
+  # distinguishable from a model that simply lost count.
+  defp try_direct(user, model, count, rolls) do
+    case attempt(user, model, @attempts) do
+      {:ok, raw, finish} ->
+        case parse(raw, count) do
+          {:ok, film, directions} ->
+            {:ok, film, directions}
+
+          {:error, reason} when rolls > 1 ->
+            Logger.warning(
+              "[motion_director] bad response (#{inspect(reason)}, finish: #{finish}); rerolling"
+            )
+
+            try_direct(user, model, count, rolls - 1)
+
+          {:error, reason} ->
+            {:error, {:bad_response, reason, finish}}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   # A run sits at the cost-confirmation prompt for as long as the operator
   # thinks; the pool's keepalive dies exactly then, so the FIRST call after
   # a pause fails with :closed — hit live 2026-09-09. Transient failures
   # get retried before anything is allowed to degrade a paid render.
-  defp attempt(user, tries) do
-    case call_gemini(user) do
+  defp attempt(user, model, tries) do
+    case call_gemini(user, model) do
       {:error, reason} when tries > 1 ->
         if transient?(reason) do
           Logger.info("[motion_director] #{inspect(reason)}; retrying")
           Process.sleep(700)
-          attempt(user, tries - 1)
+          attempt(user, model, tries - 1)
         else
           {:error, reason}
         end
@@ -203,33 +241,27 @@ defmodule Sinestesia.MotionDirector do
     end
   end
 
-  defp call_gemini(user) do
+  defp call_gemini(user, model) do
     cfg = Application.fetch_env!(:sinestesia, :config)
 
     case Keyword.get(cfg, :google_api_key) do
       key when is_binary(key) and key != "" ->
-        # A lite model on purpose (same lesson as LyricsChunker) — this is
-        # text structuring over content already in hand. Hardcoded until the
-        # feature earns a registry entry: it runs at composition time, where
-        # a 30s budget makes model choice a taste call, not a latency one.
-        model = "gemini-3.5-flash-lite"
-
         url =
           "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
 
         body = %{
           systemInstruction: %{parts: [%{text: @system}]},
           contents: [%{role: "user", parts: [%{text: user}]}],
-          # 30-60 words × up to ~50 scenes needs room; richness is the
+          # 50-90 words × up to ~50 scenes needs room; richness is the
           # entire point of this director.
-          generationConfig: %{temperature: 0.3, maxOutputTokens: 10_000}
+          generationConfig: %{temperature: 0.3, maxOutputTokens: 16_000}
         }
 
         case Req.post(url, json: body, receive_timeout: 30_000, retry: false) do
           {:ok, %{status: 200, body: body}} ->
             case first_text(body) do
               nil -> {:error, :empty_response}
-              t -> {:ok, t}
+              t -> {:ok, t, finish_reason(body)}
             end
 
           {:ok, resp} ->
@@ -254,4 +286,7 @@ defmodule Sinestesia.MotionDirector do
   end
 
   defp first_text(_), do: nil
+
+  defp finish_reason(%{"candidates" => [%{"finishReason" => r} | _]}), do: r
+  defp finish_reason(_), do: nil
 end

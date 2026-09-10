@@ -24,8 +24,18 @@ defmodule Sinestesia.MediaSourceTest do
   # the test can assert what was asked of the real tool.
 
   defp with_shims(shims, fun) do
-    dir = Path.join(System.tmp_dir!(), "shims-#{:erlang.unique_integer([:positive])}")
+    # os_time in the name + cleanup: unique_integer restarts with each
+    # BEAM, and a leftover shim dir from a previous run once handed the
+    # missing-tool test a yt-dlp that shouldn't exist (same disease as
+    # tmp_out's, found 2026-09-10).
+    dir =
+      Path.join(
+        System.tmp_dir!(),
+        "shims-#{System.os_time(:nanosecond)}-#{:erlang.unique_integer([:positive])}"
+      )
+
     File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
 
     for {name, script} <- shims do
       path = Path.join(dir, name)

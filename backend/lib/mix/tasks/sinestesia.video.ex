@@ -923,8 +923,9 @@ defmodule Mix.Tasks.Sinestesia.Video do
           from: List.first(frames).file,
           to: List.first(frames).file,
           prompt:
-            "(instrumental introduction — no words sung yet: establish the world " <>
-              "and mood of the song before the first verse)"
+            "(instrumental introduction — no words sung yet: establish the WORLD of " <>
+              "the song — landscape, light, atmosphere, in the film's style; no one " <>
+              "performing music, and the protagonist at most distant or silhouetted)"
         }
 
         {[intro | Enum.map(scenes, &%{&1 | index: &1.index + 1})], true}

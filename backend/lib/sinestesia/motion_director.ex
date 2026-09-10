@@ -60,6 +60,16 @@ defmodule Sinestesia.MotionDirector do
 
   The LAST shot has no destination: let it live, then slowly settle.
 
+  PEOPLE are rendered in the SAME painted, stylized language as the rest
+  of the world — never photorealistic: one realistic human inside a
+  stylized landscape breaks the whole film (a real render did exactly
+  this). And the singer of the song is NOT automatically a character:
+  never stage a musician performing — no guitars, no microphones, no
+  stages — unless the lyrics themselves are about playing music. An
+  OPENING/instrumental shot establishes the WORLD — landscape, light,
+  weather, atmosphere; the protagonist may enter distant or as a
+  silhouette, and fully only when the words begin.
+
   NEVER name a real person in a direction — not celebrities, not the
   artist whose style is referenced (video models refuse real people's
   names and likenesses outright, and one refused shot is a hole in the
@@ -96,7 +106,7 @@ defmodule Sinestesia.MotionDirector do
   prompt shape) — it feeds the caller's cache fingerprint, so stale
   directions from an older contract are never silently served.
   """
-  def revision, do: "v4-rich"
+  def revision, do: "v5-stylized-people"
 
   def default_model, do: @default_model
 

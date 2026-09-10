@@ -42,6 +42,14 @@ if (!audioPath || !process.env.GOOGLE_API_KEY) {
 const model = `models/${flag('model', 'walkie-talkie')}`;
 const lyricsPath = flag('lyrics', null);
 
+// Server VAD is trained on SPEECH: 45s of real singing produced zero
+// activity on the first live run — no input transcription, no turns, no
+// tool calls. Singing is not something to detect anyway: on stage WE know
+// when the song is happening. Default is manual activity signals in
+// phrase-sized segments; --auto-vad restores detection for comparison.
+const autoVad = args.includes('--auto-vad');
+const segmentMs = Number(flag('segment', '8')) * 1000;
+
 // The Live API wants 16 kHz mono PCM16; ffmpeg converts whatever we have.
 const pcmPath = join(tmpdir(), `probe-${Date.now()}.pcm`);
 execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', audioPath, '-ac', '1', '-ar', '16000', '-f', 's16le', pcmPath]);
@@ -66,6 +74,7 @@ const session = await ai.live.connect({
   model,
   config: {
     responseModalities: [Modality.AUDIO],
+    ...(autoVad ? {} : {realtimeInputConfig: {automaticActivityDetection: {disabled: true}}}),
     outputAudioTranscription: {},
     // What the model HEARS, verbatim — answers the sung-word-comprehension
     // question even if it never fires a tool call.
@@ -139,7 +148,10 @@ if (lyricsPath) {
   // client content before generating anything (EAP doc), which muted the
   // whole first probe run. At t=0 there is nothing to interrupt.
   session.sendClientContent({
-    turns: `CONTEXT — the full lyrics of the song about to be performed (for interpretation; direct only what is actually sung):\n${lyrics}`,
+    turns:
+      `CONTEXT — the full lyrics of the song about to be performed (for interpretation; ` +
+      `direct only what is actually sung). Do NOT respond to this message and do NOT direct ` +
+      `anything yet — wait for the singing:\n${lyrics}`,
     turnComplete: true,
   });
   console.log(`${stamp()} lyrics injected as client content`);
@@ -150,19 +162,35 @@ if (lyricsPath) {
 console.log(`${stamp()} streaming ${(pcm.length / BYTES_PER_SEC).toFixed(1)}s of audio in real time…`);
 
 let sent = 0;
+let inActivity = false;
 
 for (let off = 0; off < pcm.length; off += CHUNK_BYTES) {
+  if (!autoVad && !inActivity) {
+    session.sendRealtimeInput({activityStart: {}});
+    inActivity = true;
+  }
+
   session.sendRealtimeInput({
     media: {data: pcm.subarray(off, off + CHUNK_BYTES).toString('base64'), mimeType: 'audio/pcm;rate=16000'},
   });
 
   sent += CHUNK_MS;
+
+  // Close the activity at phrase-sized boundaries: an ended segment is a
+  // completed utterance the model can react to, mid-song.
+  if (!autoVad && inActivity && sent % segmentMs === 0) {
+    session.sendRealtimeInput({activityEnd: {}});
+    inActivity = false;
+  }
+
   if (sent % 15000 === 0) {
     console.log(`${stamp()} …streaming (${sent / 1000}s sent, ${calls} draw_scene so far)`);
   }
 
   await new Promise((r) => setTimeout(r, CHUNK_MS));
 }
+
+if (!autoVad && inActivity) session.sendRealtimeInput({activityEnd: {}});
 
 console.log(`${stamp()} audio done — waiting 8s for trailing calls`);
 await new Promise((r) => setTimeout(r, 8000));

@@ -30,6 +30,12 @@ export type Session = {
   name: string;
   style: string;
   recorded_at: string;
+  // The take's own sound, saved as a SIBLING .webm by "Save take" (a separate
+  // file, so the same audio feeds re-generation runs for comparison). at_ms 0
+  // (the first event) sits `audio_offset_ms` into that file, because the audio
+  // records from mic start, not from the first event.
+  audio?: string;
+  audio_offset_ms?: number;
   events: SessionEvent[];
   reveals: SessionReveal[];
 };
@@ -72,6 +78,11 @@ export class SessionRecorder {
     return this.events.length + this.reveals.length;
   }
 
+  /** performance.now() of the first recorded event; null before any. */
+  get startedAtMs(): number | null {
+    return this.t0;
+  }
+
   clear(): void {
     this.t0 = null;
     this.events = [];
@@ -102,18 +113,62 @@ export class SessionRecorder {
     );
   }
 
-  // Hands the file to the browser's download flow. Nothing leaves the machine.
-  download(): void {
+  // Hands the files to the browser's download flow (the take's JSON, plus its
+  // .webm when audio was captured — same base name, so they travel as a pair).
+  // Nothing leaves the machine. Remote image URLs are inlined as data URIs
+  // first: fal links expire, and a take must replay next month, not just
+  // today. A failed fetch keeps the original URL with a warning rather than
+  // losing the frame's timing.
+  async download(audio?: { blob: Blob; offsetMs: number }): Promise<void> {
     const session = this.toSession();
+    session.reveals = await Promise.all(session.reveals.map(inlined));
+
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-    const blob = new Blob([JSON.stringify(session, null, 2)], {
-      type: "application/json",
+    const base = `${session.name}-${stamp}`;
+
+    if (audio) {
+      session.audio = `${base}.webm`;
+      session.audio_offset_ms = Math.max(0, Math.round(audio.offsetMs));
+      saveBlob(audio.blob, session.audio);
+    }
+
+    saveBlob(
+      new Blob([JSON.stringify(session, null, 2)], {
+        type: "application/json",
+      }),
+      `${base}.json`,
+    );
+  }
+}
+
+function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function inlined(r: SessionReveal): Promise<SessionReveal> {
+  if (!/^https?:/.test(r.url)) return r; // data URIs are already durable
+  try {
+    const res = await fetch(r.url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = await new Promise<string>((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result as string);
+      fr.onerror = () => reject(fr.error);
+      fr.readAsDataURL(blob);
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${session.name}-${stamp}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    return { ...r, url };
+  } catch (err) {
+    console.warn(
+      "[take] could not inline image (kept the URL — it may expire):",
+      r.url,
+      err,
+    );
+    return r;
   }
 }

@@ -12,6 +12,8 @@ import { StyleControl } from "./style";
 import { LyricsControl } from "./lyrics";
 import { SessionRecorder } from "./recorder";
 import { RecordControl } from "./record_control";
+import { TakeAudioRecorder } from "./take_audio";
+import { TakePlayerControl } from "./take_player";
 import { SongLibraryControl } from "./song_library";
 import { MicPanel } from "./mic";
 import { loadSequences, frameUrl, type SampleSequence } from "./samples";
@@ -137,6 +139,23 @@ async function playDemo(slug: string) {
     );
   }
 
+  debug?.setSampleParams(seq.params);
+
+  if (seq.audio) {
+    await playTimeline(
+      seq.frames.map((f) => ({
+        at_ms: f.at_ms ?? 0,
+        url: frameUrl(f),
+        prompt: f.prompt,
+        lyric: f.lyric,
+      })),
+      `/samples/${seq.audio}`,
+      `demo ${seq.slug}`,
+    );
+    return;
+  }
+
+  // Legacy / fallback timer loop (old exports without at_ms): fixed cadence.
   const texes = await scene
     .preload(seq.frames.map(frameUrl))
     .catch((err) => {
@@ -149,88 +168,109 @@ async function playDemo(slug: string) {
   const n = texes.length;
   let shown = -1;
 
-  debug?.setSampleParams(seq.params);
+  const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
+  const m = uniqueIdxs.size;
+  const ratio = m > 0 ? n / m : 1;
+  const stepDur = DEMO_SEGMENT_MS / ratio;
 
-  if (seq.audio) {
-    console.log(`[demo] "${seq.slug}" — ${n} frames, synchronizing with audio: /samples/${seq.audio}`);
-    
-    // Sort frames by at_ms to ensure monotonic timeline search
-    const sortedFrames = [...seq.frames].sort((a, b) => (a.at_ms ?? 0) - (b.at_ms ?? 0));
+  const start = performance.now();
+  console.log(
+    `[demo] "${seq.slug}" — ${n} frames, legacy loop @ ${stepDur.toFixed(0)}ms/step (no audio)`,
+  );
 
-    activePlayer = new AudioPlayerUI(`/samples/${seq.audio}`, (timeMs) => {
-      // Manual trigger on playhead updates for instant visual sync
+  demoUpdate = () => {
+    const phase = (performance.now() - start) / stepDur;
+    const i = Math.floor(phase) % n;
+    const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
+    const next = (i + 1) % n;
+    scene.setMorph(texes[i], texes[next], t);
+    if (next !== shown) {
+      debug?.setPrompt(seq.frames[next].prompt);
+      debug?.setSampleLyric(seq.frames[next].lyric);
+      shown = next;
+    }
+  };
+}
+
+type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: string };
+
+// One audio-synced playback shared by the demo player (pre-exported sequences)
+// and the take player (saved takes): preload the frames, then morph along the
+// timeline against the audio playhead — or against the wall clock when there
+// is no audio, for a take saved without its .webm.
+async function playTimeline(
+  frames: TimelineFrame[],
+  audioUrl: string | null,
+  label: string,
+) {
+  const gen = ++demoGen;
+  demoUpdate = null;
+  if (activePlayer) {
+    activePlayer.destroy();
+    activePlayer = null;
+  }
+
+  const sorted = [...frames].sort((a, b) => a.at_ms - b.at_ms);
+  const texes = await scene.preload(sorted.map((f) => f.url)).catch((err) => {
+    console.warn(`[replay] failed to preload "${label}":`, err);
+    return null;
+  });
+  if (!texes) return;
+  if (gen !== demoGen) return; // a newer pick superseded us mid-load
+
+  let shown = -1;
+
+  const tick = (timeMs: number) => {
+    if (sorted.length === 0) return;
+
+    // Musical introduction: before the first frame, keep the canvas black.
+    if (timeMs < sorted[0].at_ms) {
+      scene.setBlack();
+      if (shown !== -2) {
+        debug?.setPrompt("Musical Introduction — Waiting for vocals…");
+        debug?.setSampleLyric("");
+        shown = -2;
+      }
+      return;
+    }
+
+    // Locate the active frame.
+    let i = 0;
+    while (i < sorted.length - 1 && sorted[i + 1].at_ms <= timeMs) i++;
+
+    if (i < sorted.length - 1) {
+      const dur = sorted[i + 1].at_ms - sorted[i].at_ms;
+      const elapsed = timeMs - sorted[i].at_ms;
+      const t = dur > 0 ? elapsed / dur : 1.0;
+      scene.setMorph(texes[i], texes[i + 1], t);
+    } else {
+      scene.setMorph(texes[i], texes[i], 1.0); // last frame: hold
+    }
+
+    if (i !== shown) {
+      debug?.setPrompt(sorted[i].prompt);
+      debug?.setSampleLyric(sorted[i].lyric ?? "");
+      shown = i;
+    }
+  };
+
+  if (audioUrl) {
+    console.log(
+      `[replay] "${label}" — ${sorted.length} frames, synchronized with audio`,
+    );
+    activePlayer = new AudioPlayerUI(audioUrl, () => {
+      // Scene sync happens in demoUpdate each render frame; nothing extra here.
     });
-
     demoUpdate = () => {
-      if (!activePlayer) return;
-      const timeMs = activePlayer.currentTimeMs;
-
-      if (sortedFrames.length === 0) return;
-
-      // Handle musical introduction: before first singing event, keep canvas black
-      const firstFrameAt = sortedFrames[0].at_ms ?? 0;
-      if (timeMs < firstFrameAt) {
-        scene.setBlack();
-        if (shown !== -2) {
-          debug?.setPrompt("Musical Introduction — Waiting for vocals…");
-          debug?.setSampleLyric("");
-          shown = -2;
-        }
-        return;
-      }
-
-      // Locate active frame
-      let i = 0;
-      while (i < sortedFrames.length - 1 && (sortedFrames[i + 1].at_ms ?? 0) <= timeMs) {
-        i++;
-      }
-
-      if (i < sortedFrames.length - 1) {
-        const fCurrent = sortedFrames[i];
-        const fNext = sortedFrames[i + 1];
-        const dur = (fNext.at_ms ?? 0) - (fCurrent.at_ms ?? 0);
-        const elapsed = timeMs - (fCurrent.at_ms ?? 0);
-        const t = dur > 0 ? elapsed / dur : 1.0;
-
-        scene.setMorph(texes[i], texes[i + 1], t);
-      } else {
-        // Last frame, hold at 100%
-        scene.setMorph(texes[i], texes[i], 1.0);
-      }
-
-      if (i !== shown) {
-        debug?.setPrompt(sortedFrames[i].prompt);
-        debug?.setSampleLyric(sortedFrames[i].lyric || "");
-        shown = i;
-      }
+      if (activePlayer) tick(activePlayer.currentTimeMs);
     };
-
-    // Auto-play the player
     activePlayer.play();
   } else {
-    // Legacy / fallback timer loop
-    const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
-    const m = uniqueIdxs.size;
-    const ratio = m > 0 ? n / m : 1;
-    const stepDur = DEMO_SEGMENT_MS / ratio;
-
-    const start = performance.now();
     console.log(
-      `[demo] "${seq.slug}" — ${n} frames, legacy loop @ ${stepDur.toFixed(0)}ms/step (no audio)`,
+      `[replay] "${label}" — ${sorted.length} frames, silent (wall clock)`,
     );
-
-    demoUpdate = () => {
-      const phase = (performance.now() - start) / stepDur;
-      const i = Math.floor(phase) % n;
-      const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
-      const next = (i + 1) % n;
-      scene.setMorph(texes[i], texes[next], t);
-      if (next !== shown) {
-        debug?.setPrompt(seq.frames[next].prompt);
-        debug?.setSampleLyric(seq.frames[next].lyric);
-        shown = next;
-      }
-    };
+    const start = performance.now();
+    demoUpdate = () => tick(performance.now() - start);
   }
 }
 
@@ -245,6 +285,17 @@ if (debug) {
 if (DEMO !== null) {
   gate.classList.add("hidden");
   playDemo(DEMO);
+}
+
+// "Load take" — faithful playback of a saved take (what the browser actually
+// showed, over the take's own .webm). Mounted outside start() so a take
+// replays without unlocking the mic; loading one drops the start gate, like
+// ?demo does — reload to go back to the live path.
+if (!CLEAN) {
+  new TakePlayerControl((take) => {
+    gate.classList.add("hidden");
+    void playTimeline(take.frames, take.audioUrl, `take ${take.name}`);
+  });
 }
 
 startBtn.addEventListener("click", () => {
@@ -285,6 +336,13 @@ async function start() {
 
   fast = new FastFeatures(capture.ctx);
   capture.tap(fast.node);
+
+  // Take audio — records the mic from the moment it opens (an audio recorder
+  // you have to remember to arm loses the take you wanted, same doctrine as
+  // the session recorder). Nothing is written anywhere until "Save take".
+  const takeAudio = new TakeAudioRecorder(capture.ctx);
+  capture.tap(takeAudio.node);
+  takeAudio.start();
 
   // Mic panel — live level meter + input device picker. Visible during
   // rehearsal so you can confirm capture and switch sources; hidden under
@@ -487,10 +545,27 @@ async function start() {
   // them, and the first cut of this threw in its constructor and silently took
   // the style, lyrics and song-library controls down with it. Nothing the show
   // depends on should sit behind a rehearsal convenience.
+  // Saving snapshots the audio WITHOUT stopping it (the song may still be
+  // going), pairs it with the JSON via audio_offset_ms (at_ms 0 = first event,
+  // which lands mid-file because the audio records from mic start), and only
+  // ships audio at all once something was recorded against it.
+  async function saveTake(): Promise<void> {
+    const blob = await takeAudio.snapshot();
+    const t0 = recorder.startedAtMs;
+    const audio =
+      blob && t0 !== null
+        ? { blob, offsetMs: t0 - takeAudio.startedAtMs }
+        : undefined;
+    await recorder.download(audio);
+  }
+
   if (!CLEAN) {
     recordControl = new RecordControl(
-      () => recorder.download(),
-      () => recorder.clear(),
+      () => void saveTake(),
+      () => {
+        recorder.clear();
+        takeAudio.restart();
+      },
     );
     recordControl.setCount(recorder.count);
   }

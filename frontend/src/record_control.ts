@@ -2,11 +2,11 @@ import { mountInDock } from "./dock";
 // "Save take" button — bottom-right, next to the other operator controls and
 // hidden under ?clean=1 like all of them.
 //
-// One click downloads the take as JSON: everything sung (with timings) and
-// every image that actually reached the screen, with the Director prompt that
-// produced it. That file replays with `REPLAY_FILE=... mix sinestesia.replay`,
-// so a timing problem can be reproduced and re-tested offline instead of being
-// sung again for every attempt.
+// One click downloads the take as a JSON + .webm pair: everything sung (with
+// timings), every image that actually reached the screen with the Director
+// prompt that produced it, and the take's own audio. The JSON replays through
+// the pipeline with `REPLAY_FILE=... mix sinestesia.replay` (re-generation);
+// the pair replays faithfully in the front via "Load take" (take_player.ts).
 //
 // The counter is the whole UI affordance: it shows the take is being captured
 // without needing to be armed, because a recorder you have to remember to start
@@ -48,7 +48,7 @@ export class RecordControl {
     this.button = document.createElement("button");
     this.button.textContent = "Save take";
     this.button.title =
-      "Download this take as JSON (what was sung + what was shown, with timings). Replays with mix sinestesia.replay.";
+      "Download this take as JSON + webm (what was sung + what was shown, with timings, and the take's own audio). Replay faithfully with Load take, or re-generate with mix sinestesia.replay.";
     Object.assign(this.button.style, buttonStyle);
     this.button.addEventListener("click", () => this.onSave());
 

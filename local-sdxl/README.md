@@ -28,20 +28,25 @@ On Linux + CUDA, set `SDXL_DEVICE=cuda`. On Intel Mac or no-GPU box, set
 ## Setup
 
 ```bash
-cd local-sdxl
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-If Python 3.9 complains, use [uv](https://docs.astral.sh/uv/) for a clean 3.11:
-
-```bash
 brew install uv
-uv venv --python 3.11
+cd local-sdxl
+uv venv --managed-python --python 3.11
 source .venv/bin/activate
 uv pip install -r requirements.txt
 ```
+
+`--managed-python` matters. Without it, uv takes the first 3.11 it finds on
+the machine, and on a Mac that has been migrated from Intel that can be an
+x86_64 Homebrew Python under `/usr/local` running through Rosetta. PyTorch has published no Intel-Mac wheels since 2.2, and an Intel
+process can't reach the GPU (MPS) anyway.
+The symptom is `torch>=2.4.0 has no wheels with a matching platform tag
+(e.g. macosx_15_0_x86_64)`, followed later by missing modules. Check with:
+
+```bash
+python -c "import platform; print(platform.machine())"   # must print arm64
+```
+
+If it prints `x86_64`, run `rm -rf .venv` and repeat the setup.
 
 ## Run
 

@@ -6,7 +6,7 @@ import { Capture } from "./audio/capture";
 import { FastFeatures } from "./audio/features";
 import { ExpressiveAnalyzer } from "./audio/expressive";
 import { Socket } from "./socket";
-import { Scene } from "./render/scene";
+import { Scene, liveTransitionDurations } from "./render/scene";
 import { DebugOverlay } from "./debug";
 import { StyleControl } from "./style";
 import { LyricsControl } from "./lyrics";
@@ -195,13 +195,20 @@ async function playDemo(slug: string) {
 type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: string };
 
 // One audio-synced playback shared by the demo player (pre-exported sequences)
-// and the take player (saved takes): preload the frames, then morph along the
-// timeline against the audio playhead — or against the wall clock when there
-// is no audio, for a take saved without its .webm.
+// and the take player (saved takes): preload the frames, then advance along
+// the timeline against the audio playhead — or against the wall clock when
+// there is no audio, for a take saved without its .webm.
+//
+// Two looks, deliberately different: demo sequences are accumulative morph
+// sub-frames, so they crossfade continuously edge to edge (setMorph, no warp).
+// A take replays what the STAGE showed, so `live: true` reproduces the live
+// transition instead — each reveal ink-bleeds in from the previous image over
+// the same adaptive duration the live scene would have picked, then settles.
 async function playTimeline(
   frames: TimelineFrame[],
   audioUrl: string | null,
   label: string,
+  live = false,
 ) {
   const gen = ++demoGen;
   demoUpdate = null;
@@ -219,6 +226,11 @@ async function playTimeline(
   if (gen !== demoGen) return; // a newer pick superseded us mid-load
 
   let shown = -1;
+
+  // Live mode: the transition each reveal would have run on stage, sized by
+  // the same cadence EMA the live scene uses — computable up front because a
+  // take's whole timeline is already known.
+  const liveDurs = live ? liveTransitionDurations(sorted.map((f) => f.at_ms)) : null;
 
   const tick = (timeMs: number) => {
     if (sorted.length === 0) return;
@@ -238,7 +250,12 @@ async function playTimeline(
     let i = 0;
     while (i < sorted.length - 1 && sorted[i + 1].at_ms <= timeMs) i++;
 
-    if (i < sorted.length - 1) {
+    if (liveDurs) {
+      // Ink-bleed in from the previous image (black for the first), settle,
+      // hold until the next reveal — exactly the live rhythm.
+      const t = Math.min(1, (timeMs - sorted[i].at_ms) / liveDurs[i]);
+      scene.setLiveMorph(i > 0 ? texes[i - 1] : null, texes[i], t);
+    } else if (i < sorted.length - 1) {
       const dur = sorted[i + 1].at_ms - sorted[i].at_ms;
       const elapsed = timeMs - sorted[i].at_ms;
       const t = dur > 0 ? elapsed / dur : 1.0;
@@ -294,7 +311,7 @@ if (DEMO !== null) {
 if (!CLEAN) {
   new TakePlayerControl((take) => {
     gate.classList.add("hidden");
-    void playTimeline(take.frames, take.audioUrl, `take ${take.name}`);
+    void playTimeline(take.frames, take.audioUrl, `take ${take.name}`, true);
   });
 }
 

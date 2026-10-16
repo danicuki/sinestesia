@@ -43,12 +43,32 @@ function placeholderTexture(): THREE.DataTexture {
   return tex;
 }
 
+// The transition duration the live path would pick at each arrival time. The
+// take player replays history, so the whole cadence is known up front; this
+// mirrors transitionTo's EMA fold + adaptiveDur exactly (including ?fade=), so
+// a replayed take morphs with the same rhythm the stage had.
+export function liveTransitionDurations(timesMs: number[]): number[] {
+  let ema = 0;
+  return timesMs.map((t, i) => {
+    if (i === 0) return FIXED_FADE_MS ?? TRANSITION_DEFAULT_MS;
+    const gap = t - timesMs[i - 1];
+    ema = ema > 0 ? ema * 0.6 + gap * 0.4 : gap;
+    if (FIXED_FADE_MS !== null) return FIXED_FADE_MS;
+    return THREE.MathUtils.clamp(
+      ema * TRANSITION_OVERSHOOT,
+      TRANSITION_MIN_MS,
+      TRANSITION_MAX_MS,
+    );
+  });
+}
+
 export class Scene {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.OrthographicCamera;
   private material: THREE.ShaderMaterial;
   private loader = new THREE.TextureLoader();
+  private placeholder = placeholderTexture();
 
   private startTime = performance.now();
   private fadeStart = 0;
@@ -272,6 +292,21 @@ export class Scene {
     u.uTexCurrent.value = b;
     u.uCrossfade.value = t;
     u.uUseWarp.value = 0; // disable warp for pre-rendered subframes in player
+  }
+
+  // Drive the LIVE transition from an external clock (the take player): the
+  // same ink-bleed warp as startTransition, but with t owned by the caller so
+  // playback can pause and seek. `a` null means "from the dark placeholder"
+  // (the first image of a take). At t=1 the screen is exactly `b` and holds —
+  // the settle live has between arrivals, which setMorph deliberately lacks.
+  setLiveMorph(a: THREE.Texture | null, b: THREE.Texture, t: number) {
+    this.fading = false;
+    this.activeSequence = null;
+    const u = this.material.uniforms;
+    u.uTexPrev.value = a ?? this.placeholder;
+    u.uTexCurrent.value = b;
+    u.uCrossfade.value = t;
+    u.uUseWarp.value = this.warp ? 1 : 0;
   }
 
   setBlack() {

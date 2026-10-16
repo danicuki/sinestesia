@@ -9,6 +9,11 @@ defmodule Sinestesia.LyricsImport.LetrasComBr do
   One `<p>` per STANZA, lines separated by `<br/>` — this maps directly onto
   `Sinestesia.MusicalStructure`'s blank-line-stanza format, so no translation
   is needed beyond joining stanzas with a blank line.
+
+  Older revisions of the page (seen in Internet Archive snapshots, which
+  `Sinestesia.LyricsImport` falls back to when the live site blocks us) carry
+  extra classes on the same div — `class="lyric-original font --lyrics
+  --size18"` — so the class match tolerates trailing classes.
   """
   alias Sinestesia.LyricsImport.Html
 
@@ -87,7 +92,7 @@ defmodule Sinestesia.LyricsImport.LetrasComBr do
   def parse(_), do: {:error, :invalid_html}
 
   defp extract_lyric_block(html) do
-    case Regex.run(~r/<div class="lyric-original">(.*?)<\/div>/s, html) do
+    case Regex.run(~r/<div class="lyric-original(?: [^"]*)?">(.*?)<\/div>/s, html) do
       [_, block] -> {:ok, block}
       nil -> {:error, :lyric_block_not_found}
     end

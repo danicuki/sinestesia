@@ -47,3 +47,5 @@ backend/bench-*/
 songs/*
 DEMO_SCRIPT.md
 demo/
+
+backend/*.mp4

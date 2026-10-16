@@ -17,6 +17,17 @@ defmodule Sinestesia.LyricsImport do
   `{:error, reason}`, never a silent bad result: this is meant to save typing,
   not to be trusted blindly — the operator still sees what was imported
   before it's used live.
+
+  Since 2026-10 letras.mus.br sits behind Akamai bot protection that rejects
+  every non-browser HTTP client by TLS fingerprint — no User-Agent or header
+  combination gets past it (verified: plain curl, full Chrome header sets and
+  Googlebot all return the same edgesuite 403). When the direct fetch fails,
+  we fetch the same URL's latest Internet Archive snapshot (`web.archive.org`,
+  `id_` raw mode so the original bytes arrive unmodified) and feed it to the
+  same parser. Lyrics don't change, so a years-old snapshot is as good as
+  today's page; the real limitation is coverage — a page the Archive never
+  crawled has no fallback, and the operator should paste the lyrics text
+  instead.
   """
   require Logger
 
@@ -59,20 +70,69 @@ defmodule Sinestesia.LyricsImport do
   end
 
   defp fetch_and_parse(url, parser) do
+    case fetch(url, 15_000) do
+      {:ok, html} ->
+        parser.(html)
+
+      {:error, reason} ->
+        Logger.warning(
+          "[lyrics_import] #{url} failed (#{inspect(reason)}) — the site blocks non-browser clients; trying the Internet Archive copy"
+        )
+
+        fetch_snapshot_and_parse(url, parser, reason)
+    end
+  end
+
+  defp fetch_snapshot_and_parse(url, parser, original_reason) do
+    # The Archive redirects /web/2id_/<url> to the latest snapshot; it can be
+    # slow, but this runs in the operator's import flow, never mid-song.
+    case fetch(snapshot_url(url), 30_000) do
+      {:ok, html} ->
+        case parser.(html) do
+          {:ok, result} ->
+            Logger.info("[lyrics_import] imported from the Internet Archive copy of #{url}")
+            {:ok, result}
+
+          {:error, parse_reason} ->
+            Logger.warning(
+              "[lyrics_import] the Internet Archive copy of #{url} did not parse (#{inspect(parse_reason)}) — paste the lyrics text instead"
+            )
+
+            {:error, original_reason}
+        end
+
+      {:error, snapshot_reason} ->
+        Logger.warning(
+          "[lyrics_import] no usable Internet Archive copy of #{url} (#{inspect(snapshot_reason)}) — paste the lyrics text instead"
+        )
+
+        # The original failure names the actual site, which is the error that
+        # explains what happened; the missing snapshot is only why the rescue
+        # didn't work.
+        {:error, original_reason}
+    end
+  end
+
+  @doc false
+  # `id_` asks the Archive for the original bytes, with none of the wayback
+  # toolbar or URL rewriting injected — the parsers see the page as it was
+  # served. The bare `2` timestamp prefix means "latest snapshot".
+  @spec snapshot_url(String.t()) :: String.t()
+  def snapshot_url(url), do: "https://web.archive.org/web/2id_/" <> url
+
+  defp fetch(url, timeout) do
     case Req.get(url,
            headers: [{"user-agent", @user_agent}],
-           receive_timeout: 15_000,
+           receive_timeout: timeout,
            retry: false
          ) do
       {:ok, %{status: 200, body: html}} when is_binary(html) ->
-        parser.(html)
+        {:ok, html}
 
       {:ok, %{status: status}} ->
-        Logger.warning("[lyrics_import] #{url} returned HTTP #{status}")
         {:error, {:bad_status, status}}
 
       {:error, reason} ->
-        Logger.warning("[lyrics_import] fetch failed for #{url}: #{inspect(reason)}")
         {:error, reason}
     end
   end

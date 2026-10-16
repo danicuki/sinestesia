@@ -33,8 +33,29 @@ defmodule Sinestesia.LyricsImport.LetrasComBrTest do
     assert Enum.all?(structure.sections, &(&1.label == :verse))
   end
 
+  test "parses the older markup served by Internet Archive snapshots" do
+    # 2024-era pages carry extra classes on the lyric div
+    # (class="lyric-original font --lyrics --size18"). This fixture is the
+    # Archive's raw (id_) copy of an Italian song — the fallback path
+    # LyricsImport uses now that the live site 403s non-browser clients.
+    html = Path.join(__DIR__, "../fixtures/letras_volare_wayback2024.html") |> File.read!()
+
+    assert {:ok, %{title: title, artist: artist, lyrics_text: text}} = LetrasComBr.parse(html)
+    assert title == "Volare (Nel Blu Dipinto Di Blu)"
+    assert artist == "Domenico Modugno"
+    assert text =~ "Penso che un sogno così non ritorni mai più"
+    assert text =~ "Nel blu, dipinto di blu"
+    # Stanzas still arrive blank-line separated for MusicalStructure.
+    assert length(String.split(text, "\n\n")) > 1
+  end
+
   test "no lyric-original block: a clear error, not a crash" do
     assert {:error, :lyric_block_not_found} = LetrasComBr.parse("<html><body>nope</body></html>")
+  end
+
+  test "extra classes are tolerated, but unrelated lyric-originalish classes are not" do
+    assert {:error, :lyric_block_not_found} =
+             LetrasComBr.parse(~s(<div class="lyric-originalish"><p>x</p></div>))
   end
 
   test "invalid input is rejected cleanly" do

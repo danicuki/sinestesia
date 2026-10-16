@@ -48,4 +48,10 @@ defmodule Sinestesia.LyricsImportTest do
   test "import/1 rejects non-string input cleanly" do
     assert {:error, :invalid_url} = LyricsImport.import(nil)
   end
+
+  test "snapshot_url/1 builds the Archive's raw-bytes (id_) form of the same page" do
+    # `id_` = original bytes, no wayback toolbar; `2` = latest snapshot.
+    assert LyricsImport.snapshot_url("https://www.letras.mus.br/domenico-modugno/713595/") ==
+             "https://web.archive.org/web/2id_/https://www.letras.mus.br/domenico-modugno/713595/"
+  end
 end

@@ -602,23 +602,33 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     dg_code = fn clip -> if clip["lang"] == "pt", do: "pt-BR", else: clip["lang"] end
     bcp47 = fn clip -> %{"pt" => "pt-BR", "en" => "en-US", "it" => "it-IT", "de" => "de-DE"}[clip["lang"]] end
 
+    # "-hint" = the engine is TOLD each clip's language up front (what
+    # ELEVEN_LANG=pt used to do for every song); the plain variant must
+    # detect it, which is what a pt/en/it/de set needs. Hint variants skip
+    # the medley: a pinned language cannot follow a set across languages.
     [
-      {"eleven", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(auto, "vad")},
-      {"eleven-hint", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(iso, "vad")},
+      {"eleven", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(auto, "vad"),
+       "ElevenLabs scribe_v2_realtime, language auto-detected, VAD commit after 0.6 s of silence"},
+      {"eleven-hint", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(iso, "vad"),
+       "ElevenLabs scribe_v2_realtime, told each clip's language (language_code)"},
       # No turn_prediction variant: the API reference says it applies "only
       # for models that predict turns", and scribe_v2_realtime — the only
       # realtime model — is not one; the session rejects it.
-      {"deepgram", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", multi)},
-      {"deepgram-hint", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", dg_code)},
-      {"flux", :deepgram, :deepgram_api_key, :"flux-general-multi", dg.("flux-general-multi", multi)},
-      {"gemini", :gemini, :google_api_key, :"gemini-3.5-transcribe-live",
-       gem.("gemini-3.5-transcribe-live", auto)},
-      {"gemini-hint", :gemini, :google_api_key, :"gemini-3.5-transcribe-live",
-       gem.("gemini-3.5-transcribe-live", bcp47)},
-      {"gemini-live", :gemini, :google_api_key, :"gemini-3.8-live", gem.("gemini-3.8-live", auto)}
+      {"deepgram", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", multi),
+       "Deepgram Nova-3, language=multi (auto-detect with code-switching), 300 ms endpointing"},
+      {"deepgram-hint", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", dg_code),
+       "Deepgram Nova-3, told each clip's language (language=pt-BR, en, it, de)"},
+      {"flux", :deepgram, :deepgram_api_key, :"flux-general-multi", dg.("flux-general-multi", multi),
+       "Deepgram Flux (flux-general-multi), turn-based: a final per detected end of turn, language auto"},
+      {"gemini", :gemini, :google_api_key, :"gemini-3.5-transcribe-live", gem.("gemini-3.5-transcribe-live", auto),
+       "Gemini 3.5 Transcribe Live (models/gemini-3.5-transcribe-live), dedicated streaming ASR, language auto"},
+      {"gemini-hint", :gemini, :google_api_key, :"gemini-3.5-transcribe-live", gem.("gemini-3.5-transcribe-live", bcp47),
+       "Gemini 3.5 Transcribe Live, told each clip's language (languageCodes pt-BR, en-US, it-IT, de-DE)"},
+      {"gemini-live", :gemini, :google_api_key, :"gemini-3.8-live", gem.("gemini-3.8-live", auto),
+       "Gemini 3.8 Live (models/gemini-3.8-live), the voice-to-voice model told to stay silent; its input transcription, language auto"}
     ]
-    |> Enum.map(fn {id, provider, key, price, env} ->
-      %{id: id, provider: provider, key: key, price: price, env: env}
+    |> Enum.map(fn {id, provider, key, price, env, desc} ->
+      %{id: id, provider: provider, key: key, price: price, env: env, desc: desc}
     end)
   end
 
@@ -707,6 +717,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
           backend: backend,
           threads: threads,
           sidecar_env: env,
+          desc:
+            "local Whisper #{model} on #{backend}" <>
+              if(threads, do: " (#{threads} CPU threads)", else: "") <>
+              ", detection restricted to #{List.keyfind(env, "WHISPER_LANGUAGES", 0) |> elem(1)}",
           env: fn _ -> %{} end
           }
         end
@@ -991,6 +1005,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       variant: v.id,
       provider: v.provider,
       price: v.price,
+      desc: Map.get(v, :desc),
       clip: clip["id"],
       lang: clip["lang"],
       ref_words: w.n,
@@ -1029,7 +1044,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     |> score(v, events, ref_lines, meta["line_ends"], anchor_tokens(meta["words"]))
     |> Jason.encode!()
     |> Jason.decode!()
-    |> Map.merge(Map.take(r, ["clip", "medley", "standalone", "at", "host"]))
+    |> Map.merge(Map.take(r, ["clip", "medley", "standalone", "at", "host", "desc"]))
   end
 
   defp wav_data(<<"RIFF", _::32, "WAVE", rest::binary>>), do: find_data(rest)
@@ -1217,14 +1232,14 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
     # The scorecard: one line per engine, numbers a non-specialist can rank.
     card_header =
-      "| engine | latency (ms) | accuracy | " <>
+      "| engine | word latency (ms) | phrase latency (ms) | accuracy | " <>
         Enum.map_join(langs, " | ", & &1) <> " | multi-language | $/h |"
 
-    card_sep = "|" <> String.duplicate("---|", 5 + length(langs))
+    card_sep = "|" <> String.duplicate("---|", 6 + length(langs))
 
     card =
       Enum.map_join(rows, "\n", fn r ->
-        "| #{r.variant}#{if r.variant in updated, do: " ✦", else: ""} | #{ms(r.final_p50)} | #{score(r.wer)} | " <>
+        "| #{r.variant}#{if r.variant in updated, do: " ✦", else: ""} | #{ms(r.partial_p50)} | #{ms(r.final_p50)} | #{score(r.wer)} | " <>
           Enum.map_join(langs, " | ", &score(r.by_lang[&1])) <>
           " | #{score(r.multi_wer)} | #{price(r.price)} |"
       end)
@@ -1249,6 +1264,19 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
         do: "",
         else: "\n✦ measured in this run; the other rows are from the store (#{@store}/results/)."
 
+    # What each id means — from the row itself when it was stored with a
+    # description, else from today's catalog.
+    known = Map.new(catalog(), &{&1.id, &1.desc})
+
+    legend =
+      Enum.map_join(rows, "\n", fn r ->
+        desc =
+          Enum.find_value(by_variant[r.variant], & &1["desc"]) || known[r.variant] ||
+            if(String.starts_with?(r.variant, "whisper-"), do: "local Whisper sidecar", else: "?")
+
+        "- **#{r.variant}** — #{desc}"
+      end)
+
     notes =
       results
       |> Enum.filter(&(&1["errors"] != []))
@@ -1260,15 +1288,22 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     **Accuracy** (0–100) = of every 100 words sung, how many came out right; wrong,
     missing and invented words all count against it (100 − word error rate). On sung
     audio, 90+ is excellent, 80–90 follows most lines, below 70 the follower loses the
-    song. **Latency** = ms from the last sung word to the final transcript that
-    contains it (median; finals gate the stage's reveals). **Multi-language** =
-    accuracy inside ONE session that moves pt → it → de → en, where the engine must
-    notice each switch on its own. Sorted by accuracy.
+    song. **Word latency** = ms from a sung word to the first (partial) transcript
+    that contains it — the engine's raw speed, including the 250 ms capture chunk.
+    **Phrase latency** = ms from the last word of a phrase to its final transcript,
+    which is what the stage's reveals wait for; it includes each engine's
+    end-of-phrase silence (ElevenLabs 0.6 s, Deepgram 300 ms endpointing, local
+    Whisper 0.65 s, Flux and Gemini their own detectors) on top of the chunk. Both
+    medians. **Multi-language** = accuracy inside ONE session that moves
+    pt → it → de → en, where the engine must notice each switch on its own.
+    Sorted by accuracy.
 
     #{card_header}
     #{card_sep}
     #{card}
     #{fresh}
+
+    #{legend}
 
     ### Details
 

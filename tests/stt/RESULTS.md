@@ -23,22 +23,26 @@ way.
 **Accuracy** (0–100) = of every 100 words sung, how many came out right; wrong,
 missing and invented words all count against it (100 − WER). On sung audio,
 90+ is excellent, 80–90 follows most lines, below 70 the follower loses the
-song. **Latency** = ms from the last sung word to the final transcript that
-contains it (median; finals gate the reveals). **Multi-language** = accuracy
-inside ONE session that moves pt → it → de → en and must notice each switch.
+song. **Word latency** = ms from a sung word to the first (partial) transcript
+that contains it — the engine's raw speed, including the 250 ms capture
+chunk. **Phrase latency** = ms from the last word of a phrase to its final
+transcript, which is what the reveals wait for; it includes the engine's
+end-of-phrase silence (0.65 s here) on top of the chunk. Both medians.
+**Multi-language** = accuracy inside ONE session that moves pt → it → de → en
+and must notice each switch.
 
-| engine | latency (ms) | accuracy | de | en | it | pt | multi-language | $/h |
-|---|---|---|---|---|---|---|---|---|
-| **large-v3-turbo @12t greedy 4-lang** | 2709 | **87** | 70 | 97 | 91 | 88 | **78** | 0 (local) |
-| large-v3-turbo @12t greedy | 2574 | 87 | 70 | 97 | 91 | 88 | 71 | 0 (local) |
-| large-v3-turbo @12t finals-only (old sidecar) | 2875 | 85 | 83 | 97 | 68 | 94 | 69 | 0 (local) |
-| **small @12t greedy 4-lang** | **1576** | 75 | 61 | 97 | 63 | 81 | 75 | 0 (local) |
-| small @12t (old sidecar) | 1804 | 73 | 31 | 97 | 64 | 89 | 27 | 0 (local) |
-| base @4t | 1761 | 67 | 51 | 91 | 52 | 74 | — | 0 (local) |
-| medium @12t greedy | 2485 | 66 | 33 | 96 | 39 | 87 | 75 | 0 (local) |
-| tiny @4t | 1720 | 49 | 9 | 84 | 31 | 65 | — | 0 (local) |
-| medium @12t (old sidecar) | 10945 | 36 | 0 | 86 | 0 | 55 | 17 | 0 (local) |
-| large-v3-turbo @12t (old sidecar) | 32695 | 6 | 8 | 0 | 7 | 6 | 13 | 0 (local) |
+| engine | word latency (ms) | phrase latency (ms) | accuracy | de | en | it | pt | multi-language | $/h |
+|---|---|---|---|---|---|---|---|---|---|
+| **large-v3-turbo @12t greedy 4-lang** | 1160 | 2709 | **87** | 70 | 97 | 91 | 88 | **78** | 0 (local) |
+| large-v3-turbo @12t greedy | 1107 | 2574 | 87 | 70 | 97 | 91 | 88 | 71 | 0 (local) |
+| large-v3-turbo @12t finals-only (old sidecar) | — | 2875 | 85 | 83 | 97 | 68 | 94 | 69 | 0 (local) |
+| **small @12t greedy 4-lang** | **644** | **1576** | 75 | 61 | 97 | 63 | 81 | 75 | 0 (local) |
+| small @12t (old sidecar) | 791 | 1804 | 73 | 31 | 97 | 64 | 89 | 27 | 0 (local) |
+| base @4t | 685 | 1761 | 67 | 51 | 91 | 52 | 74 | — | 0 (local) |
+| medium @12t greedy | 1004 | 2485 | 66 | 33 | 96 | 39 | 87 | 75 | 0 (local) |
+| tiny @4t | 940 | 1720 | 49 | 9 | 84 | 31 | 65 | — | 0 (local) |
+| medium @12t (old sidecar) | 7704 | 10945 | 36 | 0 | 86 | 0 | 55 | 17 | 0 (local) |
+| large-v3-turbo @12t (old sidecar) | 25526 | 32695 | 6 | 8 | 0 | 7 | 6 | 13 | 0 (local) |
 
 ### Details (WER)
 

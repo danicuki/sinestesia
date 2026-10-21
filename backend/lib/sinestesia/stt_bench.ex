@@ -174,7 +174,10 @@ defmodule Sinestesia.SttBench do
   aligned to the anchor words that had ALREADY been sung when it arrived (an
   STT can't transcribe the future; the 0.5s slack absorbs anchor timing
   error); the last anchor word it contains gives `t - end`. Events too short
-  or too wrong to place are skipped, not guessed.
+  or too wrong to place are skipped, not guessed — and so is an event that
+  adds no word beyond the previous one (a cumulative partial re-sent while
+  the singer holds a note), which would otherwise measure the engine's
+  re-send cadence instead of the word.
   """
   @spec lags([%{t: number(), text: String.t()}], [%{token: String.t(), end: number()}]) :: [
           number()
@@ -182,7 +185,13 @@ defmodule Sinestesia.SttBench do
   def lags(events, anchor) do
     anchor_t = List.to_tuple(anchor)
 
-    Enum.flat_map(events, fn %{t: t, text: text} ->
+    # One sample per event that brings a NEW word. Cumulative partials
+    # re-send the phrase so far — ElevenLabs repeats the same text every
+    # second while the singer holds a note — and crediting a repeat against
+    # the word it last added would measure the re-send cadence, not how long
+    # the word took to appear.
+    events
+    |> Enum.reduce({[], -1}, fn %{t: t, text: text}, {acc, last} ->
       toks = tokens(text)
 
       sung =
@@ -191,21 +200,29 @@ defmodule Sinestesia.SttBench do
         |> Enum.filter(fn {w, _} -> w.end * 1000 <= t + 500 end)
 
       window = Enum.take(sung, -80)
-      offset = case window do
-        [{_, i} | _] -> i
-        [] -> 0
-      end
+
+      offset =
+        case window do
+          [{_, i} | _] -> i
+          [] -> 0
+        end
 
       pairs = local_align(toks, Enum.map(window, fn {w, _} -> w.token end))
       needed = min(2, length(toks))
 
       if length(pairs) >= needed and needed > 0 do
         {_, j} = List.last(pairs)
-        [t - elem(anchor_t, offset + j).end * 1000]
+        at = offset + j
+
+        if at > last,
+          do: {[t - elem(anchor_t, at).end * 1000 | acc], at},
+          else: {acc, last}
       else
-        []
+        {acc, last}
       end
     end)
+    |> elem(0)
+    |> Enum.reverse()
   end
 
   @doc """

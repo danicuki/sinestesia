@@ -154,6 +154,7 @@ defmodule Sinestesia.GeminiSTT do
 
   defp handle_response({:done, ref}, %{ref: ref} = state) do
     Logger.warning("[gemini] connection done — reconnecting")
+    send(state.parent, {:stt_error, :gemini, :connection_done})
     schedule_reconnect(state, :done)
   end
 
@@ -207,13 +208,42 @@ defmodule Sinestesia.GeminiSTT do
         :ok
     end
 
+    # Everything else the server says about the turn — turnComplete,
+    # interrupted, generationComplete, a modelTurn (text, or audio from the
+    # live model), outputTranscription — is the record of WHEN the model took
+    # a turn, which is what explains gaps in the input transcription.
+    rest = Map.drop(content, ["interimInputTranscription", "inputTranscription"])
+
+    if rest != %{} do
+      rest =
+        case rest do
+          %{"modelTurn" => %{"parts" => parts}} ->
+            summary =
+              Enum.map(parts, fn
+                %{"inlineData" => %{"data" => data, "mimeType" => mt}} -> "#{mt} #{byte_size(data)}B(b64)"
+                %{"text" => t} -> "text: " <> String.slice(t, 0, 120)
+                p -> inspect(p) |> String.slice(0, 120)
+              end)
+
+            Map.put(rest, "modelTurn", summary)
+
+          _ ->
+            rest
+        end
+
+      Logger.info("[gemini] turn: #{Jason.encode!(rest) |> String.slice(0, 400)}")
+    end
+
     state
   end
 
   # The session is about to hit its time cap — swap to a fresh one now,
   # while the old one is still answering, instead of after it drops.
   defp handle_message(%{"goAway" => info}, state) do
-    Logger.info("[gemini] goAway #{inspect(info)} — rolling over to a new session")
+    Logger.warning("[gemini] goAway #{inspect(info)} — rolling over to a new session")
+    # Audio sent while the new session sets up is buffered (then capped), so
+    # a rollover is still a gap worth recording on a bench row.
+    send(state.parent, {:stt_error, :gemini, {:go_away, info}})
     schedule_reconnect(state, :go_away)
   end
 
@@ -222,10 +252,11 @@ defmodule Sinestesia.GeminiSTT do
     state
   end
 
-  # Model audio (3.8-live), usage metadata, turn bookkeeping: nothing the
-  # pipeline needs, but visible under debug logging when probing a new model.
+  # Usage metadata, session resumption, anything new: nothing the pipeline
+  # needs, but it is what explains a session's behaviour when probing a model
+  # (`mix sinestesia.bench.stt --verbose`), so it is logged in full at info.
   defp handle_message(other, state) do
-    Logger.debug("[gemini] unhandled: #{other |> inspect() |> String.slice(0, 300)}")
+    Logger.info("[gemini] server: #{other |> Jason.encode!() |> String.slice(0, 600)}")
     state
   end
 

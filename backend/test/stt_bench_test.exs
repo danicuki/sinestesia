@@ -72,6 +72,18 @@ defmodule Sinestesia.SttBenchTest do
       # what was sung by then (+0.5s slack) — here nothing it contains.
       assert SttBench.lags([%{t: 1_200, text: "eu desenho"}], @anchor) == []
     end
+
+    test "a cumulative partial that adds no new word is not a sample" do
+      # ElevenLabs re-sends "numa folha qualquer" every second while the
+      # singer holds "quer"; only the first appearance of each word counts.
+      events = [
+        %{t: 2_600, text: "Numa folha qualquer"},
+        %{t: 3_600, text: "Numa folha qualquer"},
+        %{t: 4_000, text: "Numa folha qualquer eu desenho"}
+      ]
+
+      assert SttBench.lags(events, @anchor) == [600.0, 500.0]
+    end
   end
 
   test "follow/3 confirms lines in order, including two sung in one breath" do

@@ -421,14 +421,26 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     {cloud, whisper} = Enum.split_with(run, &(&1.provider != :local_whisper))
     passes = Enum.chunk_every(cloud, max(opts[:parallel] || 3, 1)) ++ Enum.map(whisper, &[&1])
 
-    passes != [] &&
+    if passes != [] do
       Mix.shell().info(
-        "── stt bench: #{length(clips)} clips × #{length(run)} variants, #{chunk_ms}ms chunks → #{@store}/\n"
+        "── stt bench: #{length(clips)} clips × #{length(run)} variants, #{chunk_ms}ms chunks → #{@store}/"
       )
+
+      # Cloud engines go --parallel at a time, each local model alone; every
+      # pass plays the whole corpus before the next one starts.
+      passes
+      |> Enum.with_index(1)
+      |> Enum.each(fn {vs, i} ->
+        Mix.shell().info("   pass #{i}/#{length(passes)}: #{Enum.map_join(vs, ", ", & &1.id)}")
+      end)
+    end
 
     # Each pass is stored as soon as it is scored, so a crash in a later pass
     # (a sidecar that will not start) does not cost the cloud rows.
-    Enum.each(passes, fn variants ->
+    passes
+    |> Enum.with_index(1)
+    |> Enum.each(fn {variants, i} ->
+      Mix.shell().info("\n── pass #{i}/#{length(passes)}: #{Enum.map_join(variants, ", ", & &1.id)}")
       {variants, sidecar} = boot_sidecar(variants, opts)
 
       rows =

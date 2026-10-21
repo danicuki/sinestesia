@@ -683,6 +683,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     if models == [] do
       []
     else
+      check_venv!(python)
       backend = opts[:whisper_backend] || probe_backend(python)
       threads = opts[:whisper_threads] || if(backend == "faster-whisper", do: System.schedulers_online())
       env = parse_env(opts[:whisper_env])
@@ -734,6 +735,41 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   end
 
   defp resolve_model(name, _backend), do: name
+
+  # A venv that cannot even import numpy fails here, with the fix, instead of
+  # minutes later in the sidecar log. The classic on a Mac migrated from
+  # Intel: an x86_64 Python under Rosetta with arm64 wheels — the README's
+  # `uv venv --managed-python` exists for exactly that.
+  defp check_venv!(python) do
+    probe = "import numpy, platform, sys; print(platform.machine(), sys.version.split()[0])"
+
+    case System.cmd(python, ["-c", probe], stderr_to_stdout: true) do
+      {out, 0} ->
+        case String.split(String.trim(out)) do
+          [machine, version] ->
+            Mix.shell().info("   sidecar venv: Python #{version} #{machine}")
+
+            if {:unix, :darwin} == :os.type() and machine == "x86_64" do
+              Mix.shell().info("   (an x86_64 Python on a Mac runs under Rosetta — no mlx; rebuild the venv as below if this is Apple Silicon)")
+            end
+
+          _ ->
+            :ok
+        end
+
+      {out, _} ->
+        Mix.raise("""
+        the local-whisper venv at #{python} cannot import numpy — rebuild it:
+
+            cd local-whisper && rm -rf .venv
+            uv venv --managed-python --python 3.11
+            uv pip install --python .venv/bin/python -r requirements.txt
+
+        (local-whisper/README.md). The interpreter said:
+        #{String.slice(String.trim(out), -500, 500)}
+        """)
+    end
+  end
 
   # mlx when the venv can import it (Apple Silicon), CTranslate2 otherwise —
   # never torch, which is the slow one on CPU and segfaults on some ROCm boxes.

@@ -1,0 +1,122 @@
+{
+  "about": "Corpus for `mix sinestesia.bench.stt`. Each clip is real singing: the duo's own takes (site/assets) and studio recordings, all reduced to the Demucs vocal stem — what a stage vocal mic mostly hears. `start`/`duration` are seconds into the source. Lyrics come from lrclib.net (artist/track) or a local `lyrics_file`. Audio, lyrics and the derived references live in tests/stt/corpus/ (gitignored): run `mix sinestesia.bench.stt --prepare` to rebuild them. Add your own takes the same way — a Save-take .webm works as a source.",
+  "clips": [
+    {
+      "id": "pt-aquarela",
+      "lang": "pt",
+      "title": "Aquarela (Toquinho) — Sinestesia take",
+      "source": "site/assets/aquarela-tarsila.mp4",
+      "start": 0,
+      "lyrics": {
+        "artist": "Toquinho",
+        "track": "Aquarela"
+      }
+    },
+    {
+      "id": "pt-garota",
+      "lang": "pt",
+      "title": "Garota de Ipanema — Sinestesia take",
+      "source": "site/assets/garotadeipanema.mp4",
+      "start": 0,
+      "lyrics": {
+        "artist": "Tom Jobim",
+        "track": "Garota de Ipanema"
+      }
+    },
+    {
+      "id": "pt-trem",
+      "lang": "pt",
+      "title": "Trem das Cores — Sinestesia take",
+      "source": "site/assets/tremdascores.mp4",
+      "start": 0,
+      "lyrics": {
+        "artist": "Caetano Veloso",
+        "track": "Trem das Cores"
+      }
+    },
+    {
+      "id": "en-flyme",
+      "lang": "en",
+      "title": "Fly Me to the Moon — Sinestesia take",
+      "source": "site/assets/flyme.mp4",
+      "start": 0,
+      "lyrics": {
+        "artist": "Frank Sinatra",
+        "track": "Fly Me to the Moon"
+      }
+    },
+    {
+      "id": "en-letitbe",
+      "lang": "en",
+      "title": "Let It Be — The Beatles (vocal stem)",
+      "source": "https://www.youtube.com/watch?v=CGj85pVzRJs",
+      "start": 10,
+      "duration": 50,
+      "lyrics": {
+        "artist": "The Beatles",
+        "track": "Let It Be"
+      }
+    },
+    {
+      "id": "it-pausini",
+      "lang": "it",
+      "title": "La solitudine — Laura Pausini (vocal stem)",
+      "source": "https://www.youtube.com/watch?v=hynkbcyGsCM",
+      "start": 13,
+      "duration": 50,
+      "lyrics": {
+        "artist": "Laura Pausini",
+        "track": "La solitudine"
+      }
+    },
+    {
+      "id": "it-celentano",
+      "lang": "it",
+      "title": "Azzurro — Adriano Celentano (vocal stem)",
+      "source": "https://www.youtube.com/watch?v=VLbi8UAWqNA",
+      "start": 6,
+      "duration": 50,
+      "lyrics": {
+        "artist": "Adriano Celentano",
+        "track": "Azzurro"
+      }
+    },
+    {
+      "id": "de-nena",
+      "lang": "de",
+      "title": "99 Luftballons — Nena (vocal stem)",
+      "source": "https://www.youtube.com/watch?v=TMSlTQmDLx4",
+      "start": 1,
+      "duration": 50,
+      "lyrics": {
+        "artist": "Nena",
+        "track": "99 Luftballons"
+      }
+    },
+    {
+      "id": "de-fischer",
+      "lang": "de",
+      "title": "Atemlos durch die Nacht — Helene Fischer (vocal stem)",
+      "source": "https://www.youtube.com/watch?v=haECT-SerHk",
+      "start": 15,
+      "duration": 50,
+      "lyrics": {
+        "artist": "Helene Fischer",
+        "track": "Atemlos durch die Nacht"
+      }
+    }
+  ],
+  "medleys": [
+    {
+      "id": "medley",
+      "about": "A set in one session: Portuguese, Italian, German, then English, 3s apart — the song change does what the pipeline's reset_song does (local Whisper re-detects; cloud engines get nothing).",
+      "parts": [
+        "pt-trem",
+        "it-pausini",
+        "de-fischer",
+        "en-letitbe"
+      ],
+      "gap": 3
+    }
+  ]
+}

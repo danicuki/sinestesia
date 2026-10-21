@@ -106,7 +106,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `ELEVENLABS_API_KEY` | _none_ | — | ElevenLabs Scribe realtime STT. Required for STT_PROVIDER=elevenlabs. |
 | `DEEPGRAM_API_KEY` | _none_ | — | Deepgram streaming STT. Required for STT_PROVIDER=deepgram. |
 | `FAL_API_KEY` | _none_ | — | fal.ai. Required for IMAGE_PROVIDER=fal. |
-| `GOOGLE_API_KEY` | _none_ | — | Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, and song identification. |
+| `GOOGLE_API_KEY` | _none_ | — | Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, STT_PROVIDER=gemini, and song identification. |
 | `ANTHROPIC_API_KEY` | _none_ | — | Anthropic. Used by DIRECTOR_PROVIDER=haiku and as the song-identification fallback. |
 | `CLOUDFLARE_ACCOUNT_ID` | _none_ | — | Cloudflare account. Required for IMAGE_PROVIDER=cloudflare. |
 | `CLOUDFLARE_API_TOKEN` | _none_ | — | Cloudflare Workers AI token. Required for IMAGE_PROVIDER=cloudflare. |
@@ -115,12 +115,17 @@ rehearsal, where finding out now beats finding out on stage.
 
 | Variable | Default | Accepts | Description |
 | --- | --- | --- | --- |
-| `STT_PROVIDER` | `elevenlabs` | `elevenlabs \| deepgram \| both \| local_whisper \| replay` | Which speech-to-text engine transcribes the singing. |
+| `STT_PROVIDER` | `elevenlabs` | `elevenlabs \| deepgram \| gemini \| local_whisper \| both \| all \| eleven_local \| replay` | Which speech-to-text engine transcribes the singing. both = elevenlabs + deepgram, all = those + local_whisper, eleven_local = elevenlabs + local_whisper (A/B runs; the first final wins). Compare them on real sung audio with mix sinestesia.bench.stt. |
 | `ELEVEN_MODEL` | `scribe_v2_realtime` | — | ElevenLabs streaming model. |
-| `ELEVEN_LANG` | `pt` | `ISO-639-1` | Language hint for ElevenLabs. Wrong language wrecks Portuguese lyrics. |
+| `ELEVEN_LANG` | _unset_ | `ISO-639-1 \| empty = auto-detect` | Language hint for ElevenLabs. Empty auto-detects per session, which is what a multilingual set (pt/en/it/de) needs; pin a code only for a one-language show. |
 | `ELEVEN_COMMIT` | `vad` | `vad \| manual` | How a transcript segment is closed: voice-activity detection, or explicit commits. |
 | `ELEVEN_VAD_SILENCE` | `0.6` | `seconds` | Silence before VAD commits a line. Lower = more responsive, more fragments. |
 | `ELEVEN_NO_VERBATIM` | _unset_ | `1 \| true \| on` | Ask Scribe to clean the transcript instead of returning it verbatim. Off by default because it only exists on the ElevenLabs path (Deepgram and the local Whisper sidecar have no equivalent), so it can never be the mechanism the follower relies on. Its documented scope is filler words and stuttering, never held-vowel normalization ("castelooo"), which is why the follower keeps its own repeated-letter collapse regardless. Worth measuring on a real run for the false starts a live mic produces. |
+| `DEEPGRAM_MODEL` | `nova-3` | `nova-3 \| flux-general-multi \| flux-general-en` | Deepgram model. nova-3 streams is_final segments on /v1/listen; flux-* is the turn-based model on /v2/listen (EndOfTurn = final). |
+| `DEEPGRAM_LANGUAGE` | `multi` | `multi \| BCP-47 (pt-BR, en, it, de, ...)` | multi = Nova-3 Multilingual auto-detect/code-switch (en/es/fr/de/hi/ru/pt/ja/it/nl). A code pins one language (on flux it becomes a language_hint). |
+| `GEMINI_STT_MODEL` | `gemini-3.5-transcribe-live` | `gemini-3.5-transcribe-live \| gemini-3.8-live` | Gemini Live model for STT_PROVIDER=gemini. The transcribe model is Google's dedicated streaming ASR; a conversational Live model (3.8-live) only offers the transcript as a side channel of a voice session and is told to stay silent. |
+| `GEMINI_STT_LANG` | _unset_ | `empty = auto \| comma list of BCP-47 (pt-BR,en-US)` | Language hints for Gemini transcription. Empty auto-detects and code-switches. |
+| `GEMINI_STT_SILENCE_MS` | _unset_ | `milliseconds` | Server-VAD silence before Gemini finalizes a phrase. Unset = Google's default. Lower = faster finals, more fragments. |
 | `LOCAL_WHISPER_HOST` | `127.0.0.1` | — | Host of the local Whisper sidecar (STT_PROVIDER=local_whisper). |
 | `LOCAL_WHISPER_PORT` | `8002` | — | Port of the local Whisper sidecar. |
 | `LOCAL_WHISPER_BATCH_PORT` | `8012` | — | HTTP port of the local-whisper sidecar's batch endpoint (/transcribe_file), used by Sinestesia.BatchStt to turn a finished recording into a session for mix sinestesia.video. Separate from LOCAL_WHISPER_PORT (the realtime WebSocket) and deliberately not port+1, which would collide with the local SDXL sidecar's 8003 in an offline setup. |
@@ -279,13 +284,23 @@ These parameters control the Python streaming Whisper WebSocket sidecar server (
 
 * **`BIND_HOST`** (Default: `127.0.0.1`): Address the FastAPI sidecar server binds to.
 * **`BIND_PORT`** (Default: `8002`): WebSocket port the sidecar listens on.
-* **`WHISPER_MODEL`** (Default: `mlx-community/whisper-small-mlx-q4`): HuggingFace MLX community repo identifier. We highly recommend a 4-bit quantized (`-q4`) model to fit comfortably alongside Gemma/SDXL inside 16GB VRAM.
+* **`WHISPER_BACKEND`** (Default: `mlx` if `mlx-whisper` imports, else `torch` if PyTorch is installed, else `faster-whisper`): Which Whisper implementation runs the realtime socket. `mlx` = Apple Silicon Metal; `torch` = openai-whisper on CUDA/ROCm; `faster-whisper` = CTranslate2 (CPU int8, or CUDA). On the Strix Halo Linux box use `faster-whisper`: the stock ROCm 7.0 torch wheel segfaults on gfx1151. The batch endpoint (`/transcribe_file`) always uses faster-whisper.
+* **`WHISPER_MODEL`** (Default: `mlx-community/whisper-small-mlx` on `mlx`, `small` otherwise): Model to load. On `mlx`, an `mlx-community/whisper-*-mlx` repo; on `faster-whisper`, a size (`tiny`, `base`, `small`, `medium`, `large-v3-turbo`, `large-v3`) or a local CTranslate2 model directory. Pick by measurement: `mix sinestesia.bench.stt --whisper small,large-v3-turbo` streams real sung clips through each size and reports WER and latency (see `tests/README.md`).
+* **`FASTER_WHISPER_DEVICE`** (Default: `cpu`) / **`FASTER_WHISPER_COMPUTE_TYPE`** (Default: `int8`): Device and precision for the `faster-whisper` backend.
+* **`TORCH_WHISPER_DEVICE`** (Default: `cuda` when available, else `cpu`): Device for the `torch` backend.
 * **`WHISPER_LANGUAGE`** (Default: _Unset - Auto-detect_): Force a specific language (e.g. `pt`, `en`, `fr`) to bypass auto-detection and save first-segment latency.
+* **`WHISPER_LANGUAGES`** (Default: _unset — any of Whisper's 99 languages_): Comma list of the languages the set is sung in, e.g. `pt,en,it,de`. Auto-detect then picks the best language **within that set** (probability renormalized over it), instead of letting one or two seconds of sung vowels land on Hindi or Russian and lock the whole song into the wrong script — which is exactly what the STT bench saw (`medium` transcribed an Italian verse in Devanagari after a 0.59 Hindi guess). This is the setting for a multilingual show; `WHISPER_LANGUAGE` (singular) pins one language and overrides it. The lock is still cleared on every song change.
+* **`WHISPER_LANGUAGE_LOCK_MIN_PROB`** (Default: `0.55`) / **`WHISPER_LANGUAGE_FALLBACK`** (Default: _unset_): Auto-detect locks the session's language on the first qualifying final at least this confident; below it, the fallback language (if set) is used instead. The lock is cleared on every song change (`reset`), so a set can move between languages.
+* **`WHISPER_MIN_LOCK_WORDS`** (Default: `4`): Only a final with at least this many words may lock the language. Interims never lock it. The opening seconds of a song are vocalizations and breath, on which Whisper guesses English for anything — a lock taken there put a German song in English for its whole length.
 * **`MIN_DETECT_SECS`** (Default: `1.5`): Minimum accumulated audio duration required before Whisper trusts auto-detect. Prevents incorrect auto-detection on initial short or noisy utterances.
 * **`INTERIM_INTERVAL_MS`** (Default: `1200`): Frequency in milliseconds of intermediate "partial" transcription broadcasts.
 * **`VAD_SILENCE_MS`** (Default: `650`): Trailing silence required in the audio stream before the sidecar considers a segment finished and commits it as final.
 * **`MIN_SPEECH_MS`** (Default: `300`): Voice Activity Detection floor. Prevents background noise, mouse clicks, or short breaths from firing the transcriber.
-* **`MAX_BUFFER_SECS`** (Default: `20`): Absolute safety cap on the raw audio buffer. If exceeded without VAD silence, the buffer is hard-reset to avoid infinite growth and buffer lag.
+* **`MAX_BUFFER_SECS`** (Default: `20`): Longest phrase without a breath. When the singer goes this long with no `VAD_SILENCE_MS` gap (a gapless chorus, a held note into the next line), the buffer is committed as one final instead of dropping its oldest audio — the earlier behaviour lost sung words silently (the STT bench caught it on Azzurro and Atemlos).
+* **`WHISPER_BEAM_SIZE`** (Default: `1`): Beam width for the realtime decode. The library default of 5 is an offline setting; greedy is several times cheaper on CPU and what the stage needs. Ignored on `mlx` (greedy only).
+* **`WHISPER_TEMPERATURE_FALLBACK`** (Default: `0`): Set `1` to restore Whisper's offline behaviour of re-decoding a degenerate pass at up to five higher temperatures. Off by default because sung vowels ("oh, oh, oh") trigger that loop on every interim — measured 13 s per 4 s buffer with `small` on CPU, during which the stage saw nothing.
+* **`WHISPER_MAX_NEW_TOKENS`** (Default: `160`): Token cap per realtime decode (~2 tokens per sung word; 20 s of singing is well under it, a repetition loop is not). The batch endpoint keeps the library defaults for all three knobs.
+* **`LOCAL_WHISPER_BATCH_PORT`** (Default: `8012`): HTTP port of the batch `/transcribe_file` endpoint (`mix sinestesia.video`, STT bench anchors).
 
 ---
 

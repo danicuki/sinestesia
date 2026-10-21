@@ -15,13 +15,27 @@ defmodule Sinestesia.ElevenSTT do
   @port 443
 
   # Tunable via env vars to debug protocol mismatches without recompiling much:
-  #   ELEVEN_MODEL    (default "scribe_v2_realtime")
-  #   ELEVEN_LANG     (default "pt" — try "por", "pt-BR", or "" to disable)
-  #   ELEVEN_COMMIT   (default "vad", or "manual" to commit every chunk)
+  #   ELEVEN_MODEL    (default "scribe_v2_realtime" — still the only realtime
+  #                    model_id the API accepts, checked 2026-10)
+  #   ELEVEN_LANG     (default "" = auto-detect; "pt", "it", ... pins one)
+  #   ELEVEN_COMMIT   (default "vad"; "manual" commits every chunk;
+  #                    "turn_prediction" commits when the model predicts the
+  #                    phrase is over)
   #   ELEVEN_NO_VERBATIM (unset; "1"/"true"/"on" asks Scribe to clean the text)
+  defp model, do: System.get_env("ELEVEN_MODEL", "scribe_v2_realtime")
+
+  # Auto-detect by default: the set moves between pt/en/it/de, and a pinned
+  # language turns every song outside it into phonetic Portuguese.
+  defp lang, do: System.get_env("ELEVEN_LANG", "")
+
+  @doc "Model and language as they will be requested — for the boot banner."
+  def describe do
+    "#{model()} · #{if lang() == "", do: "auto", else: lang()}"
+  end
+
   defp path do
-    model = System.get_env("ELEVEN_MODEL", "scribe_v2_realtime")
-    lang = System.get_env("ELEVEN_LANG", "pt")
+    model = model()
+    lang = lang()
     commit = System.get_env("ELEVEN_COMMIT", "vad")
     # Default 1.5s makes Eleven hold transcripts forever during continuous singing.
     # 0.6s is enough to detect breath gaps without false segmentation mid-phrase.

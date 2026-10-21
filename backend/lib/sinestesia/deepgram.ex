@@ -1,6 +1,17 @@
 defmodule Sinestesia.Deepgram do
   @moduledoc """
-  Streaming STT client using Deepgram Nova-3 via Mint.WebSocket.
+  Streaming STT client for Deepgram via Mint.WebSocket.
+
+  Two model families, picked by `DEEPGRAM_MODEL`, behind one interface:
+
+    * `nova-3` (default) — `/v1/listen`, `is_final` segments closed by
+      endpointing. `DEEPGRAM_LANGUAGE=multi` (the default) is Nova-3
+      Multilingual: auto-detects and code-switches across en/es/fr/de/hi/ru/
+      pt/ja/it/nl; a code (`pt-BR`, `it`) pins one language.
+    * `flux-general-multi` / `flux-general-en` — `/v2/listen`, Deepgram's
+      turn-based model. It reports `TurnInfo` events; `EndOfTurn` is the final,
+      every other event's running transcript is a partial. A language code in
+      `DEEPGRAM_LANGUAGE` becomes a `language_hint`; `multi` means no hint.
 
   Binary frames of 16-bit LE PCM 16kHz mono are sent directly (no JSON wrapping).
   Transcripts are forwarded to the parent process as:
@@ -11,7 +22,24 @@ defmodule Sinestesia.Deepgram do
 
   @host "api.deepgram.com"
   @port 443
-  @path "/v1/listen?model=nova-3&language=pt-BR&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&endpointing=300&punctuate=true"
+
+  defp model, do: System.get_env("DEEPGRAM_MODEL", "nova-3")
+  defp language, do: System.get_env("DEEPGRAM_LANGUAGE", "multi")
+  defp flux?, do: String.starts_with?(model(), "flux")
+
+  @doc "Model and language as they will be requested — for the boot banner."
+  def describe do
+    "#{model()} · #{if language() in ["", "multi"], do: "auto", else: language()}"
+  end
+
+  defp path do
+    if flux?() do
+      hint = if language() in ["", "multi"], do: "", else: "&language_hint=#{language()}"
+      "/v2/listen?model=#{model()}&encoding=linear16&sample_rate=16000" <> hint
+    else
+      "/v1/listen?model=#{model()}&language=#{language()}&encoding=linear16&sample_rate=16000&channels=1&interim_results=true&endpointing=300&punctuate=true"
+    end
+  end
 
   ## API
 
@@ -24,6 +52,7 @@ defmodule Sinestesia.Deepgram do
   def init(parent) do
     case connect() do
       {:ok, conn, ref, ws} ->
+        Logger.info("[deepgram] connected (model=#{model()}, language=#{language()})")
         {:ok, %{parent: parent, conn: conn, ref: ref, ws: ws}}
 
       {:error, reason} ->
@@ -90,6 +119,16 @@ defmodule Sinestesia.Deepgram do
         is_final = Map.get(msg, "is_final", false)
         send(parent, {:transcript, :deepgram, text, is_final, System.system_time(:millisecond)})
 
+      # Flux: the transcript is cumulative within a turn, so each event
+      # REPLACES the partial — the same contract as the other providers.
+      {:ok, %{"type" => "TurnInfo", "event" => event, "transcript" => text}}
+      when is_binary(text) and text != "" ->
+        is_final = event == "EndOfTurn"
+        send(parent, {:transcript, :deepgram, text, is_final, System.system_time(:millisecond)})
+
+      {:ok, %{"type" => "Error"} = err} ->
+        send(parent, {:stt_error, :deepgram, err})
+
       _ ->
         :ok
     end
@@ -116,7 +155,7 @@ defmodule Sinestesia.Deepgram do
                transport_opts: [verify: :verify_none]
              ),
            {:ok, conn, ref} <-
-             Mint.WebSocket.upgrade(:wss, conn, @path, [
+             Mint.WebSocket.upgrade(:wss, conn, path(), [
                {"authorization", "Token " <> key}
              ]),
            {:ok, conn, ws} <- await_upgrade(conn, ref) do

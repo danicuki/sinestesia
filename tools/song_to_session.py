@@ -78,7 +78,7 @@ def main():
     ap.add_argument("--skip-separation", action="store_true",
                     help="input is already a clean vocal track; skip Demucs")
     ap.add_argument("--lang", default="pt", help="ISO language ('' = auto-detect)")
-    ap.add_argument("--model", default="scribe_v1", help="ElevenLabs STT model")
+    ap.add_argument("--model", default="scribe_v2", help="ElevenLabs STT model")
     ap.add_argument("--refetch", action="store_true",
                     help="re-transcribe even if a cached word list exists")
     # Mirror the live STT: the backend commits an utterance after

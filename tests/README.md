@@ -145,3 +145,33 @@ The suite is deliberately DIVERSE (animal / person / object-list songs): after a
 Director-prompt change, replay ALL of them — a fix that only works on the song
 that motivated it is overfitting. Add a session from every rehearsal that
 misbehaves: save the backend log and run `tools/log_to_session.py`.
+
+## STT bench (`stt/`) — which speech-to-text should the show run?
+
+`mix sinestesia.bench.stt` streams real sung clips through every STT engine at
+real-time pace, through the same client modules the pipeline uses, and scores
+WER (vs the real lyrics), latency behind the voice (finals and partials), the
+share of lyric lines `PerformanceFollower` would confirm, and $/hour.
+
+```bash
+cd backend
+mix sinestesia.bench.stt --prepare                       # once: clips, lyrics, anchors, references
+mix sinestesia.bench.stt                                 # every cloud engine with a key in .env
+mix sinestesia.bench.stt --whisper small,large-v3-turbo \
+                         --whisper-backend faster-whisper  # local sidecar, one pass per model
+mix sinestesia.bench.stt --report bench-stt-A,bench-stt-B # merge runs into one table
+```
+
+- `stt/corpus.json` lists the clips (the duo's takes in `site/assets/` plus
+  isolated studio vocals in it/de/en) and one **medley** — several songs in
+  ONE session, which is what tests auto-language across a set.
+- `--prepare` writes `stt/corpus/` (gitignored: audio and lyrics are not ours).
+  Each `<id>.ref.txt` is the reference text; it is derived from the lyrics but
+  never overwritten without `--fresh`, so fix it by hand when the singer sings
+  something else ("Corro o lápis", not the site's "Com o lápis"), then
+  `--report <dir> --rescore`.
+- Run cloud passes on an idle network: each stream is ~40 KB/s up, and a
+  saturated link inflates exactly the latency being measured (`--parallel`
+  caps simultaneous streams, default 3).
+- To bench your own take: add a clip whose `source` is the Save-take `.webm`
+  and whose `lyrics_file` points at the lyrics.

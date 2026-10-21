@@ -28,7 +28,9 @@ defmodule Sinestesia.BatchStt do
   @type event :: %{at_ms: non_neg_integer(), text: String.t(), final: boolean()}
 
   @eleven_url "https://api.elevenlabs.io/v1/speech-to-text"
-  @eleven_model "scribe_v1"
+  # scribe_v1 is deprecated ("outclassed by v2 models" in ElevenLabs' own
+  # model list); scribe_v2 is the same endpoint and response shape.
+  @eleven_model "scribe_v2"
 
   # Sung lines usually end on a comma; batch transcription does no VAD, so
   # punctuation is the primary phrase boundary (see segment/2).

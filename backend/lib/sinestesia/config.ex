@@ -102,7 +102,7 @@ defmodule Sinestesia.Config do
       group: :keys,
       secret: true,
       doc:
-        "Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, and song identification."
+        "Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, STT_PROVIDER=gemini, and song identification."
     },
     %{
       key: "ANTHROPIC_API_KEY",
@@ -128,8 +128,9 @@ defmodule Sinestesia.Config do
       key: "STT_PROVIDER",
       group: :stt,
       default: "elevenlabs",
-      values: "elevenlabs | deepgram | both | local_whisper | replay",
-      doc: "Which speech-to-text engine transcribes the singing."
+      values: "elevenlabs | deepgram | gemini | local_whisper | both | all | eleven_local | replay",
+      doc:
+        "Which speech-to-text engine transcribes the singing. both = elevenlabs + deepgram, all = those + local_whisper, eleven_local = elevenlabs + local_whisper (A/B runs; the first final wins). Compare them on real sung audio with mix sinestesia.bench.stt."
     },
     %{
       key: "ELEVEN_MODEL",
@@ -140,9 +141,10 @@ defmodule Sinestesia.Config do
     %{
       key: "ELEVEN_LANG",
       group: :stt,
-      default: "pt",
-      values: "ISO-639-1",
-      doc: "Language hint for ElevenLabs. Wrong language wrecks Portuguese lyrics."
+      default: nil,
+      values: "ISO-639-1 | empty = auto-detect",
+      doc:
+        "Language hint for ElevenLabs. Empty auto-detects per session, which is what a multilingual set (pt/en/it/de) needs; pin a code only for a one-language show."
     },
     %{
       key: "ELEVEN_COMMIT",
@@ -165,6 +167,45 @@ defmodule Sinestesia.Config do
       values: "1 | true | on",
       doc:
         "Ask Scribe to clean the transcript instead of returning it verbatim. Off by default because it only exists on the ElevenLabs path (Deepgram and the local Whisper sidecar have no equivalent), so it can never be the mechanism the follower relies on. Its documented scope is filler words and stuttering, never held-vowel normalization (\"castelooo\"), which is why the follower keeps its own repeated-letter collapse regardless. Worth measuring on a real run for the false starts a live mic produces."
+    },
+    %{
+      key: "DEEPGRAM_MODEL",
+      group: :stt,
+      default: "nova-3",
+      values: "nova-3 | flux-general-multi | flux-general-en",
+      doc:
+        "Deepgram model. nova-3 streams is_final segments on /v1/listen; flux-* is the turn-based model on /v2/listen (EndOfTurn = final)."
+    },
+    %{
+      key: "DEEPGRAM_LANGUAGE",
+      group: :stt,
+      default: "multi",
+      values: "multi | BCP-47 (pt-BR, en, it, de, ...)",
+      doc:
+        "multi = Nova-3 Multilingual auto-detect/code-switch (en/es/fr/de/hi/ru/pt/ja/it/nl). A code pins one language (on flux it becomes a language_hint)."
+    },
+    %{
+      key: "GEMINI_STT_MODEL",
+      group: :stt,
+      default: "gemini-3.5-transcribe-live",
+      values: "gemini-3.5-transcribe-live | gemini-3.8-live",
+      doc:
+        "Gemini Live model for STT_PROVIDER=gemini. The transcribe model is Google's dedicated streaming ASR; a conversational Live model (3.8-live) only offers the transcript as a side channel of a voice session and is told to stay silent."
+    },
+    %{
+      key: "GEMINI_STT_LANG",
+      group: :stt,
+      default: nil,
+      values: "empty = auto | comma list of BCP-47 (pt-BR,en-US)",
+      doc: "Language hints for Gemini transcription. Empty auto-detects and code-switches."
+    },
+    %{
+      key: "GEMINI_STT_SILENCE_MS",
+      group: :stt,
+      default: nil,
+      values: "milliseconds",
+      doc:
+        "Server-VAD silence before Gemini finalizes a phrase. Unset = Google's default. Lower = faster finals, more fragments."
     },
     %{
       key: "LOCAL_WHISPER_HOST",
@@ -646,13 +687,22 @@ defmodule Sinestesia.Config do
     shape = if Sinestesia.Director.compose?(), do: "element inpaints", else: "whole-scene prompts"
 
     [
-      {"stt", Sinestesia.Pipeline.which_providers() |> Enum.map_join(" + ", &to_string/1)},
+      {"stt", Sinestesia.Pipeline.which_providers() |> Enum.map_join(" + ", &stt_label/1)},
       {"director", "#{director} · #{director_model}"},
       {"image", "#{Sinestesia.ImageGen.provider()} · #{mode}#{mode_note}"},
       {"scene",
        "#{Sinestesia.Director.mode()} mode, window #{Sinestesia.Director.scene_window()}, #{shape}"}
     ]
   end
+
+  # Provider AND model AND language — "elevenlabs" alone hides whether the box
+  # is pinned to Portuguese or auto-detecting, which is the difference between
+  # an Italian song working and not.
+  defp stt_label(:elevenlabs), do: "elevenlabs · " <> Sinestesia.ElevenSTT.describe()
+  defp stt_label(:deepgram), do: "deepgram · " <> Sinestesia.Deepgram.describe()
+  defp stt_label(:gemini), do: "gemini · " <> Sinestesia.GeminiSTT.describe()
+  defp stt_label(:local_whisper), do: "local_whisper · " <> Sinestesia.LocalWhisperSTT.describe()
+  defp stt_label(other), do: to_string(other)
 
   @doc """
   Combinations that were asked for but can't be delivered, and what we did.

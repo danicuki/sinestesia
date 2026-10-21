@@ -19,6 +19,13 @@ defmodule Sinestesia.LocalWhisperSTT do
   defp port, do: System.get_env("LOCAL_WHISPER_PORT", "8002") |> String.to_integer()
   defp path, do: System.get_env("LOCAL_WHISPER_PATH", "/transcribe")
 
+  @doc """
+  Where it streams to — for the boot banner. The Whisper model and language
+  are the SIDECAR's settings (WHISPER_MODEL, WHISPER_LANGUAGE), not ours, so
+  they are not claimed here.
+  """
+  def describe, do: "sidecar ws://#{host()}:#{port()}#{path()}"
+
   ## API
 
   def start_link(parent), do: GenServer.start_link(__MODULE__, parent)

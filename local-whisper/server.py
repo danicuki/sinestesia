@@ -31,6 +31,7 @@ import os
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 from dataclasses import dataclass, field
@@ -107,6 +108,24 @@ FORCE_LANGUAGE = os.environ.get("WHISPER_LANGUAGE") or None
 LANGUAGE_LOCK_MIN_PROB = float(os.environ.get("WHISPER_LANGUAGE_LOCK_MIN_PROB", "0.55"))
 LOW_CONFIDENCE_FALLBACK = os.environ.get("WHISPER_LANGUAGE_FALLBACK") or None
 
+# The languages the SET is sung in, e.g. "pt,en,it,de". Whisper's language head
+# scores all 99 languages, and on one or two seconds of SUNG audio the winner
+# is often absurd: Hindi at 0.59 on an Italian verse locked a whole clip into
+# Devanagari (STT bench, 2026-10-20). A show knows which languages it will
+# hear; the argmax is taken within that set and the probability renormalized
+# over it, so LANGUAGE_LOCK_MIN_PROB means "how sure, among OUR languages".
+# Empty = any language (the library default). Ignored when WHISPER_LANGUAGE
+# pins one.
+CANDIDATE_LANGUAGES = [l.strip() for l in os.environ.get("WHISPER_LANGUAGES", "").split(",") if l.strip()]
+
+# Only a FINAL with at least this many words may lock the session's language.
+# Interims never lock: the first seconds of a song are vocalizations and
+# breath ("oh, oh, oh"), on which Whisper guesses English at 0.4–0.5 for any
+# language — a renormalized 0.97 within the candidate set, and a whole song
+# in the wrong language. A full phrase with real words is the regime where
+# detection is reliable; three "oh"s are not a phrase.
+MIN_LOCK_WORDS = int(os.environ.get("WHISPER_MIN_LOCK_WORDS", "4"))
+
 # Whisper's language detection is unreliable on <1s of noisy audio (that's what
 # produced the Cyrillic "Думафоля" garbage). We only auto-detect once the
 # buffer has at least this much audio; until then we hold off on interims.
@@ -118,9 +137,32 @@ MIN_DETECT_SECS = float(os.environ.get("MIN_DETECT_SECS", "1.5"))
 INTERIM_INTERVAL_MS = int(os.environ.get("INTERIM_INTERVAL_MS", "1200"))
 VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "650"))
 MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "300"))
+# A phrase this long without a breath is committed as-is (see handle): the
+# alternative, dropping the oldest audio, silently loses sung words.
 MAX_BUFFER_SECS = float(os.environ.get("MAX_BUFFER_SECS", "20"))
 BIND_HOST = os.environ.get("BIND_HOST", "127.0.0.1")
 BIND_PORT = int(os.environ.get("BIND_PORT", "8002"))
+
+# Realtime decode budget. Whisper's library defaults are tuned for offline
+# accuracy: a beam of 5, and when a pass looks degenerate (compression ratio
+# above 2.4) it RE-DECODES at up to five higher temperatures. Sung vowels
+# ("oh, oh, oh") trigger exactly that loop: measured on Atemlos durch die Nacht
+# with `small` on CPU, each 4s buffer took 13s to decode (base: 1.3s) and the
+# stage saw nothing for 40s. Greedy, one pass, capped tokens — same audio in
+# about a second. The batch endpoint (/transcribe_file) keeps the offline
+# defaults: there, quality is the point and nobody is waiting on stage.
+WHISPER_BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "1"))
+WHISPER_TEMPERATURE_FALLBACK = os.environ.get("WHISPER_TEMPERATURE_FALLBACK", "0") in ("1", "true", "on")
+# ~2 tokens per sung word; 20s of singing is well under 160 tokens, a
+# repetition loop is not.
+WHISPER_MAX_NEW_TOKENS = int(os.environ.get("WHISPER_MAX_NEW_TOKENS", "160"))
+TEMPERATURES = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] if WHISPER_TEMPERATURE_FALLBACK else [0.0]
+
+# One decode at a time, in submission order. The receive loop never awaits a
+# decode (see handle): audio keeps draining and VAD keeps running while the
+# model works, so a slow pass costs latency on ONE transcript, not a stall of
+# the whole stream.
+DECODER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper")
 
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -139,6 +181,16 @@ class Session:
     # (a full utterance, where detection is reliable). Interims reuse it so
     # they don't flicker. None until the first reliable detection.
     detected_language: Optional[str] = None
+    # The interim decode in flight, if any — at most one; a new interim is
+    # not scheduled while the previous one is still running.
+    interim_task: Optional[asyncio.Task] = None
+    # Finals in flight. asyncio keeps only weak references to tasks, so one
+    # created and forgotten can be collected mid-decode; this set holds them
+    # until they finish.
+    finals: set = field(default_factory=set)
+    # Bumped on every reset: a decode that started before the song change
+    # describes audio the operator just threw away, and must not be emitted.
+    generation: int = 0
 
 
 def pcm16_to_float32(buf: bytes) -> np.ndarray:
@@ -175,15 +227,70 @@ def get_torch_model():
     return torch_model
 
 
+def _restrict(probs: dict) -> tuple[Optional[str], Optional[float]]:
+    """Best language within CANDIDATE_LANGUAGES, probability renormalized over
+    the set. (None, None) when none of the candidates scored at all."""
+    cands = {l: p for l, p in probs.items() if l in CANDIDATE_LANGUAGES}
+    total = sum(cands.values())
+    if not cands or total <= 0:
+        return None, None
+    lang = max(cands, key=cands.get)
+    return lang, cands[lang] / total
+
+
+_mlx_model = None
+
+
+def detect_candidate_language(audio: np.ndarray) -> tuple[Optional[str], Optional[float]]:
+    """Language detection restricted to CANDIDATE_LANGUAGES, on whichever
+    backend is loaded. Only the first 30s window is scored (that is all
+    Whisper's language head looks at anyway)."""
+    global _mlx_model
+    try:
+        if WHISPER_BACKEND == "faster-whisper":
+            _lang, _prob, all_probs = get_faster_model().detect_language(audio)
+            return _restrict(dict(all_probs))
+
+        if WHISPER_BACKEND == "torch":
+            model = get_torch_model()
+            mel = torch_whisper.log_mel_spectrogram(
+                torch_whisper.pad_or_trim(audio.astype(np.float32)), n_mels=model.dims.n_mels
+            ).to(model.device)
+            _tokens, probs = model.detect_language(mel)
+            return _restrict(probs if isinstance(probs, dict) else probs[0])
+
+        # mlx: mirrors openai-whisper's API (frames-major mel).
+        from mlx_whisper import audio as mlx_audio, decoding as mlx_decoding, load_models as mlx_load
+
+        if _mlx_model is None:
+            _mlx_model = mlx_load.load_model(MODEL_REPO)
+        mel = mlx_audio.log_mel_spectrogram(audio, n_mels=_mlx_model.dims.n_mels)
+        mel = mlx_audio.pad_or_trim(mel, mlx_audio.N_FRAMES, axis=-2)
+        _tokens, probs = mlx_decoding.detect_language(_mlx_model, mel)
+        return _restrict(probs if isinstance(probs, dict) else probs[0])
+    except Exception:
+        log.exception("candidate language detection failed — falling back to unrestricted detection")
+        return None, None
+
+
 def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str], Optional[float]]:
     """Run Whisper on the given mono float32 audio.
-    Returns (text, detected_language). `language=None` triggers auto-detect;
-    pass an explicit code to skip detection. Errors are swallowed so a bad
-    chunk doesn't kill the session."""
+    Returns (text, detected_language, probability). `language=None` triggers
+    auto-detect (within CANDIDATE_LANGUAGES when set); pass an explicit code
+    to skip detection. Errors are swallowed so a bad chunk doesn't kill the
+    session."""
     if len(audio) < int(0.2 * SAMPLE_RATE):
         return "", None, None
+    detected_prob = None
+    if language is None and CANDIDATE_LANGUAGES:
+        language, detected_prob = detect_candidate_language(audio)
+        if language is not None:
+            text, _lang, _prob = transcribe(audio, language)
+            return text, language, detected_prob
     try:
         if WHISPER_BACKEND == "mlx":
+            # mlx-whisper decodes greedily only (no beam search implemented);
+            # the temperature list and the token cap are what apply here.
             result = mlx_whisper.transcribe(
                 audio,
                 path_or_hf_repo=MODEL_REPO,
@@ -191,6 +298,8 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
                 word_timestamps=False,
                 condition_on_previous_text=False,
                 no_speech_threshold=0.55,
+                temperature=tuple(TEMPERATURES),
+                sample_len=WHISPER_MAX_NEW_TOKENS,
                 verbose=False,
             )
             return (result.get("text") or "").strip(), result.get("language"), None
@@ -203,6 +312,11 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
                 condition_on_previous_text=False,
                 no_speech_threshold=0.55,
                 word_timestamps=False,
+                temperature=tuple(TEMPERATURES),
+                # beam_size=None is greedy in openai-whisper; a 1-wide beam
+                # would run the (slower) beam decoder for the same result.
+                beam_size=WHISPER_BEAM_SIZE if WHISPER_BEAM_SIZE > 1 else None,
+                sample_len=WHISPER_MAX_NEW_TOKENS,
                 verbose=False,
             )
             return (result.get("text") or "").strip(), result.get("language"), None
@@ -214,6 +328,9 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
             condition_on_previous_text=False,
             no_speech_threshold=0.55,
             word_timestamps=False,
+            beam_size=WHISPER_BEAM_SIZE,
+            temperature=TEMPERATURES,
+            max_new_tokens=WHISPER_MAX_NEW_TOKENS,
             language_detection_threshold=LANGUAGE_LOCK_MIN_PROB,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
@@ -241,6 +358,9 @@ def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optiona
                 condition_on_previous_text=False,
                 no_speech_threshold=0.55,
                 word_timestamps=False,
+                beam_size=WHISPER_BEAM_SIZE,
+                temperature=TEMPERATURES,
+                max_new_tokens=WHISPER_MAX_NEW_TOKENS,
             )
             text = " ".join(segment.text.strip() for segment in segments).strip()
             return text, LOW_CONFIDENCE_FALLBACK, 1.0
@@ -320,6 +440,59 @@ def maybe_learn_language(session: Session, detected: Optional[str], probability:
         session.detected_language = detected
 
 
+async def decode(audio: np.ndarray, language: Optional[str]):
+    """transcribe() on the single decode worker, without blocking the loop."""
+    return await asyncio.get_event_loop().run_in_executor(DECODER, transcribe, audio, language)
+
+
+async def finalize(ws, session: Session, utterance: np.ndarray, lang: Optional[str], generation: int):
+    """Decode a committed utterance and emit it as final (unless the song
+    changed meanwhile). Finals are full utterances, so auto-detect is
+    reliable here and the result locks the session's language."""
+    text, detected, probability = await decode(utterance, lang)
+    if session.generation != generation:
+        return
+    if len(text.split()) >= MIN_LOCK_WORDS:
+        maybe_learn_language(session, detected, probability)
+    elif detected and session.detected_language is None:
+        log.info("language %s not locked: only %d word(s) in this phrase", detected, len(text.split()))
+    await emit(ws, text, is_final=True)
+
+
+async def interim(ws, session: Session, snapshot: np.ndarray, lang: Optional[str], generation: int):
+    """Decode the uncommitted buffer and emit it as a rolling preview. Detects
+    the language for its own decode when none is locked yet, but never locks
+    it — see MIN_LOCK_WORDS."""
+    text, detected, probability = await decode(snapshot, lang)
+    if session.generation != generation:
+        return
+    if text and text != session.last_interim_text:
+        await emit(ws, text, is_final=False)
+        session.last_interim_text = text
+
+
+def commit(ws, session: Session, cut_sample: int, now: float, why: str) -> None:
+    """Close the utterance at `cut_sample`: hand it to the decoder and start
+    the next one from the remainder. Runs in the receive loop, returns at
+    once — the decode happens on the worker."""
+    utterance = session.audio[:cut_sample].copy()
+    session.audio = session.audio[cut_sample:]
+    session.last_interim_text = ""
+    session.last_interim_at = now
+    session.speech_started = False
+    # An interim still in flight describes the audio just committed — its
+    # preview would arrive AFTER the final it previews. Drop it.
+    if session.interim_task and not session.interim_task.done():
+        session.interim_task.cancel()
+    if why:
+        log.info("committing %.1fs: %s", len(utterance) / SAMPLE_RATE, why)
+    task = asyncio.create_task(
+        finalize(ws, session, utterance, resolve_language(session), session.generation)
+    )
+    session.finals.add(task)
+    task.add_done_callback(session.finals.discard)
+
+
 async def handle(ws):
     log.info("client connected from %s", ws.remote_address)
     session = Session()
@@ -335,60 +508,46 @@ async def handle(ws):
                     continue
                 session.audio = np.concatenate([session.audio, chunk])
 
-                # Cap the buffer so we don't run unbounded if VAD never commits.
-                max_samples = int(MAX_BUFFER_SECS * SAMPLE_RATE)
-                if len(session.audio) > max_samples:
-                    drop = len(session.audio) - max_samples
-                    session.audio = session.audio[drop:]
-                    log.warning("buffer overflow, dropped %d samples", drop)
-
                 # Check for end-of-utterance via VAD.
                 segments = vad_speech_segments(session.audio, vad_model)
+                buffer_dur = len(session.audio) / SAMPLE_RATE
                 if segments:
                     session.speech_started = True
                     last = segments[-1]
-                    buffer_dur = len(session.audio) / SAMPLE_RATE
                     trailing_silence_s = buffer_dur - last["end"]
                     if trailing_silence_s * 1000 >= VAD_SILENCE_MS:
-                        # We have a full utterance. Transcribe everything up to
-                        # last["end"], emit as final, drop committed audio.
-                        cut_sample = int(last["end"] * SAMPLE_RATE)
-                        utterance = session.audio[:cut_sample]
-                        # Finals are full utterances → auto-detect is reliable here.
-                        lang = resolve_language(session)
-                        text, detected, probability = await asyncio.get_event_loop().run_in_executor(
-                            None, transcribe, utterance, lang
-                        )
-                        maybe_learn_language(session, detected, probability)
-                        await emit(ws, text, is_final=True)
-                        session.audio = session.audio[cut_sample:]
-                        session.last_interim_text = ""
-                        session.last_interim_at = now
-                        session.speech_started = False
+                        # A full utterance: everything up to where speech ended.
+                        commit(ws, session, int(last["end"] * SAMPLE_RATE), now, "")
                         continue
 
-                # Periodic interim while speech is in progress.
+                # No breath long enough for MAX_BUFFER_SECS (a gapless chorus,
+                # a held note into the next line): commit what we have rather
+                # than drop the oldest audio, which loses sung words silently.
+                if buffer_dur >= MAX_BUFFER_SECS:
+                    if session.speech_started:
+                        commit(ws, session, len(session.audio), now, f"no pause for {MAX_BUFFER_SECS:.0f}s")
+                    else:
+                        session.audio = session.audio[-int(2 * SAMPLE_RATE):]  # silence: keep a tail
+                    continue
+
+                # Periodic interim while speech is in progress — at most one
+                # decode in flight; if the previous preview is still running,
+                # this tick is skipped rather than queued behind it.
                 if session.speech_started and (
                     (now - session.last_interim_at) * 1000 >= INTERIM_INTERVAL_MS
-                ):
+                ) and (session.interim_task is None or session.interim_task.done()):
                     lang = resolve_language(session)
-                    buffer_secs = len(session.audio) / SAMPLE_RATE
 
                     # Don't auto-detect on a short buffer — that's what produced
                     # the Cyrillic garbage. Wait until we have enough audio (or
                     # until a final has already locked in the language).
-                    if lang is None and buffer_secs < MIN_DETECT_SECS:
+                    if lang is None and buffer_dur < MIN_DETECT_SECS:
                         session.last_interim_at = now
                     else:
-                        audio_snapshot = session.audio.copy()
-                        text, detected, probability = await asyncio.get_event_loop().run_in_executor(
-                            None, transcribe, audio_snapshot, lang
-                        )
-                        maybe_learn_language(session, detected, probability)
-                        if text and text != session.last_interim_text:
-                            await emit(ws, text, is_final=False)
-                            session.last_interim_text = text
                         session.last_interim_at = now
+                        session.interim_task = asyncio.create_task(
+                            interim(ws, session, session.audio.copy(), lang, session.generation)
+                        )
 
             else:
                 # Text frame — control message. The backend sends {"type":"reset"}
@@ -401,6 +560,9 @@ async def handle(ws):
                     ctrl = {}
 
                 if ctrl.get("type") == "reset":
+                    session.generation += 1
+                    if session.interim_task and not session.interim_task.done():
+                        session.interim_task.cancel()
                     session.audio = np.zeros(0, dtype=np.float32)
                     session.detected_language = None
                     session.last_interim_text = ""

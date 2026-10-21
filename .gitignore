@@ -49,3 +49,5 @@ DEMO_SCRIPT.md
 demo/
 
 backend/*.mp4
+# STT bench corpus: audio clips, fetched lyrics and derived references (copyrighted; rebuild with mix sinestesia.bench.stt --prepare)
+tests/stt/corpus/

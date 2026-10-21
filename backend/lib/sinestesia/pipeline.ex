@@ -9,7 +9,8 @@ defmodule Sinestesia.Pipeline do
 
   STT provider selection via `STT_PROVIDER` env var:
     "elevenlabs"  → ElevenLabs Scribe v2 Realtime only (default)
-    "deepgram"    → Deepgram Nova-3 only
+    "deepgram"    → Deepgram only (Nova-3 or Flux, per DEEPGRAM_MODEL)
+    "gemini"      → Gemini Live transcription (GEMINI_STT_MODEL)
     "both"        → both run in parallel; transcripts logged side-by-side
                     for A/B comparison. The first to deliver each final
                     transcript wins for the Director.
@@ -1790,6 +1791,7 @@ defmodule Sinestesia.Pipeline do
       "both" -> [:elevenlabs, :deepgram]
       "all" -> [:elevenlabs, :deepgram, :local_whisper]
       "deepgram" -> [:deepgram]
+      "gemini" -> [:gemini]
       "local_whisper" -> [:local_whisper]
       "local" -> [:local_whisper]
       # A/B compare ElevenLabs against local Whisper in the same session
@@ -1846,6 +1848,24 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  defp start_stt(:gemini, socket_pid) do
+    case Sinestesia.GeminiSTT.start_link(self()) do
+      {:ok, pid} ->
+        Logger.info("[gemini] started")
+        {:ok, pid}
+
+      {:error, reason} ->
+        Logger.warning("[gemini] disabled: #{inspect(reason)}")
+
+        send(
+          socket_pid,
+          {:push_json, %{type: "error", message: "gemini disabled: #{inspect(reason)}"}}
+        )
+
+        {:error, reason}
+    end
+  end
+
   defp start_stt(:local_whisper, socket_pid) do
     case Sinestesia.LocalWhisperSTT.start_link(self()) do
       {:ok, pid} ->
@@ -1886,6 +1906,7 @@ defmodule Sinestesia.Pipeline do
 
   defp send_audio(:elevenlabs, pid, bin), do: Sinestesia.ElevenSTT.send_audio(pid, bin)
   defp send_audio(:deepgram, pid, bin), do: Sinestesia.Deepgram.send_audio(pid, bin)
+  defp send_audio(:gemini, pid, bin), do: Sinestesia.GeminiSTT.send_audio(pid, bin)
   defp send_audio(:local_whisper, pid, bin), do: Sinestesia.LocalWhisperSTT.send_audio(pid, bin)
   defp send_audio(:replay, pid, bin), do: Sinestesia.ReplaySTT.send_audio(pid, bin)
 

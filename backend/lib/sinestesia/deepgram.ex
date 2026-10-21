@@ -83,9 +83,13 @@ defmodule Sinestesia.Deepgram do
         state = Enum.reduce(responses, state, &handle_response/2)
         {:noreply, state}
 
-      {:error, conn, reason, _responses} ->
+      {:error, conn, reason, responses} ->
+        # Read what came with the error (the server's CLOSE frame, an error
+        # message) so the log carries the reason, then tell the pipeline.
+        state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[deepgram] stream error: #{inspect(reason)}")
-        {:stop, reason, %{state | conn: conn}}
+        send(state.parent, {:stt_error, :deepgram, {:stream_error, reason}})
+        {:stop, reason, state}
 
       :unknown ->
         {:noreply, state}
@@ -127,6 +131,7 @@ defmodule Sinestesia.Deepgram do
         send(parent, {:transcript, :deepgram, text, is_final, System.system_time(:millisecond)})
 
       {:ok, %{"type" => "Error"} = err} ->
+        Logger.warning("[deepgram] server error: #{payload}")
         send(parent, {:stt_error, :deepgram, err})
 
       _ ->
@@ -134,8 +139,9 @@ defmodule Sinestesia.Deepgram do
     end
   end
 
-  defp handle_frame({:close, _code, _reason}, parent) do
-    send(parent, {:stt_error, :deepgram, :closed_by_remote})
+  defp handle_frame({:close, code, reason}, parent) do
+    Logger.warning("[deepgram] closed by server: code=#{inspect(code)} reason=#{inspect(reason)}")
+    send(parent, {:stt_error, :deepgram, {:closed_by_remote, code, reason}})
   end
 
   defp handle_frame(_frame, _parent), do: :ok

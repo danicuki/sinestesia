@@ -155,13 +155,19 @@ share of lyric lines `PerformanceFollower` would confirm, and $/hour.
 
 ```bash
 cd backend
-mix sinestesia.bench.stt --prepare                       # once: clips, lyrics, anchors, references
-mix sinestesia.bench.stt                                 # every cloud engine with a key in .env
-mix sinestesia.bench.stt --whisper small,large-v3-turbo \
-                         --whisper-backend faster-whisper  # local sidecar, one pass per model
-mix sinestesia.bench.stt --report bench-stt-A,bench-stt-B # merge runs into one table
+mix sinestesia.bench.stt --prepare            # once: clips, lyrics, anchors, references
+mix sinestesia.bench.stt                      # everything: cloud engines with a key in .env
+                                              # + local Whisper small and large-v3-turbo
+mix sinestesia.bench.stt --variants gemini    # one engine; --whisper tiny,medium for more sizes
+mix sinestesia.bench.stt --report             # the table over everything measured so far
 ```
 
+- Results accumulate in `backend/bench-stt/` (gitignored): one
+  `results/<variant>.json` per engine, `report.md` over all of them. A variant
+  that already has rows is asked about before it is re-run; say no and the
+  stored rows stand (`--overwrite` / `--reuse` answer for all). Engines can
+  thus be measured one at a time, on different days and machines — each row
+  records when and on which host it was measured.
 - `stt/corpus.json` lists the clips (the duo's takes in `site/assets/` plus
   isolated studio vocals in it/de/en) and one **medley** — several songs in
   ONE session, which is what tests auto-language across a set.
@@ -169,7 +175,11 @@ mix sinestesia.bench.stt --report bench-stt-A,bench-stt-B # merge runs into one 
   Each `<id>.ref.txt` is the reference text; it is derived from the lyrics but
   never overwritten without `--fresh`, so fix it by hand when the singer sings
   something else ("Corro o lápis", not the site's "Com o lápis"), then
-  `--report <dir> --rescore`.
+  `--rescore`.
+- Local Whisper runs on whatever the sidecar venv can do: mlx on Apple
+  Silicon (size names map to the `mlx-community` conversions), CTranslate2
+  elsewhere; detection is restricted to the corpus languages like
+  `WHISPER_LANGUAGES` on stage. Sidecar logs: `bench-stt/logs/`.
 - Run cloud passes on an idle network: each stream is ~40 KB/s up, and a
   saturated link inflates exactly the latency being measured (`--parallel`
   caps simultaneous streams, default 3).

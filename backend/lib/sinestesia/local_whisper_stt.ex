@@ -103,9 +103,13 @@ defmodule Sinestesia.LocalWhisperSTT do
         state = Enum.reduce(responses, state, &handle_response/2)
         {:noreply, state}
 
-      {:error, conn, reason, _responses} ->
+      {:error, conn, reason, responses} ->
+        # Read what came with the error (the sidecar's CLOSE frame) so the
+        # log carries the reason, then tell the pipeline.
+        state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[local_whisper] stream error: #{inspect(reason)}")
-        {:stop, reason, %{state | conn: conn}}
+        send(state.parent, {:stt_error, :local_whisper, {:stream_error, reason}})
+        {:stop, reason, state}
 
       :unknown ->
         {:noreply, state}
@@ -146,8 +150,9 @@ defmodule Sinestesia.LocalWhisperSTT do
     end
   end
 
-  defp handle_frame({:close, _code, _reason}, parent) do
-    send(parent, {:stt_error, :local_whisper, :closed})
+  defp handle_frame({:close, code, reason}, parent) do
+    Logger.warning("[local_whisper] closed by sidecar: code=#{inspect(code)} reason=#{inspect(reason)}")
+    send(parent, {:stt_error, :local_whisper, {:closed_by_remote, code, reason}})
   end
 
   # NOTE: ping/pong handling is left unimplemented here — the local server is

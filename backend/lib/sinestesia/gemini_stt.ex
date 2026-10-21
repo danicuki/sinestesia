@@ -127,9 +127,14 @@ defmodule Sinestesia.GeminiSTT do
       {:ok, conn, responses} ->
         {:noreply, Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)}
 
-      {:error, conn, reason, _responses} ->
+      {:error, conn, reason, responses} ->
+        # Read what came with the error (the server's CLOSE frame carries
+        # the code and reason) before rolling the session over; the gap is
+        # reported either way, since audio sent meanwhile is lost.
+        state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[gemini] stream error: #{inspect(reason)}")
-        {:noreply, schedule_reconnect(%{state | conn: conn}, reason)}
+        send(state.parent, {:stt_error, :gemini, {:stream_error, reason}})
+        {:noreply, schedule_reconnect(state, reason)}
 
       :unknown ->
         {:noreply, state}

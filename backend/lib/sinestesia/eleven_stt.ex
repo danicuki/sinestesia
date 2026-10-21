@@ -143,9 +143,15 @@ defmodule Sinestesia.ElevenSTT do
         state = Enum.reduce(responses, state, &handle_response/2)
         {:noreply, state}
 
-      {:error, conn, reason, _responses} ->
-        Logger.warning("[stt] stream error: #{inspect(reason)}")
-        {:stop, reason, %{state | conn: conn}}
+      {:error, conn, reason, responses} ->
+        # Whatever arrived with the error — usually the server's CLOSE frame
+        # with its code and reason, or an error message — is still read, so
+        # the log says WHY the stream died, not just that it did, and the
+        # pipeline hears about it before this process is gone.
+        state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
+        Logger.warning("[elevenlabs] stream error: #{inspect(reason)}")
+        send(state.parent, {:stt_error, :elevenlabs, {:stream_error, reason}})
+        {:stop, reason, state}
 
       :unknown ->
         Logger.debug("[elevenlabs] unknown stream message: #{inspect(message)}")
@@ -192,6 +198,7 @@ defmodule Sinestesia.ElevenSTT do
         send(parent, {:transcript, :elevenlabs, text, true, System.system_time(:millisecond)})
 
       {:ok, %{"message_type" => mt}} when mt in ["error", "auth_error", "quota_exceeded"] ->
+        Logger.warning("[elevenlabs] server error: #{payload}")
         send(parent, {:stt_error, :elevenlabs, payload})
 
       _ ->

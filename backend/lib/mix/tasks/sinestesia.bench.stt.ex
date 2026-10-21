@@ -18,14 +18,24 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   Usage:
 
       mix sinestesia.bench.stt --prepare            # build the corpus (once)
-      mix sinestesia.bench.stt                      # every cloud engine with a key
+      mix sinestesia.bench.stt                      # EVERYTHING: every cloud engine with a key
+                                                    # + local Whisper (small, large-v3-turbo)
       mix sinestesia.bench.stt --variants eleven,gemini --clips it-pausini
-      mix sinestesia.bench.stt --whisper tiny,small,large-v3-turbo \\
-                               --whisper-backend faster-whisper --whisper-threads 12
-      mix sinestesia.bench.stt --whisper small --whisper-tag 4lang \\
-        --whisper-env "WHISPER_LANGUAGES=pt,en,it,de;INTERIM_INTERVAL_MS=1000"  # sidecar knobs (';'-separated)
-      mix sinestesia.bench.stt --report bench-stt-A,bench-stt-B   # merge runs
-      mix sinestesia.bench.stt --report bench-stt-A --rescore     # after fixing a ref
+      mix sinestesia.bench.stt --whisper tiny,medium               # more local sizes
+      mix sinestesia.bench.stt --whisper small --whisper-tag beam5 \\
+        --whisper-env "WHISPER_BEAM_SIZE=5;INTERIM_INTERVAL_MS=1000"  # sidecar knobs (';'-separated)
+      mix sinestesia.bench.stt --dry-run            # what a run would measure, and what it would keep
+      mix sinestesia.bench.stt --report             # the table over everything measured so far
+      mix sinestesia.bench.stt --rescore            # re-score it all after fixing a ref
+      mix sinestesia.bench.stt --import bench-stt-1792587923   # an older per-run dir into the store
+
+  Results accumulate in `bench-stt/` — one `results/<variant>.json` per
+  engine and a `report.md` over all of them — so engines can be measured one
+  at a time, on different days and machines. A variant that already has rows
+  for the selected clips is asked about before anything is streamed: answer
+  no and the stored rows stand (`--overwrite` / `--reuse` answer for every
+  variant). The report at the end always covers the whole store and marks
+  which rows are fresh.
 
   The corpus is `tests/stt/corpus.json`: clips of real singing (the duo's own
   takes and isolated studio vocals), each with a source, a window and where
@@ -41,10 +51,12 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   (default 3): each costs ~40 KB/s of upload, and a saturated uplink queues
   the audio and inflates exactly the latency being measured — run this on an
   otherwise idle network (no downloads) for numbers worth comparing. Each
-  `--whisper` model gets its own sidecar on free ports and its own pass, so
-  local models never share the CPU/GPU with each other. Results land in
-  `bench-stt-<timestamp>/` (results.json + report.md); raw events are kept,
-  so `--rescore` re-scores them after a reference is corrected.
+  local Whisper model gets its own sidecar on free ports and its own pass, so
+  local models never share the CPU/GPU with each other; the backend is
+  whatever the sidecar's venv can run (mlx on Apple Silicon, CTranslate2
+  elsewhere) and detection is restricted to the corpus languages, as
+  `WHISPER_LANGUAGES` does on stage. Raw events are kept with every row, so
+  `--rescore` re-scores them after a reference is corrected.
   Costs: a full corpus pass is ~8 min of audio per engine — cents.
   """
   use Mix.Task
@@ -55,6 +67,8 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   @manifest "../tests/stt/corpus.json"
   @corpus "../tests/stt/corpus"
   @whisper_dir "../local-whisper"
+  # Where results accumulate: results/<variant>.json, logs/, report.md.
+  @store "bench-stt"
 
   # Silence streamed after each clip so every engine's VAD/turn detector can
   # close the last phrase, then a grace period for the reply to land.
@@ -91,8 +105,12 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
           anchor_model: :string,
           chunk_ms: :integer,
           parallel: :integer,
-          report: :string,
+          report: :boolean,
           rescore: :boolean,
+          import: :string,
+          overwrite: :boolean,
+          reuse: :boolean,
+          dry_run: :boolean,
           verbose: :boolean
         ]
       )
@@ -102,17 +120,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     unless opts[:verbose], do: Logger.configure(level: :warning)
 
     cond do
-      opts[:report] ->
-        dirs = String.split(opts[:report], ",", trim: true)
-        results = Enum.flat_map(dirs, &(Path.join(&1, "results.json") |> File.read!() |> Jason.decode!()))
-        results = if opts[:rescore], do: Enum.map(results, &rescore/1), else: results
-        Mix.shell().info(report(results))
-
-      opts[:prepare] ->
-        prepare(select_clips(opts), opts)
-
-      true ->
-        bench(select_clips(opts), opts)
+      opts[:import] -> import_runs(opts[:import], opts)
+      opts[:report] || opts[:rescore] -> finish([], opts)
+      opts[:prepare] -> prepare(select_clips(opts), opts)
+      true -> bench(select_clips(opts), opts)
     end
   end
 
@@ -379,31 +390,54 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
     Process.flag(:trap_exit, true)
     chunk_ms = opts[:chunk_ms] || 250
-    cloud = cloud_variants(opts)
-    whisper = whisper_variants(opts)
+    medleys = select_medleys(opts)
+    clips = if opts[:medleys_only], do: [], else: clips
 
-    passes =
-      Enum.chunk_every(cloud, max(opts[:parallel] || 3, 1)) ++ Enum.map(whisper, &[&1])
+    # The rows this run would produce — so a variant that already has them
+    # is asked about before anything is streamed.
+    keys =
+      MapSet.new(
+        Enum.map(clips, &{&1["id"], nil}) ++
+          for(m <- medleys, p <- m["parts"], do: {"#{m["id"]}:#{p["id"]}", m["id"]})
+      )
 
-    passes == [] && Mix.raise("nothing to run — no API keys found and no --whisper models given")
+    variants = cloud_variants(opts) ++ whisper_variants(opts)
 
-    dir = "bench-stt-#{System.os_time(:second)}"
-    File.mkdir_p!(dir)
+    variants == [] &&
+      Mix.raise("nothing to run — no API keys found and no local-whisper venv (or --whisper models)")
 
-    Mix.shell().info(
-      "── stt bench: #{length(clips)} clips × #{passes |> List.flatten() |> length()} variants, #{chunk_ms}ms chunks → #{dir}/\n"
-    )
+    {run, kept} = Enum.split_with(variants, &(decide(&1.id, keys, "Re-run", opts) == :run))
+    kept != [] && Mix.shell().info("   stored rows stand for: #{Enum.map_join(kept, ", ", & &1.id)}")
 
-    results =
-      Enum.flat_map(passes, fn variants ->
-        {variants, sidecar} = boot_sidecar(variants, opts, dir)
+    if opts[:dry_run] do
+      Enum.each(run, fn v ->
+        model = if v.provider == :local_whisper, do: " · #{v.model} on #{v.backend}", else: ""
+        Mix.shell().info("   would run #{v.id}#{model}")
+      end)
 
+      exit({:shutdown, 0})
+    end
+
+    {cloud, whisper} = Enum.split_with(run, &(&1.provider != :local_whisper))
+    passes = Enum.chunk_every(cloud, max(opts[:parallel] || 3, 1)) ++ Enum.map(whisper, &[&1])
+
+    passes != [] &&
+      Mix.shell().info(
+        "── stt bench: #{length(clips)} clips × #{length(run)} variants, #{chunk_ms}ms chunks → #{@store}/\n"
+      )
+
+    # Each pass is stored as soon as it is scored, so a crash in a later pass
+    # (a sidecar that will not start) does not cost the cloud rows.
+    Enum.each(passes, fn variants ->
+      {variants, sidecar} = boot_sidecar(variants, opts)
+
+      rows =
         try do
-          Enum.flat_map(if(opts[:medleys_only], do: [], else: clips), fn clip ->
+          Enum.flat_map(clips, fn clip ->
             Mix.shell().info("   #{clip["id"]}: #{Enum.map_join(variants, ", ", & &1.id)}")
             run_clip(clip, variants, chunk_ms)
           end) ++
-            Enum.flat_map(select_medleys(opts), fn medley ->
+            Enum.flat_map(medleys, fn medley ->
               # A pinned language can't follow a set across languages.
               auto = Enum.reject(variants, &String.ends_with?(&1.id, "-hint"))
               Mix.shell().info("   #{medley["id"]}: #{Enum.map_join(auto, ", ", & &1.id)}")
@@ -412,12 +446,115 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
         after
           stop_sidecar(sidecar)
         end
+
+      rows
+      |> Jason.encode!()
+      |> Jason.decode!()
+      |> Enum.group_by(& &1["variant"])
+      |> Enum.each(fn {id, rs} -> store_rows(id, rs) end)
+    end)
+
+    finish(Enum.map(run, & &1.id), opts)
+  end
+
+  # ── the store: one file per variant, the report over all of them ───────
+
+  defp store_file(id), do: Path.join([@store, "results", id <> ".json"])
+  defp cached_rows(id), do: read_json(store_file(id)) || []
+  defp row_key(r), do: {r["clip"], r["medley"]}
+
+  # New rows replace stored ones for the same clip; rows for clips not in
+  # this run stay, so `--clips` refreshes part of a variant.
+  defp store_rows(id, rows) do
+    File.mkdir_p!(Path.dirname(store_file(id)))
+    keys = MapSet.new(rows, &row_key/1)
+    kept = Enum.reject(cached_rows(id), &(row_key(&1) in keys))
+    File.write!(store_file(id), Jason.encode!(kept ++ rows, pretty: true))
+  end
+
+  defp load_store do
+    [@store, "results", "*.json"] |> Path.join() |> Path.wildcard() |> Enum.flat_map(&(read_json(&1) || []))
+  end
+
+  # What is already stored for the rows a run (or import) would write, and
+  # the user's call on it. `--overwrite` / `--reuse` answer without asking.
+  defp decide(id, keys, verb, opts) do
+    have = Enum.filter(cached_rows(id), &(row_key(&1) in keys))
+
+    cond do
+      have == [] ->
+        :run
+
+      opts[:overwrite] ->
+        :run
+
+      opts[:reuse] ->
+        :reuse
+
+      true ->
+        at = have |> Enum.map(& &1["at"]) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+        host = have |> Enum.map(& &1["host"]) |> Enum.reject(&is_nil/1) |> List.first()
+        where = [at && String.slice(at, 0, 16), host] |> Enum.reject(&is_nil/1) |> Enum.join(" on ")
+
+        answer =
+          case Mix.shell().prompt("   #{id}: #{length(have)} rows stored (#{where}). #{verb} and overwrite? [y/N]") do
+            s when is_binary(s) -> s |> String.trim() |> String.downcase()
+            _ -> ""
+          end
+
+        if answer in ~w(y yes s sim), do: :run, else: :reuse
+    end
+  end
+
+  # The report over everything measured so far, fresh rows marked.
+  defp finish(updated, opts) do
+    all = load_store()
+    all == [] && Mix.raise("nothing measured yet in #{@store}/ — run the bench first")
+    all = if opts[:rescore], do: Enum.map(all, &rescore/1), else: all
+
+    if opts[:rescore] do
+      all |> Enum.group_by(& &1["variant"]) |> Enum.each(fn {id, rs} -> store_rows(id, rs) end)
+    end
+
+    md = report(all, updated)
+    File.write!(Path.join(@store, "report.md"), md)
+    Mix.shell().info("\n" <> md)
+  end
+
+  # Rows from the per-run dirs this task used to write
+  # (`bench-stt-<ts>/results.json`), stamped with the run's time, into the
+  # store — asked about like a re-run.
+  defp import_runs(spec, opts) do
+    rows =
+      Enum.flat_map(String.split(spec, ",", trim: true), fn dir ->
+        at =
+          case Regex.run(~r/(\d{10})/, dir) do
+            [_, ts] -> ts |> String.to_integer() |> DateTime.from_unix!() |> DateTime.to_iso8601()
+            _ -> nil
+          end
+
+        file = Path.join(dir, "results.json")
+        File.exists?(file) || Mix.raise("#{file} not found")
+
+        for r <- Jason.decode!(File.read!(file)),
+            do: r |> Map.put_new("at", at) |> Map.put_new("host", "imported")
       end)
 
-    File.write!(Path.join(dir, "results.json"), Jason.encode!(results, pretty: true))
-    md = report(Jason.decode!(Jason.encode!(results)))
-    File.write!(Path.join(dir, "report.md"), md)
-    Mix.shell().info("\n" <> md)
+    updated =
+      rows
+      |> Enum.group_by(& &1["variant"])
+      |> Enum.flat_map(fn {id, rs} ->
+        case decide(id, MapSet.new(rs, &row_key/1), "Import", opts) do
+          :run ->
+            store_rows(id, rs)
+            [id]
+
+          :reuse ->
+            []
+        end
+      end)
+
+    finish(updated, opts)
   end
 
   defp key?(name) do
@@ -501,25 +638,57 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     end)
   end
 
-  defp whisper_variants(opts) do
-    case opts[:whisper] do
-      nil ->
-        []
+  # Local Whisper. Asked for nothing in particular, the two sizes the local
+  # verdict came down to, on whatever backend the sidecar's venv can run,
+  # with detection restricted to the corpus languages — the stage setting.
+  @default_whisper ["small", "large-v3-turbo"]
 
-      list ->
-        for model <- String.split(list, ",", trim: true) do
-          %{
-            id:
-              "whisper-" <> whisper_name(model) <>
-                if(opts[:whisper_threads], do: "@#{opts[:whisper_threads]}t", else: "") <>
-                if(opts[:whisper_tag], do: "+#{opts[:whisper_tag]}", else: ""),
-            provider: :local_whisper,
-            price: :local,
-            model: model,
-            backend: opts[:whisper_backend],
-            threads: opts[:whisper_threads],
-            sidecar_env: parse_env(opts[:whisper_env]),
-            env: fn _ -> %{} end
+  defp whisper_variants(opts) do
+    python = sidecar_python()
+
+    models =
+      cond do
+        opts[:whisper] ->
+          String.split(opts[:whisper], ",", trim: true)
+
+        opts[:variants] ->
+          []
+
+        File.exists?(python) ->
+          @default_whisper
+
+        true ->
+          Mix.shell().info("(no local-whisper venv at #{python} — skipping local Whisper; see local-whisper/README.md)")
+          []
+      end
+
+    if models == [] do
+      []
+    else
+      backend = opts[:whisper_backend] || probe_backend(python)
+      threads = opts[:whisper_threads] || if(backend == "faster-whisper", do: System.schedulers_online())
+      env = parse_env(opts[:whisper_env])
+
+      env =
+        if List.keymember?(env, "WHISPER_LANGUAGES", 0),
+          do: env,
+          else: [{"WHISPER_LANGUAGES", Enum.join(corpus_languages(), ",")} | env]
+
+      for name <- models do
+        model = resolve_model(name, backend)
+
+        %{
+          id:
+            "whisper-" <> whisper_name(model) <>
+              if(threads, do: "@#{threads}t", else: "") <>
+              if(opts[:whisper_tag], do: "+#{opts[:whisper_tag]}", else: ""),
+          provider: :local_whisper,
+          price: :local,
+          model: model,
+          backend: backend,
+          threads: threads,
+          sidecar_env: env,
+          env: fn _ -> %{} end
           }
         end
     end
@@ -533,6 +702,34 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     |> List.last()
     |> String.replace_prefix("faster-whisper-", "")
     |> String.replace_prefix("whisper-", "")
+    |> String.replace_suffix("-mlx", "")
+  end
+
+  # A size name maps onto the mlx-community conversion on the mlx backend;
+  # anything with a slash (a repo id, a path) is passed through.
+  defp resolve_model(name, "mlx") do
+    cond do
+      String.contains?(name, "/") -> name
+      name == "large-v3-turbo" -> "mlx-community/whisper-large-v3-turbo"
+      true -> "mlx-community/whisper-#{name}-mlx"
+    end
+  end
+
+  defp resolve_model(name, _backend), do: name
+
+  # mlx when the venv can import it (Apple Silicon), CTranslate2 otherwise —
+  # never torch, which is the slow one on CPU and segfaults on some ROCm boxes.
+  defp probe_backend(python) do
+    case System.cmd(python, ["-c", "import mlx_whisper"], stderr_to_stdout: true) do
+      {_, 0} -> "mlx"
+      _ -> "faster-whisper"
+    end
+  end
+
+  defp sidecar_python, do: Path.expand(Path.join(@whisper_dir, ".venv/bin/python"))
+
+  defp corpus_languages do
+    @manifest |> File.read!() |> Jason.decode!() |> Map.fetch!("clips") |> Enum.map(& &1["lang"]) |> Enum.uniq()
   end
 
   # ── one clip, many engines, one real-time stream ───────────────────────
@@ -637,6 +834,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
         case mod.start_link(relay) do
           {:ok, pid} ->
+            send(relay, {:watch, pid})
             [{v, mod, pid, relay}]
 
           {:error, reason} ->
@@ -675,21 +873,37 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     for {id, kind, text, ts} <- drain([]), do: {id, kind, text, ts - wall0}
   end
 
-  defp relay(bench, id) do
+  # Forwards one client's events to the bench under its variant id, and
+  # watches the client so a crash lands on the row as an error instead of as
+  # a silently short transcript (the bench traps exits and would otherwise
+  # just carry on without it).
+  defp relay(bench, id, errored? \\ false) do
     receive do
       {:transcript, _p, text, final?, ts} ->
         send(bench, {:stt_bench, id, if(final?, do: :final, else: :partial), text, ts})
-        relay(bench, id)
+        relay(bench, id, errored?)
 
       {:stt_error, _p, reason} ->
         send(bench, {:stt_bench, id, :error, inspect(reason), System.system_time(:millisecond)})
-        relay(bench, id)
+        relay(bench, id, true)
+
+      {:watch, pid} ->
+        Process.monitor(pid)
+        relay(bench, id, errored?)
+
+      {:DOWN, _ref, :process, _pid, reason} ->
+        # A client that already reported why it is going has said enough.
+        unless errored? or reason in [:normal, :shutdown] or match?({:shutdown, _}, reason) do
+          send(bench, {:stt_bench, id, :error, "client exited: " <> inspect(reason), System.system_time(:millisecond)})
+        end
+
+        relay(bench, id, true)
 
       :stop ->
         :ok
 
       _ ->
-        relay(bench, id)
+        relay(bench, id, errored?)
     end
   end
 
@@ -735,8 +949,16 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       n_partials: length(partials),
       errors: Enum.uniq(errors),
       hyp: hyp,
-      events: Enum.map(events, &Tuple.to_list/1)
+      events: Enum.map(events, &Tuple.to_list/1),
+      # Local engines are only as fast as the machine they ran on.
+      at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      host: host()
     }
+  end
+
+  defp host do
+    {:ok, h} = :inet.gethostname()
+    to_string(h)
   end
 
   # Re-score a stored result against the clip's CURRENT reference and anchor.
@@ -751,7 +973,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     |> score(v, events, ref_lines, meta["line_ends"], anchor_tokens(meta["words"]))
     |> Jason.encode!()
     |> Jason.decode!()
-    |> Map.merge(Map.take(r, ["clip", "medley", "standalone"]))
+    |> Map.merge(Map.take(r, ["clip", "medley", "standalone", "at", "host"]))
   end
 
   defp wav_data(<<"RIFF", _::32, "WAVE", rest::binary>>), do: find_data(rest)
@@ -773,15 +995,17 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
   # ── local whisper sidecars ─────────────────────────────────────────────
 
-  defp boot_sidecar(variants, _opts, dir) do
+  defp boot_sidecar(variants, _opts) do
     case Enum.find(variants, &(&1.provider == :local_whisper)) do
       nil ->
         {variants, :not_started}
 
       w ->
         Mix.shell().info("   starting whisper sidecar: #{w.model} (#{w.backend || "sidecar default backend"})")
+        File.mkdir_p!(Path.join(@store, "logs"))
+
         sc =
-          start_sidecar(w.model, w.backend, Path.join(dir, "sidecar-#{w.id}.log"),
+          start_sidecar(w.model, w.backend, Path.join([@store, "logs", "sidecar-#{w.id}.log"]),
             threads: w.threads,
             env: w.sidecar_env
           )
@@ -801,7 +1025,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   defp ensure_anchor_sidecar(sc, _model), do: sc
 
   defp start_sidecar(model, backend, log, opts) do
-    python = Path.expand(Path.join(@whisper_dir, ".venv/bin/python"))
+    python = sidecar_python()
     File.exists?(python) || Mix.raise("no local-whisper venv at #{python} — see local-whisper/README.md")
     ws_port = free_port()
     batch_port = free_port()
@@ -923,7 +1147,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
   # ── report ─────────────────────────────────────────────────────────────
 
-  defp report(all) do
+  defp report(all, updated) do
     {medleys, results} = Enum.split_with(all, & &1["medley"])
     by_variant = Enum.group_by(results, & &1["variant"])
     langs = results |> Enum.map(& &1["lang"]) |> Enum.uniq() |> Enum.sort()
@@ -936,16 +1160,22 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     header =
       "| variant | WER | " <>
         Enum.map_join(langs, " | ", &"WER #{&1}") <>
-        " | lines followed | final lag p50 / p90 | partial lag p50 | reveal delay p50 | $/h | errors |"
+        " | lines followed | final lag p50 / p90 | partial lag p50 | reveal delay p50 | $/h | errors | measured |"
 
-    sep = "|" <> String.duplicate("---|", 8 + length(langs))
+    sep = "|" <> String.duplicate("---|", 9 + length(langs))
 
     body =
       Enum.map_join(rows, "\n", fn r ->
         "| #{r.variant} | #{pct(r.wer)} | " <>
           Enum.map_join(langs, " | ", &pct(r.by_lang[&1])) <>
-          " | #{pct(r.followed)} | #{ms(r.final_p50)} / #{ms(r.final_p90)} | #{ms(r.partial_p50)} | #{ms(r.reveal_p50)} | #{price(r.price)} | #{r.errors} |"
+          " | #{pct(r.followed)} | #{ms(r.final_p50)} / #{ms(r.final_p90)} | #{ms(r.partial_p50)} | #{ms(r.reveal_p50)} | #{price(r.price)} | #{r.errors}" <>
+          " | #{measured(r)}#{if r.variant in updated, do: " ✦", else: ""} |"
       end)
+
+    fresh =
+      if updated == [],
+        do: "",
+        else: "\n✦ measured in this run; the other rows are from the store (#{@store}/results/)."
 
     notes =
       results
@@ -963,10 +1193,14 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     #{header}
     #{sep}
     #{body}
+    #{fresh}
     #{medley_table(medleys, results)}
     #{if notes == "", do: "", else: "\nErrors:\n" <> notes}
     """
   end
+
+  defp measured(%{at: nil, host: host}), do: host
+  defp measured(%{at: at, host: host}), do: String.slice(at, 0, 10) <> " " <> host
 
   # Same engine, same audio: WER inside a multi-language session vs the
   # clip on its own. A jump means the engine kept the previous song's language.
@@ -1019,7 +1253,9 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       partial_p50: SttBench.pct(Enum.flat_map(rs, & &1["partial_lags"]), 50),
       reveal_p50: SttBench.pct(Enum.flat_map(rs, & &1["confirm_delays"]), 50),
       price: hd(rs)["price"],
-      errors: rs |> Enum.map(&length(&1["errors"])) |> Enum.sum()
+      errors: rs |> Enum.map(&length(&1["errors"])) |> Enum.sum(),
+      at: rs |> Enum.map(& &1["at"]) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
+      host: rs |> Enum.map(& &1["host"]) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.join("/")
     }
   end
 

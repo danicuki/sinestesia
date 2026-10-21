@@ -115,6 +115,7 @@ per engine. Vendor facts checked 2026-10-20:
 | Gemini 3.5 Transcribe Live | `STT_PROVIDER=gemini` (default model) | `gemini-3.5-transcribe-live` (public preview 2026-08-26) | ~$0.54 ($0.005/min in + $0.004/min out) | dedicated streaming ASR; 10-min sessions (client rolls over on `goAway`); `GEMINI_STT_LANG` empty = auto |
 | Gemini 3.8 Live | `GEMINI_STT_MODEL=gemini-3.8-live` | audio-to-audio voice model (stable 2026-09-15) | $0.30 audio in (+$0.018/min if it speaks) | transcript only as a side channel; told to stay silent. Measured for completeness, not a candidate. |
 
-When keys land: `cd backend && mix sinestesia.bench.stt` (idle network — each
-stream is ~40 KB/s up and a saturated uplink inflates exactly the latency
-being measured), then `--report <dir>,<local dirs>` for the merged table.
+When keys land: `cd backend && mix sinestesia.bench.stt` runs everything
+(idle network — each stream is ~40 KB/s up and a saturated uplink inflates
+exactly the latency being measured); results accumulate in `bench-stt/` and
+`report.md` there is the merged table.

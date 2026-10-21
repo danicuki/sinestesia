@@ -24,10 +24,11 @@ defmodule Sinestesia.GeminiSTT do
   activity detector is tuned for speech — on singing it closed the phrase
   mid-line and then heard nothing for 10 s of full voice. So by default
   (`GEMINI_STT_VAD=client`) this client marks `activityStart`/`activityEnd`
-  itself from signal energy (`GEMINI_STT_VAD_DB`, default -42 dBFS), closing
-  a phrase after `GEMINI_STT_SILENCE_MS` (default 600) of quiet — the same
-  cadence as ElevenLabs' VAD commit. `GEMINI_STT_VAD=server` hands it back to
-  Google's detector.
+  itself from signal energy (50 ms frames; voice = above `GEMINI_STT_VAD_DB`,
+  default -42 dBFS, and within 15 dB of the recent peak), closing a phrase
+  after `GEMINI_STT_SILENCE_MS` (default 500) of quiet or at
+  `GEMINI_STT_MAX_PHRASE_MS` (12 s) — close to ElevenLabs' VAD commit.
+  `GEMINI_STT_VAD=server` hands it back to Google's detector.
 
   A Live session is capped (~10 min for continuous streaming), which a show
   outlasts. The server announces the end with `goAway`; this client then
@@ -58,18 +59,28 @@ defmodule Sinestesia.GeminiSTT do
   # over mid-line and then heard no "start of speech" through 10 s of
   # full-voice singing (Let It Be, measured 2026-10-21) — and the API
   # transcribes nothing outside an activity. So by default the CLIENT marks
-  # activity itself from signal energy, closing a phrase after the same
-  # 0.6 s of silence ElevenLabs uses.
+  # activity itself from signal energy, closing a phrase after 0.5 s of
+  # quiet (ElevenLabs' VAD commit sits at 0.6 s).
   defp vad, do: if(System.get_env("GEMINI_STT_VAD", "client") == "server", do: :server, else: :client)
 
   # Silence that closes a phrase: the client VAD's hangover before
-  # activityEnd (default 600 ms), or the server VAD's silenceDurationMs
-  # (unset = Google's default). Singing holds notes and breathes in short
-  # gaps, so this trades finals-latency against phrase fragmentation.
+  # activityEnd (default 500 ms — a sung breath), or the server VAD's
+  # silenceDurationMs (unset = Google's default). Singing holds notes and
+  # breathes in short gaps, so this trades finals-latency against
+  # phrase fragmentation.
   defp silence_ms do
     case Integer.parse(System.get_env("GEMINI_STT_SILENCE_MS", "")) do
       {ms, _} when ms > 0 -> ms
-      _ -> if vad() == :client, do: 600, else: nil
+      _ -> if vad() == :client, do: 500, else: nil
+    end
+  end
+
+  # A phrase the client VAD never hears a breath in (a wet stem, a chorus
+  # over a loud band) is closed here anyway, so finals keep coming.
+  defp max_phrase_ms do
+    case Integer.parse(System.get_env("GEMINI_STT_MAX_PHRASE_MS", "12000")) do
+      {ms, _} when ms > 0 -> ms
+      _ -> 12_000
     end
   end
 
@@ -121,7 +132,10 @@ defmodule Sinestesia.GeminiSTT do
          vad: vad(),
          vad_db: vad_db(),
          silence_ms: silence_ms(),
+         max_phrase_ms: max_phrase_ms(),
+         peak: -100.0,
          active: false,
+         active_ms: 0,
          quiet_ms: 0,
          prev: nil
        }}
@@ -157,36 +171,82 @@ defmodule Sinestesia.GeminiSTT do
 
   @activity_start %{realtimeInput: %{activityStart: %{}}}
   @activity_end %{realtimeInput: %{activityEnd: %{}}}
+  # 50 ms of 16 kHz s16 mono.
+  @frame_bytes 1600
+  @frame_ms 50
+  # dB per frame = 4 dB/s.
+  @peak_decay 0.2
+  @drop_db 15.0
 
   defp audio_msg(bin),
     do: %{realtimeInput: %{audio: %{data: Base.encode64(bin), mimeType: "audio/pcm;rate=16000"}}}
 
-  # The client VAD: what this chunk becomes on the wire. A phrase opens with
-  # activityStart and the chunk BEFORE the one that tripped the detector, so
-  # the onset is not clipped; it closes with activityEnd once `silence_ms`
-  # of quiet has gone by (that quiet is sent too — the server's own silence
-  # is what lets it finalize). Outside a phrase nothing is sent: the server
-  # ignores audio outside an activity, and would bill for it.
-  defp gate(%{vad: :server} = state, bin), do: {state, [audio_msg(bin)]}
+  # The client VAD: what this chunk becomes on the wire.
+  #
+  # Levels are read per 50 ms frame — a sung breath is 300–500 ms, and a
+  # 250 ms chunk grid would need ~750 ms of quiet to notice one. A frame is
+  # voice when it is above the floor AND within 15 dB of the recent peak
+  # (the peak decays 4 dB/s), so reverb tails and band bleed under a singer
+  # count as quiet without a per-stage threshold. A phrase opens with
+  # activityStart plus the chunk BEFORE the one that tripped the detector,
+  # so the onset is not clipped; it closes with activityEnd after
+  # `silence_ms` of quiet, or at `max_phrase_ms` when a wet stem never goes
+  # quiet (the simulation on the corpus: 3–10 phrases per 50 s clip, like
+  # ElevenLabs' and Whisper's finals). Outside a phrase nothing is sent: the
+  # server ignores audio outside an activity, and would bill for it.
+  @doc false
+  def gate(%{vad: :server} = state, bin), do: {state, [audio_msg(bin)]}
 
-  defp gate(state, bin) do
-    loud? = rms_db(bin) > state.vad_db
-    # 16 kHz s16 mono: 32 bytes per millisecond.
-    ms = div(byte_size(bin), 32)
+  def gate(state, bin) do
+    {state, opened?, closed?, capped?} =
+      for <<frame::binary-size(@frame_bytes) <- bin>>, reduce: {state, false, false, false} do
+        {st, o?, c?, k?} ->
+          level = rms_db(frame)
+          peak = max(level, st.peak - @peak_decay)
+          loud? = level > max(st.vad_db, peak - @drop_db)
+          st = %{st | peak: peak}
+
+          cond do
+            loud? and not st.active ->
+              {%{st | active: true, quiet_ms: 0, active_ms: @frame_ms}, true, c?, k?}
+
+            loud? ->
+              st = %{st | quiet_ms: 0, active_ms: st.active_ms + @frame_ms}
+
+              # Capped: the phrase is cut here and the next one starts at
+              # once — the activity stays open from this client's view.
+              if st.active_ms >= st.max_phrase_ms,
+                do: {%{st | active_ms: 0}, o?, c?, true},
+                else: {st, o?, c?, k?}
+
+            st.active ->
+              st = %{st | quiet_ms: st.quiet_ms + @frame_ms, active_ms: st.active_ms + @frame_ms}
+
+              if st.quiet_ms >= st.silence_ms,
+                do: {%{st | active: false, quiet_ms: 0, active_ms: 0}, o?, true, k?},
+                else: {st, o?, c?, k?}
+
+            true ->
+              {st, o?, c?, k?}
+          end
+      end
 
     cond do
-      loud? and not state.active ->
+      state.active and (capped? or (opened? and closed?)) ->
+        # One phrase ended and the next began inside this chunk — a breath
+        # whose hangover ran out mid-chunk, or the length cap. This chunk
+        # closes the old phrase; the next chunk is the new one's first.
+        {state, [audio_msg(bin), @activity_end, @activity_start]}
+
+      opened? ->
         prefix = if state.prev, do: [audio_msg(state.prev)], else: []
-        {%{state | active: true, quiet_ms: 0, prev: nil}, [@activity_start | prefix] ++ [audio_msg(bin)]}
+        {%{state | prev: nil}, [@activity_start | prefix] ++ [audio_msg(bin)]}
 
-      loud? ->
-        {%{state | quiet_ms: 0}, [audio_msg(bin)]}
-
-      state.active and state.quiet_ms + ms >= state.silence_ms ->
-        {%{state | active: false, quiet_ms: 0, prev: bin}, [audio_msg(bin), @activity_end]}
+      closed? ->
+        {%{state | prev: bin}, [audio_msg(bin), @activity_end]}
 
       state.active ->
-        {%{state | quiet_ms: state.quiet_ms + ms}, [audio_msg(bin)]}
+        {state, [audio_msg(bin)]}
 
       true ->
         {%{state | prev: bin}, []}
@@ -370,7 +430,7 @@ defmodule Sinestesia.GeminiSTT do
       {:ok, conn, ref, ws} ->
         # setupComplete arrives through handle_info; audio buffers until then.
         # A new session starts outside any activity, whatever the old one was in.
-        %{state | conn: conn, ref: ref, ws: ws, ready: false, reconnecting: false, active: false, quiet_ms: 0}
+        %{state | conn: conn, ref: ref, ws: ws, ready: false, reconnecting: false, active: false, quiet_ms: 0, active_ms: 0}
 
       {:error, err} ->
         Logger.error("[gemini] reconnect failed: #{inspect(err)}")

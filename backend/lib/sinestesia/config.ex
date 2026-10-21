@@ -211,9 +211,9 @@ defmodule Sinestesia.Config do
       key: "GEMINI_STT_SILENCE_MS",
       group: :stt,
       default: nil,
-      values: "milliseconds (client default 600)",
+      values: "milliseconds (client default 500)",
       doc:
-        "Quiet that closes a phrase for Gemini: the client VAD's hangover before activityEnd (600 ms unset), or the server VAD's silenceDurationMs (unset = Google's default). Lower = faster finals, more fragments."
+        "Quiet that closes a phrase for Gemini: the client VAD's hangover before activityEnd (500 ms unset — a sung breath), or the server VAD's silenceDurationMs (unset = Google's default). Lower = faster finals, more fragments."
     },
     %{
       key: "GEMINI_STT_VAD_DB",
@@ -221,7 +221,15 @@ defmodule Sinestesia.Config do
       default: "-42",
       values: "dBFS",
       doc:
-        "Level above which a 250 ms chunk counts as voice for Gemini's client VAD. A vocal mic sings at -30 to -20 dBFS; room noise and band bleed usually sit below -45."
+        "Floor above which a 50 ms frame can count as voice for Gemini's client VAD (it must also be within 15 dB of the recent peak, so reverb tails and band bleed read as quiet). A vocal mic sings at -30 to -20 dBFS."
+    },
+    %{
+      key: "GEMINI_STT_MAX_PHRASE_MS",
+      group: :stt,
+      default: "12000",
+      values: "milliseconds",
+      doc:
+        "Gemini client VAD: a phrase that never goes quiet (a wet stem, a chorus over a loud band) is closed at this length anyway, so finals keep coming."
     },
     %{
       key: "LOCAL_WHISPER_HOST",

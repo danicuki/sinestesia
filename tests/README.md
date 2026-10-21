@@ -180,8 +180,9 @@ mix sinestesia.bench.stt --report             # the table over everything measur
   Silicon (size names map to the `mlx-community` conversions), CTranslate2
   elsewhere; detection is restricted to the corpus languages like
   `WHISPER_LANGUAGES` on stage. Sidecar logs: `bench-stt/logs/`.
-- Run cloud passes on an idle network: each stream is ~40 KB/s up, and a
-  saturated link inflates exactly the latency being measured (`--parallel`
-  caps simultaneous streams, default 3).
+- Cloud engines all stream at once (one ~9 min pass); local Whisper models
+  run one at a time so they never share the GPU. Each cloud stream is
+  ~40 KB/s up, and a saturated link inflates exactly the latency being
+  measured — on a thin uplink pass `--parallel 3` and keep the network idle.
 - To bench your own take: add a clip whose `source` is the Save-take `.webm`
   and whose `lyrics_file` points at the lyrics.

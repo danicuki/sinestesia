@@ -47,9 +47,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   `<id>.ref.txt` and never overwritten without `--fresh`, so a human can
   correct it.
 
-  Cloud variants listen to one real-time stream `--parallel` at a time
-  (default 3): each costs ~40 KB/s of upload, and a saturated uplink queues
-  the audio and inflates exactly the latency being measured — run this on an
+  Cloud variants all listen to the same real-time stream at once (one pass of
+  ~9 minutes). Each costs ~40 KB/s of upload — eight of them ≈ 2.6 Mbit/s —
+  and a saturated uplink queues the audio and inflates exactly the latency
+  being measured, so on a thin link pass `--parallel 3` and run on an
   otherwise idle network (no downloads) for numbers worth comparing. Each
   local Whisper model gets its own sidecar on free ports and its own pass, so
   local models never share the CPU/GPU with each other; the backend is
@@ -419,7 +420,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     end
 
     {cloud, whisper} = Enum.split_with(run, &(&1.provider != :local_whisper))
-    passes = Enum.chunk_every(cloud, max(opts[:parallel] || 3, 1)) ++ Enum.map(whisper, &[&1])
+    # Cloud engines all at once unless the uplink says otherwise; each local
+    # model alone, so two of them never share the GPU/CPU.
+    per_pass = max(opts[:parallel] || length(cloud), 1)
+    passes = Enum.chunk_every(cloud, per_pass) ++ Enum.map(whisper, &[&1])
 
     if passes != [] do
       Mix.shell().info(

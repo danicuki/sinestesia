@@ -1,7 +1,7 @@
 # STT shoot-out — results and verdict
 
 Measured 2026-10-20 with `mix sinestesia.bench.stt` on the corpus in
-`corpus.json`: 9 clips of real singing (564 reference words; pt ×3, en ×2,
+`corpus.json`: 9 clips of real singing (593 words after the follower's normalization; pt ×3, en ×2,
 it ×2, de ×2 — the duo's own takes plus Demucs vocal stems of studio
 recordings) and a 4-language medley streamed as ONE session. Every engine
 heard the same 16 kHz PCM at real-time pace in 250 ms chunks, through the
@@ -17,6 +17,30 @@ mlx will be faster per decode; the architecture findings below hold either
 way.
 
 ## Local Whisper (sidecar `local-whisper/`)
+
+### Scorecard
+
+**Accuracy** (0–100) = of every 100 words sung, how many came out right; wrong,
+missing and invented words all count against it (100 − WER). On sung audio,
+90+ is excellent, 80–90 follows most lines, below 70 the follower loses the
+song. **Latency** = ms from the last sung word to the final transcript that
+contains it (median; finals gate the reveals). **Multi-language** = accuracy
+inside ONE session that moves pt → it → de → en and must notice each switch.
+
+| engine | latency (ms) | accuracy | de | en | it | pt | multi-language | $/h |
+|---|---|---|---|---|---|---|---|---|
+| **large-v3-turbo @12t greedy 4-lang** | 2709 | **87** | 70 | 97 | 91 | 88 | **78** | 0 (local) |
+| large-v3-turbo @12t greedy | 2574 | 87 | 70 | 97 | 91 | 88 | 71 | 0 (local) |
+| large-v3-turbo @12t finals-only (old sidecar) | 2875 | 85 | 83 | 97 | 68 | 94 | 69 | 0 (local) |
+| **small @12t greedy 4-lang** | **1576** | 75 | 61 | 97 | 63 | 81 | 75 | 0 (local) |
+| small @12t (old sidecar) | 1804 | 73 | 31 | 97 | 64 | 89 | 27 | 0 (local) |
+| base @4t | 1761 | 67 | 51 | 91 | 52 | 74 | — | 0 (local) |
+| medium @12t greedy | 2485 | 66 | 33 | 96 | 39 | 87 | 75 | 0 (local) |
+| tiny @4t | 1720 | 49 | 9 | 84 | 31 | 65 | — | 0 (local) |
+| medium @12t (old sidecar) | 10945 | 36 | 0 | 86 | 0 | 55 | 17 | 0 (local) |
+| large-v3-turbo @12t (old sidecar) | 32695 | 6 | 8 | 0 | 7 | 6 | 13 | 0 (local) |
+
+### Details (WER)
 
 | variant | WER | de | en | it | pt | lines followed | final lag p50 / p90 | partial lag p50 | reveal delay p50 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -103,13 +127,13 @@ OMP_NUM_THREADS=12
 
 Not run yet: this machine's `.env` has no `ELEVENLABS_API_KEY`,
 `DEEPGRAM_API_KEY` or `GOOGLE_API_KEY`. The variants are wired and selectable
-(`--variants eleven,eleven-turn,deepgram,flux,gemini,gemini-live` and the
-`-hint` pinned-language twins); each full corpus pass is ~8 minutes of audio
+(`--variants eleven,deepgram,flux,gemini,gemini-live` and the `-hint`
+pinned-language twins); each full corpus pass is ~8 minutes of audio
 per engine. Vendor facts checked 2026-10-20:
 
 | engine | `.env` | model | list price / h streamed | notes |
 |---|---|---|---|---|
-| ElevenLabs | `STT_PROVIDER=elevenlabs` | `scribe_v2_realtime` — still the **only** realtime model id the API accepts | $0.39 | new since we integrated: `commit_strategy=turn_prediction` (2026-10-12), `keyterms`, `previous_text`, `filter_background_audio`, `secondary_languages`. `ELEVEN_LANG` now defaults to auto-detect. |
+| ElevenLabs | `STT_PROVIDER=elevenlabs` | `scribe_v2_realtime` — still the **only** realtime model id the API accepts | $0.39 | new since we integrated: `keyterms`, `previous_text`, `filter_background_audio`, `secondary_languages`, `include_language_detection`. `commit_strategy=turn_prediction` exists but only for models that predict turns, which scribe_v2_realtime is not (the session rejects it). `ELEVEN_LANG` now defaults to auto-detect. |
 | Deepgram Nova-3 | `STT_PROVIDER=deepgram` `DEEPGRAM_MODEL=nova-3` | Nova-3 Multilingual (`DEEPGRAM_LANGUAGE=multi`, default — was hard-coded `pt-BR`) | $0.348 (promo) | en/es/fr/de/hi/ru/pt/ja/it/nl code-switching |
 | Deepgram Flux | `DEEPGRAM_MODEL=flux-general-multi` | turn-based model on `/v2/listen` (GA 2026-04-29) | $0.468 | `EndOfTurn` = final; same 10 languages |
 | Gemini 3.5 Transcribe Live | `STT_PROVIDER=gemini` (default model) | `gemini-3.5-transcribe-live` (public preview 2026-08-26) | ~$0.54 ($0.005/min in + $0.004/min out) | dedicated streaming ASR; 10-min sessions (client rolls over on `goAway`); `GEMINI_STT_LANG` empty = auto |

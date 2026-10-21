@@ -589,7 +589,9 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     [
       {"eleven", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(auto, "vad")},
       {"eleven-hint", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(iso, "vad")},
-      {"eleven-turn", :elevenlabs, :elevenlabs_api_key, :elevenlabs, eleven.(auto, "turn_prediction")},
+      # No turn_prediction variant: the API reference says it applies "only
+      # for models that predict turns", and scribe_v2_realtime — the only
+      # realtime model — is not one; the session rejects it.
       {"deepgram", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", multi)},
       {"deepgram-hint", :deepgram, :deepgram_api_key, :"nova-3", dg.("nova-3", dg_code)},
       {"flux", :deepgram, :deepgram_api_key, :"flux-general-multi", dg.("flux-general-multi", multi)},
@@ -884,6 +886,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
         relay(bench, id, errored?)
 
       {:stt_error, _p, reason} ->
+        Mix.shell().error("   ✗ #{id}: #{inspect(reason) |> String.slice(0, 200)}")
         send(bench, {:stt_bench, id, :error, inspect(reason), System.system_time(:millisecond)})
         relay(bench, id, true)
 
@@ -894,6 +897,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       {:DOWN, _ref, :process, _pid, reason} ->
         # A client that already reported why it is going has said enough.
         unless errored? or reason in [:normal, :shutdown] or match?({:shutdown, _}, reason) do
+          Mix.shell().error("   ✗ #{id} exited: #{inspect(reason) |> String.slice(0, 200)}")
           send(bench, {:stt_bench, id, :error, "client exited: " <> inspect(reason), System.system_time(:millisecond)})
         end
 
@@ -1152,10 +1156,26 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     by_variant = Enum.group_by(results, & &1["variant"])
     langs = results |> Enum.map(& &1["lang"]) |> Enum.uniq() |> Enum.sort()
 
+    medley_by_variant = Enum.group_by(medleys, & &1["variant"])
+
     rows =
       by_variant
-      |> Enum.map(fn {variant, rs} -> summarize(variant, rs, langs) end)
+      |> Enum.map(fn {variant, rs} -> summarize(variant, rs, langs, Map.get(medley_by_variant, variant, [])) end)
       |> Enum.sort_by(& &1.wer)
+
+    # The scorecard: one line per engine, numbers a non-specialist can rank.
+    card_header =
+      "| engine | latency (ms) | accuracy | " <>
+        Enum.map_join(langs, " | ", & &1) <> " | multi-language | $/h |"
+
+    card_sep = "|" <> String.duplicate("---|", 5 + length(langs))
+
+    card =
+      Enum.map_join(rows, "\n", fn r ->
+        "| #{r.variant}#{if r.variant in updated, do: " ✦", else: ""} | #{ms(r.final_p50)} | #{score(r.wer)} | " <>
+          Enum.map_join(langs, " | ", &score(r.by_lang[&1])) <>
+          " | #{score(r.multi_wer)} | #{price(r.price)} |"
+      end)
 
     header =
       "| variant | WER | " <>
@@ -1183,7 +1203,22 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       |> Enum.map_join("\n", &"- #{&1["variant"]} on #{&1["clip"]}: #{Enum.join(&1["errors"], "; ") |> String.slice(0, 240)}")
 
     """
-    ## STT bench — #{length(Enum.uniq_by(results, & &1["clip"]))} clips, #{Enum.sum(Enum.map(Enum.uniq_by(results, & &1["clip"]), & &1["ref_words"]))} reference words
+    ## STT bench — #{length(Enum.uniq_by(results, & &1["clip"]))} clips, #{Enum.sum(Enum.map(Enum.uniq_by(results, & &1["clip"]), & &1["ref_words"]))} sung words
+
+    **Accuracy** (0–100) = of every 100 words sung, how many came out right; wrong,
+    missing and invented words all count against it (100 − word error rate). On sung
+    audio, 90+ is excellent, 80–90 follows most lines, below 70 the follower loses the
+    song. **Latency** = ms from the last sung word to the final transcript that
+    contains it (median; finals gate the stage's reveals). **Multi-language** =
+    accuracy inside ONE session that moves pt → it → de → en, where the engine must
+    notice each switch on its own. Sorted by accuracy.
+
+    #{card_header}
+    #{card_sep}
+    #{card}
+    #{fresh}
+
+    ### Details
 
     WER: word error rate vs the real lyrics (follower normalization; lower is better).
     Lines followed: share of lyric lines PerformanceFollower confirmed from the finals.
@@ -1193,11 +1228,13 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     #{header}
     #{sep}
     #{body}
-    #{fresh}
     #{medley_table(medleys, results)}
     #{if notes == "", do: "", else: "\nErrors:\n" <> notes}
     """
   end
+
+  defp score(nil), do: "—"
+  defp score(wer), do: to_string(max(0, round((1 - wer) * 100)))
 
   defp measured(%{at: nil, host: host}), do: host
   defp measured(%{at: at, host: host}), do: String.slice(at, 0, 10) <> " " <> host
@@ -1234,7 +1271,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     """
   end
 
-  defp summarize(variant, rs, langs) do
+  defp summarize(variant, rs, langs, medley_rs) do
     wer = fn rs ->
       n = rs |> Enum.map(& &1["ref_words"]) |> Enum.sum()
       if n == 0, do: nil, else: (rs |> Enum.map(& &1["errors_words"]) |> Enum.sum()) / n
@@ -1246,6 +1283,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     %{
       variant: variant,
       wer: wer.(rs),
+      multi_wer: wer.(medley_rs),
       by_lang: Map.new(langs, fn l -> {l, wer.(Enum.filter(rs, &(&1["lang"] == l)))} end),
       followed: if(lines == 0, do: nil, else: (rs |> Enum.map(& &1["lines_confirmed"]) |> Enum.sum()) / lines),
       final_p50: SttBench.pct(finals, 50),
@@ -1266,7 +1304,8 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
 
   defp price(key) do
     case @prices[if(is_binary(key), do: String.to_atom(key), else: key)] do
-      {usd, _} -> "#{usd}"
+      {+0.0, _} -> "0 (local)"
+      {usd, _} -> "$#{usd}"
       nil -> "?"
     end
   end

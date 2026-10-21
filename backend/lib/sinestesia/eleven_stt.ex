@@ -18,9 +18,9 @@ defmodule Sinestesia.ElevenSTT do
   #   ELEVEN_MODEL    (default "scribe_v2_realtime" — still the only realtime
   #                    model_id the API accepts, checked 2026-10)
   #   ELEVEN_LANG     (default "" = auto-detect; "pt", "it", ... pins one)
-  #   ELEVEN_COMMIT   (default "vad"; "manual" commits every chunk;
-  #                    "turn_prediction" commits when the model predicts the
-  #                    phrase is over)
+  #   ELEVEN_COMMIT   (default "vad"; "manual" commits every chunk. The API
+  #                    also lists "turn_prediction", but only for models that
+  #                    predict turns — scribe_v2_realtime rejects it)
   #   ELEVEN_NO_VERBATIM (unset; "1"/"true"/"on" asks Scribe to clean the text)
   defp model, do: System.get_env("ELEVEN_MODEL", "scribe_v2_realtime")
 
@@ -124,11 +124,37 @@ defmodule Sinestesia.ElevenSTT do
             {:noreply, %{state | conn: conn2, ws: ws2, chunks_sent: state.chunks_sent + 1}}
 
           {:error, conn2, reason} ->
-            {:stop, {:send_failed, reason}, %{state | conn: conn2}}
+            # The socket died under us. Whatever the server said last — an
+            # error message, its CLOSE frame with code and reason — is in the
+            # mailbox or about to be: read it, so the log says WHY.
+            state = drain(%{state | conn: conn2}, 300)
+            Logger.warning("[elevenlabs] send failed: #{inspect(reason)}")
+            send(state.parent, {:stt_error, :elevenlabs, {:send_failed, reason}})
+            {:stop, {:shutdown, {:send_failed, reason}}, state}
         end
 
       {:error, ws2, reason} ->
         {:stop, {:encode_failed, reason}, %{state | ws: ws2}}
+    end
+  end
+
+  # Reads what is already on the socket after Mint has given the connection
+  # up: the server's last frames arrive as raw `:ssl` messages and are decoded
+  # straight into frames, which log themselves (see handle_frame).
+  defp drain(state, timeout) do
+    receive do
+      {:ssl, socket, data} when is_binary(data) ->
+        state = handle_response({:data, state.ref, data}, state)
+        _ = :ssl.setopts(socket, active: :once)
+        drain(state, timeout)
+
+      {:ssl_closed, _socket} ->
+        state
+
+      {:ssl_error, _socket, _reason} ->
+        state
+    after
+      timeout -> state
     end
   end
 
@@ -151,7 +177,9 @@ defmodule Sinestesia.ElevenSTT do
         state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[elevenlabs] stream error: #{inspect(reason)}")
         send(state.parent, {:stt_error, :elevenlabs, {:stream_error, reason}})
-        {:stop, reason, state}
+        # A remote close is not a crash: no OTP crash report (with the raw
+        # audio in it) for the sound desk — the warning above is the report.
+        {:stop, {:shutdown, reason}, state}
 
       :unknown ->
         Logger.debug("[elevenlabs] unknown stream message: #{inspect(message)}")
@@ -185,6 +213,12 @@ defmodule Sinestesia.ElevenSTT do
     state
   end
 
+  # Every error message type the realtime API documents (2026-10-21). A
+  # stream that dies usually says one of these first — it must reach the log.
+  @error_types ~w(error auth_error quota_exceeded commit_throttled unaccepted_terms rate_limited
+                  queue_overflow resource_exhausted session_time_limit_exceeded input_error
+                  invalid_request chunk_size_exceeded insufficient_audio_activity transcriber_error)
+
   defp handle_frame({:text, payload}, parent) do
     Logger.info("[elevenlabs] TEXT FRAME: #{payload}")
 
@@ -197,12 +231,18 @@ defmodule Sinestesia.ElevenSTT do
       when is_binary(text) and text != "" ->
         send(parent, {:transcript, :elevenlabs, text, true, System.system_time(:millisecond)})
 
-      {:ok, %{"message_type" => mt}} when mt in ["error", "auth_error", "quota_exceeded"] ->
-        Logger.warning("[elevenlabs] server error: #{payload}")
+      {:ok, %{"message_type" => mt}} when mt in @error_types ->
+        Logger.warning("[elevenlabs] server #{mt}: #{payload}")
         send(parent, {:stt_error, :elevenlabs, payload})
 
-      _ ->
+      {:ok, %{"message_type" => "warning"} = msg} ->
+        Logger.warning("[elevenlabs] server warning: #{msg["warning"] || payload}")
+
+      {:ok, %{"message_type" => mt}} when mt in ["session_started", "partial_transcript", "committed_transcript"] ->
         :ok
+
+      _ ->
+        Logger.debug("[elevenlabs] unhandled message: #{payload}")
     end
   end
 

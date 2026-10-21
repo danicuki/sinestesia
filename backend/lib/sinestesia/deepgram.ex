@@ -66,12 +66,40 @@ defmodule Sinestesia.Deepgram do
     case Mint.WebSocket.encode(ws, {:binary, bin}) do
       {:ok, ws2, data} ->
         case Mint.WebSocket.stream_request_body(conn, ref, data) do
-          {:ok, conn2} -> {:noreply, %{state | conn: conn2, ws: ws2}}
-          {:error, conn2, reason} -> {:stop, {:send_failed, reason}, %{state | conn: conn2}}
+          {:ok, conn2} ->
+            {:noreply, %{state | conn: conn2, ws: ws2}}
+
+          {:error, conn2, reason} ->
+            # The socket died under us: read what the server said last (an
+            # error message, its CLOSE frame) so the log says WHY.
+            state = drain(%{state | conn: conn2}, 300)
+            Logger.warning("[deepgram] send failed: #{inspect(reason)}")
+            send(state.parent, {:stt_error, :deepgram, {:send_failed, reason}})
+            {:stop, {:shutdown, {:send_failed, reason}}, state}
         end
 
       {:error, ws2, reason} ->
         {:stop, {:encode_failed, reason}, %{state | ws: ws2}}
+    end
+  end
+
+  # Reads what is already on the socket after Mint has given the connection
+  # up: the server's last frames arrive as raw `:ssl` messages and are decoded
+  # straight into frames, which log themselves (see handle_frame).
+  defp drain(state, timeout) do
+    receive do
+      {:ssl, socket, data} when is_binary(data) ->
+        state = handle_response({:data, state.ref, data}, state)
+        _ = :ssl.setopts(socket, active: :once)
+        drain(state, timeout)
+
+      {:ssl_closed, _socket} ->
+        state
+
+      {:ssl_error, _socket, _reason} ->
+        state
+    after
+      timeout -> state
     end
   end
 
@@ -89,7 +117,8 @@ defmodule Sinestesia.Deepgram do
         state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[deepgram] stream error: #{inspect(reason)}")
         send(state.parent, {:stt_error, :deepgram, {:stream_error, reason}})
-        {:stop, reason, state}
+        # A remote close is not a crash: the warning above is the report.
+        {:stop, {:shutdown, reason}, state}
 
       :unknown ->
         {:noreply, state}

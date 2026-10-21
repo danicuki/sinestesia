@@ -68,7 +68,7 @@ defmodule Sinestesia.LocalWhisperSTT do
             {:noreply, %{state | conn: conn2, ws: ws2, chunks_sent: state.chunks_sent + 1}}
 
           {:error, conn2, reason} ->
-            {:stop, {:send_failed, reason}, %{state | conn: conn2}}
+            send_failed(%{state | conn: conn2}, reason)
         end
 
       {:error, ws2, reason} ->
@@ -87,11 +87,40 @@ defmodule Sinestesia.LocalWhisperSTT do
             {:noreply, %{state | conn: conn2, ws: ws2}}
 
           {:error, conn2, reason} ->
-            {:stop, {:send_failed, reason}, %{state | conn: conn2}}
+            send_failed(%{state | conn: conn2}, reason)
         end
 
       {:error, ws2, reason} ->
         {:stop, {:encode_failed, reason}, %{state | ws: ws2}}
+    end
+  end
+
+  # The socket died under us: read what the sidecar said last (its CLOSE
+  # frame, if it managed one) so the log says WHY, tell the pipeline, stop —
+  # as a shutdown, not a crash: the warning is the report.
+  defp send_failed(state, reason) do
+    state = drain(state, 300)
+    Logger.warning("[local_whisper] send failed: #{inspect(reason)} — is the sidecar still up?")
+    send(state.parent, {:stt_error, :local_whisper, {:send_failed, reason}})
+    {:stop, {:shutdown, {:send_failed, reason}}, state}
+  end
+
+  # Reads what is already on the socket after Mint has given the connection
+  # up. The sidecar is plain ws://, so these are `:tcp` messages.
+  defp drain(state, timeout) do
+    receive do
+      {tag, socket, data} when tag in [:tcp, :ssl] and is_binary(data) ->
+        state = handle_response({:data, state.ref, data}, state)
+        _ = if tag == :tcp, do: :inet.setopts(socket, active: :once), else: :ssl.setopts(socket, active: :once)
+        drain(state, timeout)
+
+      {tag, _socket} when tag in [:tcp_closed, :ssl_closed] ->
+        state
+
+      {tag, _socket, _reason} when tag in [:tcp_error, :ssl_error] ->
+        state
+    after
+      timeout -> state
     end
   end
 
@@ -109,7 +138,7 @@ defmodule Sinestesia.LocalWhisperSTT do
         state = Enum.reduce(responses, %{state | conn: conn}, &handle_response/2)
         Logger.warning("[local_whisper] stream error: #{inspect(reason)}")
         send(state.parent, {:stt_error, :local_whisper, {:stream_error, reason}})
-        {:stop, reason, state}
+        {:stop, {:shutdown, reason}, state}
 
       :unknown ->
         {:noreply, state}

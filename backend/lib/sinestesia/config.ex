@@ -200,12 +200,28 @@ defmodule Sinestesia.Config do
       doc: "Language hints for Gemini transcription. Empty auto-detects and code-switches."
     },
     %{
+      key: "GEMINI_STT_VAD",
+      group: :stt,
+      default: "client",
+      values: "client | server",
+      doc:
+        "Who marks the start and end of a sung phrase for Gemini. client = this backend, from signal energy (Google's own speech VAD closes a sung phrase mid-line and then hears nothing for ~10 s of full voice; the API transcribes nothing outside an activity). server = Google's detector."
+    },
+    %{
       key: "GEMINI_STT_SILENCE_MS",
       group: :stt,
       default: nil,
-      values: "milliseconds",
+      values: "milliseconds (client default 600)",
       doc:
-        "Server-VAD silence before Gemini finalizes a phrase. Unset = Google's default. Lower = faster finals, more fragments."
+        "Quiet that closes a phrase for Gemini: the client VAD's hangover before activityEnd (600 ms unset), or the server VAD's silenceDurationMs (unset = Google's default). Lower = faster finals, more fragments."
+    },
+    %{
+      key: "GEMINI_STT_VAD_DB",
+      group: :stt,
+      default: "-42",
+      values: "dBFS",
+      doc:
+        "Level above which a 250 ms chunk counts as voice for Gemini's client VAD. A vocal mic sings at -30 to -20 dBFS; room noise and band bleed usually sit below -45."
     },
     %{
       key: "LOCAL_WHISPER_HOST",

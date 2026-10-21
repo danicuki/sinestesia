@@ -20,6 +20,15 @@ defmodule Sinestesia.GeminiSTT do
   Language: `GEMINI_STT_LANG` empty (the default) lets the model auto-detect
   and code-switch; a comma list of BCP-47 codes (`pt-BR,en-US`) biases it.
 
+  Phrases: the Live API only transcribes inside an "activity", and its own
+  activity detector is tuned for speech — on singing it closed the phrase
+  mid-line and then heard nothing for 10 s of full voice. So by default
+  (`GEMINI_STT_VAD=client`) this client marks `activityStart`/`activityEnd`
+  itself from signal energy (`GEMINI_STT_VAD_DB`, default -42 dBFS), closing
+  a phrase after `GEMINI_STT_SILENCE_MS` (default 600) of quiet — the same
+  cadence as ElevenLabs' VAD commit. `GEMINI_STT_VAD=server` hands it back to
+  Google's detector.
+
   A Live session is capped (~10 min for continuous streaming), which a show
   outlasts. The server announces the end with `goAway`; this client then
   reconnects on its own, buffering the audio that arrives meanwhile, so the
@@ -44,13 +53,33 @@ defmodule Sinestesia.GeminiSTT do
     |> Enum.reject(&(&1 == ""))
   end
 
-  # Server-VAD silence before a phrase is finalized. Unset = the server's own
-  # default. Singing holds notes and breathes in short gaps, so this is the
-  # knob that trades finals-latency against phrase fragmentation.
+  # Which voice-activity detector delimits a phrase. The Live API's own
+  # (`server`) is a SPEECH detector: on sung audio it declared the phrase
+  # over mid-line and then heard no "start of speech" through 10 s of
+  # full-voice singing (Let It Be, measured 2026-10-21) — and the API
+  # transcribes nothing outside an activity. So by default the CLIENT marks
+  # activity itself from signal energy, closing a phrase after the same
+  # 0.6 s of silence ElevenLabs uses.
+  defp vad, do: if(System.get_env("GEMINI_STT_VAD", "client") == "server", do: :server, else: :client)
+
+  # Silence that closes a phrase: the client VAD's hangover before
+  # activityEnd (default 600 ms), or the server VAD's silenceDurationMs
+  # (unset = Google's default). Singing holds notes and breathes in short
+  # gaps, so this trades finals-latency against phrase fragmentation.
   defp silence_ms do
     case Integer.parse(System.get_env("GEMINI_STT_SILENCE_MS", "")) do
       {ms, _} when ms > 0 -> ms
-      _ -> nil
+      _ -> if vad() == :client, do: 600, else: nil
+    end
+  end
+
+  # RMS level (dBFS) above which a chunk counts as voice for the client VAD.
+  # A vocal mic sits around -30 to -20 dBFS while singing; a quiet room and
+  # band bleed on a stage mic are usually below -45.
+  defp vad_db do
+    case Float.parse(System.get_env("GEMINI_STT_VAD_DB", "-42")) do
+      {db, _} -> db
+      _ -> -42.0
     end
   end
 
@@ -87,7 +116,14 @@ defmodule Sinestesia.GeminiSTT do
          ready: true,
          reconnecting: false,
          attempts: 0,
-         pending: []
+         pending: [],
+         # client VAD
+         vad: vad(),
+         vad_db: vad_db(),
+         silence_ms: silence_ms(),
+         active: false,
+         quiet_ms: 0,
+         prev: nil
        }}
     else
       {:error, reason} ->
@@ -106,17 +142,67 @@ defmodule Sinestesia.GeminiSTT do
   end
 
   def handle_cast({:audio, bin}, state) do
-    msg = %{
-      realtimeInput: %{audio: %{data: Base.encode64(bin), mimeType: "audio/pcm;rate=16000"}}
-    }
+    {state, msgs} = gate(state, bin)
 
-    case send_json(state, msg) do
-      {:ok, state} ->
-        {:noreply, state}
+    Enum.reduce_while(msgs, {:noreply, state}, fn msg, {:noreply, st} ->
+      case send_json(st, msg) do
+        {:ok, st} ->
+          {:cont, {:noreply, st}}
 
-      {:error, state, reason} ->
-        {:noreply, state |> Map.update!(:pending, &[bin | &1]) |> schedule_reconnect(reason)}
+        {:error, st, reason} ->
+          {:halt, {:noreply, st |> Map.update!(:pending, &[bin | &1]) |> schedule_reconnect(reason)}}
+      end
+    end)
+  end
+
+  @activity_start %{realtimeInput: %{activityStart: %{}}}
+  @activity_end %{realtimeInput: %{activityEnd: %{}}}
+
+  defp audio_msg(bin),
+    do: %{realtimeInput: %{audio: %{data: Base.encode64(bin), mimeType: "audio/pcm;rate=16000"}}}
+
+  # The client VAD: what this chunk becomes on the wire. A phrase opens with
+  # activityStart and the chunk BEFORE the one that tripped the detector, so
+  # the onset is not clipped; it closes with activityEnd once `silence_ms`
+  # of quiet has gone by (that quiet is sent too — the server's own silence
+  # is what lets it finalize). Outside a phrase nothing is sent: the server
+  # ignores audio outside an activity, and would bill for it.
+  defp gate(%{vad: :server} = state, bin), do: {state, [audio_msg(bin)]}
+
+  defp gate(state, bin) do
+    loud? = rms_db(bin) > state.vad_db
+    # 16 kHz s16 mono: 32 bytes per millisecond.
+    ms = div(byte_size(bin), 32)
+
+    cond do
+      loud? and not state.active ->
+        prefix = if state.prev, do: [audio_msg(state.prev)], else: []
+        {%{state | active: true, quiet_ms: 0, prev: nil}, [@activity_start | prefix] ++ [audio_msg(bin)]}
+
+      loud? ->
+        {%{state | quiet_ms: 0}, [audio_msg(bin)]}
+
+      state.active and state.quiet_ms + ms >= state.silence_ms ->
+        {%{state | active: false, quiet_ms: 0, prev: bin}, [audio_msg(bin), @activity_end]}
+
+      state.active ->
+        {%{state | quiet_ms: state.quiet_ms + ms}, [audio_msg(bin)]}
+
+      true ->
+        {%{state | prev: bin}, []}
     end
+  end
+
+  defp rms_db(<<>>), do: -100.0
+
+  defp rms_db(bin) do
+    {sum, n} =
+      for <<s::little-signed-16 <- bin>>, reduce: {0, 0} do
+        {acc, n} -> {acc + s * s, n + 1}
+      end
+
+    rms = :math.sqrt(sum / n) / 32768
+    if rms <= 0, do: -100.0, else: 20 * :math.log10(rms)
   end
 
   @impl true
@@ -283,7 +369,8 @@ defmodule Sinestesia.GeminiSTT do
     case open(state.key) do
       {:ok, conn, ref, ws} ->
         # setupComplete arrives through handle_info; audio buffers until then.
-        %{state | conn: conn, ref: ref, ws: ws, ready: false, reconnecting: false}
+        # A new session starts outside any activity, whatever the old one was in.
+        %{state | conn: conn, ref: ref, ws: ws, ready: false, reconnecting: false, active: false, quiet_ms: 0}
 
       {:error, err} ->
         Logger.error("[gemini] reconnect failed: #{inspect(err)}")
@@ -314,9 +401,10 @@ defmodule Sinestesia.GeminiSTT do
       end
 
     vad =
-      case silence_ms() do
-        nil -> %{}
-        ms -> %{realtimeInputConfig: %{automaticActivityDetection: %{silenceDurationMs: ms}}}
+      case {vad(), silence_ms()} do
+        {:client, _} -> %{realtimeInputConfig: %{automaticActivityDetection: %{disabled: true}}}
+        {:server, nil} -> %{}
+        {:server, ms} -> %{realtimeInputConfig: %{automaticActivityDetection: %{silenceDurationMs: ms}}}
       end
 
     model_cfg =
@@ -472,9 +560,10 @@ defmodule Sinestesia.GeminiSTT do
   end
 
   defp silence_label do
-    case silence_ms() do
-      nil -> ""
-      ms -> ", silence=#{ms}ms"
+    case {vad(), silence_ms()} do
+      {:client, ms} -> ", client VAD #{ms}ms/#{vad_db()}dBFS"
+      {:server, nil} -> ", server VAD"
+      {:server, ms} -> ", server VAD silence=#{ms}ms"
     end
   end
 end

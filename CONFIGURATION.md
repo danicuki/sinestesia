@@ -39,7 +39,7 @@ Four choices decide what a show costs and how it looks:
 
 | Switch | Question it answers |
 | --- | --- |
-| `DIRECTOR_PROVIDER` | Which LLM turns a sung line into a scene prompt (`gemma`, `gemini`, `haiku`, `zerog`). `OLLAMA_MODEL` only matters when this is `gemma`. |
+| `DIRECTOR_PROVIDER` | Which LLM turns a sung line into a scene prompt (`gemma`, `gemini`, `haiku`, `openai`, `zerog`). `OLLAMA_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL` and `OPENAI_MODEL` each only matter under their own provider; `mix sinestesia.bench.director` compares them on real sung lines. |
 | `IMAGE_PROVIDER` | Who renders the frames (`fal`, `cloudflare`, `google`, `pollinations`, `local_sdxl`). |
 | `RENDER_MODE` | How a frame relates to the previous one: `i2i` evolves it (continuity, drift, slower) or `t2i` renders it fresh from the scene prompt (no drift, faster). |
 | `COMPOSE_MODE` | In `story` mode, what the Director is asked to produce: `inpaint` → one new element and a position, painted into that region only; `global` → a prompt describing the whole scene so far. |
@@ -108,6 +108,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `FAL_API_KEY` | _none_ | — | fal.ai. Required for IMAGE_PROVIDER=fal. |
 | `GOOGLE_API_KEY` | _none_ | — | Google AI Studio. Used by DIRECTOR_PROVIDER=gemini, IMAGE_PROVIDER=google, STT_PROVIDER=gemini, and song identification. |
 | `ANTHROPIC_API_KEY` | _none_ | — | Anthropic. Used by DIRECTOR_PROVIDER=haiku and as the song-identification fallback. |
+| `OPENAI_API_KEY` | _none_ | — | OpenAI. Used by DIRECTOR_PROVIDER=openai. |
 | `CLOUDFLARE_ACCOUNT_ID` | _none_ | — | Cloudflare account. Required for IMAGE_PROVIDER=cloudflare. |
 | `CLOUDFLARE_API_TOKEN` | _none_ | — | Cloudflare Workers AI token. Required for IMAGE_PROVIDER=cloudflare. |
 
@@ -139,10 +140,14 @@ rehearsal, where finding out now beats finding out on stage.
 
 | Variable | Default | Accepts | Description |
 | --- | --- | --- | --- |
-| `DIRECTOR_PROVIDER` | `gemma` | `gemma \| gemini \| haiku \| zerog (alias: 0g)` | Which LLM turns each sung line into a scene prompt. Falls through the chain on failure. |
+| `DIRECTOR_PROVIDER` | `gemma` | `gemma \| gemini \| haiku (alias: anthropic) \| openai \| zerog (alias: 0g)` | Which LLM turns each sung line into a scene prompt. Falls through the chain on failure. Compare them on real sung lines with mix sinestesia.bench.director. |
 | `OLLAMA_URL` | `http://localhost:11434` | — | Ollama endpoint for DIRECTOR_PROVIDER=gemma. |
 | `OLLAMA_MODEL` | `gemma4:12b-mlx` | — | Model name inside Ollama. Only meaningful when the provider is gemma. |
-| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | — | Model for DIRECTOR_PROVIDER=gemini. |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite` | — | Model for DIRECTOR_PROVIDER=gemini. Thinking is switched off per model family (budget 0 on 2.5/3.1, minimal on 3.5 Flash-Lite and 3.6 Flash); 3.8 Flash and Gemini 4 can only go down to low — not for the live path. |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5` | — | Model for DIRECTOR_PROVIDER=haiku. Haiku 5.5 is called with thinking disabled, Sonnet 5.5 with between_tools (its floor); Opus 5.5 cannot stop thinking. |
+| `OPENAI_MODEL` | `gpt-6-luna` | — | Model for DIRECTOR_PROVIDER=openai, called with reasoning_effort none. GPT-6 Astra and 6.1 Sol cannot switch reasoning off — too slow for the live path. |
+| `DIRECTOR_ELEMENT_WORDS` | `4-12` | `min-max words` | How long a compose-mode NEW: element may be. Local SDXL hears 77 CLIP tokens of element + style; Flux (T5) and Nano Banana take paragraphs. Longer costs output tokens, which on a local model cost time — measure with mix sinestesia.bench.director --words 30-45 before raising it, and raise DIRECTOR_MAX_TOKENS with it. |
+| `DIRECTOR_MAX_TOKENS` | _unset_ | `tokens` | Output cap for every Director provider. Unset = 80 on Ollama, 100 on the cloud providers: room for a 4-12 word element and its position. |
 | `ZEROG_SIDECAR_URL` | `http://127.0.0.1:8788` | — | Local 0G Compute sidecar (zerog/) for verifiable inference; also polled for settled verifications. |
 | `DIRECTOR_MIN_INTERVAL_MS` | _unset_ | `milliseconds` | Floor between Director calls. Unset = no throttle (fire on every committed line). |
 

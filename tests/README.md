@@ -186,3 +186,38 @@ mix sinestesia.bench.stt --report             # the table over everything measur
   measured — on a thin uplink pass `--parallel 3` and keep the network idle.
 - To bench your own take: add a clip whose `source` is the Save-take `.webm`
   and whose `lyrics_file` points at the lyrics.
+
+## Director bench (`mix sinestesia.bench.director`) — which LLM should direct?
+
+Replays real sung lines — the STT finals of `sessions/*.json`, plus the STT
+corpus references in `stt/corpus/` once prepared (pt/en/it/de) — through the
+Director's own call (`Sinestesia.Director.complete/3`: the compose prompt, the
+output cap and the thinking switch the stage sends), one conversation per song,
+and scores every turn: round-trip latency and how often it blows the live
+budget (3 s cloud, 8 s Ollama), exact `NEW: … | POS:` / `ATMOS:` format, ATMOS
+share, position repeats, tokens in/out/thinking from each API's usage block,
+Ollama's own tok/s, and $ per 90-minute show at list price.
+
+```bash
+cd backend
+mix sinestesia.bench.director                      # every model with a key in .env + the configured Ollama model
+mix sinestesia.bench.director --models anthropic:claude-haiku-5-5,gemini:gemini-3.5-flash-lite,gemma:gemma4:12b-mlx
+mix sinestesia.bench.director --words 30-45        # longer elements (DIRECTOR_ELEMENT_WORDS), output cap raised to fit
+mix sinestesia.bench.director --songs dinda --lines 8 --dry-run
+mix sinestesia.bench.director --report             # the scorecard over everything measured so far
+```
+
+- Results accumulate in `backend/bench-director/` (gitignored):
+  `results/<variant>.json`, `report.md`, and `replies.md` with every reply
+  under its lyric, for the duo to read side by side. Rows record when and on
+  which host they were measured; a variant that already has rows is asked
+  about before it is re-run (`--overwrite` / `--reuse` answer for all).
+- Run it on the show machine. Cloud latency is measured from wherever the
+  task runs, and local rows measure that machine's GPU — the Mac for both.
+- Model specs are `provider:model` with the `DIRECTOR_PROVIDER` names
+  (`gemma`, `gemini`, `haiku`, `openai`, `zerog`); `anthropic`, `ollama` and
+  `google` are accepted aliases. Models that cannot stop reasoning (Gemini 4
+  Argon, Opus 5.5, GPT-6 Astra) run with a 4,000-token cap so the thinking
+  fits, and are marked as such.
+- `mix sinestesia.bench.director lengths` is the older words-per-second sweep
+  for the video director.

@@ -9,16 +9,25 @@ defmodule Sinestesia.Director do
   Provider via `DIRECTOR_PROVIDER`:
     "zerog"  → verifiable, TEE-sealed inference on the 0G Compute Network
                (via the local sidecar, `zerog/`), receipt shown on screen
-    "gemma"  → Gemma 4 12B via local Ollama
-    "gemini" → Google Gemini 2.5 Flash via API
-    "haiku"  → Claude Haiku 4.5 via Anthropic API
+    "gemma"  → local Ollama (`OLLAMA_MODEL`, default Gemma 4 12B)
+    "gemini" → Google Gemini API (`GEMINI_MODEL`, default 3.1 Flash-Lite)
+    "haiku"  → Anthropic API (`ANTHROPIC_MODEL`, default Claude Haiku 4.5)
+    "openai" → OpenAI API (`OPENAI_MODEL`, default GPT-6 Luna)
 
   On primary failure, falls through to remaining providers (in the order:
   primary → gemma → gemini → haiku, deduped). This keeps a live show resilient:
   when 0G is the primary, a hiccup silently falls back to local Gemma so the
   visuals never stall — and the on-screen receipt reflects which one ran.
+
+  Every provider is called with thinking switched off, or as far down as its
+  model allows: on stage the model answers, it does not deliberate. The
+  per-model switch is `thinking_candidates/2`; `mix sinestesia.bench.director`
+  measures the very call this module makes (`complete/3`).
   """
   require Logger
+
+  @typedoc "A Director backend, as `DIRECTOR_PROVIDER` names it."
+  @type provider :: :gemma | :gemini | :haiku | :openai | :zerog
 
   @default_style_classic "Brazilian cordel woodcut print, black and white, hatched linework"
   @default_style_story "loose ink sketch on aged paper, sparse hand-drawn linework, sepia tones"
@@ -48,6 +57,25 @@ defmodule Sinestesia.Director do
       _ -> 5
     end
   end
+
+  @default_element_words "4-12"
+
+  @doc """
+  How long a compose-mode `NEW:` element may be, in words ("4-12").
+
+  What is worth asking for depends on who listens downstream: the local SDXL
+  sidecar hears 77 CLIP tokens of element + style and drops the head, Flux (T5)
+  and Nano Banana take whole paragraphs. Longer elements cost output tokens,
+  and on a local model output tokens cost time — measure before raising it
+  (`mix sinestesia.bench.director --words 30-45`), and raise `DIRECTOR_MAX_TOKENS`
+  with it. Anything that is not `min-max` falls back to the default.
+  """
+  def element_words do
+    spec = System.get_env("DIRECTOR_ELEMENT_WORDS", @default_element_words) |> String.trim()
+    if Regex.match?(~r/\A\d+-\d+\z/, spec), do: spec, else: @default_element_words
+  end
+
+  def default_element_words, do: @default_element_words
 
   defp system_prompt(style, :classic) do
     """
@@ -84,7 +112,7 @@ defmodule Sinestesia.Director do
 
     The picture grows element by element: each reply paints ONE new thing onto the existing canvas. For EACH lyric line, reply with EXACTLY ONE line in ONE of these two formats:
 
-    NEW: <one concrete element, 4-12 words, purely visual> | POS: <position>
+    NEW: <one concrete element, #{element_words()} words, purely visual> | POS: <position>
     ATMOS: <one subtle whole-scene atmospheric shift, 4-10 words>
 
     POS is exactly one of: top-left, top, top-right, left, center, right, bottom-left, bottom, bottom-right.
@@ -158,6 +186,7 @@ defmodule Sinestesia.Director do
   @pool_warmup_retries 2
   @pool_warmup_ms 250
   @haiku_timeout_ms 3_000
+  @openai_timeout_ms 3_000
   # 0G routes inference over the network with an on-chain-signed request. The
   # sidecar now settles/verifies ON-CHAIN IN THE BACKGROUND (off the response
   # path), so the Director only waits for request-signing + inference: ~1.7s warm,
@@ -185,6 +214,9 @@ defmodule Sinestesia.Director do
   end
 
   @placements ~w(top-left top top-right left center right bottom-left bottom bottom-right)
+
+  @doc "The nine positions a compose-mode `POS:` may name."
+  def placements, do: @placements
 
   @doc """
   Parses a story-mode compose reply into an image request:
@@ -244,11 +276,27 @@ defmodule Sinestesia.Director do
   # the real song opens on imagery similar to an example.
   defp warmup(_style, :story), do: []
 
-  @doc "Returns the initial conversation (system + warm-up examples) for the given style."
-  def init_conversation(style \\ nil) do
+  @doc """
+  Returns the initial conversation (system + warm-up examples) for the given style.
+
+  `prompt: :compose | :global` pins the story-mode prompt instead of resolving
+  it from the image provider's capabilities — the bench measures the compose
+  contract whatever image provider the box happens to be set up with.
+  """
+  def init_conversation(style \\ nil, opts \\ []) do
     style = sanitize_style(style || default_style())
-    m = mode()
-    [%{role: "system", content: system_prompt(style, m)} | warmup(style, m)]
+
+    case Keyword.get(opts, :prompt) do
+      nil ->
+        m = mode()
+        [%{role: "system", content: system_prompt(style, m)} | warmup(style, m)]
+
+      :compose ->
+        [%{role: "system", content: compose_story_prompt()}]
+
+      :global ->
+        [%{role: "system", content: global_story_prompt(style)}]
+    end
   end
 
   @doc """
@@ -348,6 +396,8 @@ defmodule Sinestesia.Director do
       "0g" -> :zerog
       "gemini" -> :gemini
       "haiku" -> :haiku
+      "anthropic" -> :haiku
+      "openai" -> :openai
       _ -> :gemma
     end
   end
@@ -381,7 +431,7 @@ defmodule Sinestesia.Director do
   # frame, so retry the SAME provider first.
   defp try_chain([p | _] = chain, messages, warmups)
        when warmups > 0 do
-    case call(p, messages) do
+    case complete(p, messages) do
       {:error, %Req.HTTPError{reason: :pool_not_available}} ->
         Logger.debug("director #{p}: connection pool still warming; retrying")
         Process.sleep(@pool_warmup_ms)
@@ -393,16 +443,16 @@ defmodule Sinestesia.Director do
   end
 
   defp try_chain([p | _] = chain, messages, warmups) do
-    handle_result(call(p, messages), chain, messages, warmups)
+    handle_result(complete(p, messages), chain, messages, warmups)
   end
 
   defp handle_result(result, [p | rest], messages, warmups) do
     case result do
-      {:ok, prompt} ->
-        # Record which provider actually answered — the chain falls through on
-        # failure, so the configured provider is not necessarily the one that
-        # directed this frame. The provenance record must name the real one.
-        note_model(p)
+      {:ok, prompt, meta} ->
+        # Record which provider AND model actually answered — the chain falls
+        # through on failure, and 0G picks its own model — so the provenance
+        # record names the real one, never the configured one.
+        note_model(p, meta)
         {:ok, prompt}
 
       {:error, :no_key} ->
@@ -423,199 +473,498 @@ defmodule Sinestesia.Director do
   """
   def last_model, do: Process.get(:director_model)
 
-  defp note_model(provider) do
-    cfg = Application.fetch_env!(:sinestesia, :config)
-
-    model =
-      case provider do
-        :zerog ->
-          case Sinestesia.Verifiability.last() do
-            %{"model" => m} when is_binary(m) -> m
-            _ -> "0g-compute"
-          end
-
-        :gemma ->
-          Keyword.get(cfg, :ollama_model)
-
-        :gemini ->
-          System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
-
-        :haiku ->
-          "claude-haiku-4-5"
-
-        other ->
-          to_string(other)
-      end
-
+  defp note_model(provider, %{model: model}) do
     Process.put(:director_model, %{provider: to_string(provider), model: model})
     :ok
   end
 
+  @doc """
+  The model `provider` is configured to call. Not necessarily what answered a
+  given turn — that is `last_model/0`, and the two differ in exactly the cases
+  the provenance record cares about.
+  """
+  @spec configured_model(provider()) :: String.t()
+  def configured_model(:gemma),
+    do: Keyword.get(Application.fetch_env!(:sinestesia, :config), :ollama_model)
+
+  def configured_model(:gemini), do: System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
+  def configured_model(:haiku), do: System.get_env("ANTHROPIC_MODEL", "claude-haiku-4-5")
+  def configured_model(:openai), do: System.get_env("OPENAI_MODEL", "gpt-6-luna")
+  def configured_model(:zerog), do: "(chosen by the 0G sidecar)"
+
+  @doc "The live budget for one turn of `provider`, in ms — past it the chain moves on."
+  @spec timeout_ms(provider()) :: pos_integer()
+  def timeout_ms(:gemma), do: @gemma_timeout_ms
+  def timeout_ms(:gemini), do: @gemini_timeout_ms
+  def timeout_ms(:haiku), do: @haiku_timeout_ms
+  def timeout_ms(:openai), do: @openai_timeout_ms
+  def timeout_ms(:zerog), do: @zerog_timeout_ms
+
   ## Providers
+
+  @doc """
+  One Director turn against ONE provider, with no fallback.
+
+  Returns `{:ok, text, meta}` or `{:error, reason}`. `meta` says what the reply
+  cost: the model that answered; the tokens billed — `in_tokens`, `out_tokens`
+  (every output token, reasoning included) and `thinking_tokens` (how many of
+  those were reasoning, where the API says); the stop reason (`finish`); which
+  thinking setting the API accepted (`thinking`); and, on Ollama, its own split
+  of the turn into prompt processing (`prefill_ms`) and generation (`decode_ms`).
+
+  `next_prompt/2` is this plus the fallback chain and output validation. It is
+  public so `mix sinestesia.bench.director` measures the request the show really
+  sends — same prompt, same caps, same thinking switch — instead of a copy of it.
+
+  Options: `model:` (default `configured_model/1`), `max_tokens:` (default
+  `DIRECTOR_MAX_TOKENS`, else 80 on Ollama and 100 elsewhere) and `timeout_ms:`
+  (default the live budget, `timeout_ms/1`).
+  """
+  @spec complete(provider(), [map()], keyword()) :: {:ok, String.t(), map()} | {:error, term()}
+  def complete(provider, messages, opts \\ [])
 
   # Verifiable inference on the 0G Compute Network via the local sidecar
   # (`zerog/`), which speaks OpenAI's chat-completions shape and attaches a
   # `verification` receipt (provider, model, chatId, TEE-verified bool). We stash
   # that receipt so the pipeline can put it on screen next to the frame it made.
-  defp call(:zerog, messages) do
+  def complete(:zerog, messages, opts) do
     url = System.get_env("ZEROG_SIDECAR_URL", "http://127.0.0.1:8788") <> "/v1/chat/completions"
-    body = %{messages: messages, temperature: 0.8, max_tokens: 100}
+    body = %{messages: messages, temperature: 0.8, max_tokens: max_tokens(:zerog, opts)}
 
-    case Req.post(url, json: body, receive_timeout: @zerog_timeout_ms, retry: false) do
+    case Req.post(url, json: body, receive_timeout: timeout(:zerog, opts), retry: false) do
       {:ok,
        %{
          status: 200,
-         body: %{"choices" => [%{"message" => %{"content" => content}} | _]} = resp
+         body: %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} = resp
        }}
       when is_binary(content) and byte_size(content) > 0 ->
-        Sinestesia.Verifiability.put(Map.get(resp, "verification"))
-        {:ok, clean(content)}
+        receipt = Map.get(resp, "verification")
+        Sinestesia.Verifiability.put(receipt)
+
+        model =
+          case receipt do
+            %{"model" => m} when is_binary(m) -> m
+            _ -> "0g-compute"
+          end
+
+        {:ok, clean(content), meta(:zerog, model, nil, chat_usage(resp, choice))}
 
       {:ok, %{status: 200, body: body}} ->
         {:error, {:empty_response, body}}
 
       {:ok, %{status: status, body: body}} ->
-        {:error, {:bad_status, status, body}}
+        {:error, {:bad_status, status, api_error(body)}}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp call(:gemma, messages) do
+  def complete(:gemma, messages, opts) do
     cfg = Application.fetch_env!(:sinestesia, :config)
     url = Keyword.fetch!(cfg, :ollama_url) <> "/api/chat"
+    model = opts[:model] || Keyword.fetch!(cfg, :ollama_model)
 
-    body = %{
-      model: Keyword.fetch!(cfg, :ollama_model),
-      stream: false,
-      think: false,
-      # 80 gives room for ~25 words of content + ~15 tokens of style note
-      # without truncating mid-style (which makes Flux miss the style entirely).
-      options: %{temperature: 0.8, num_predict: 80},
-      messages: messages
-    }
+    with_thinking(:gemma, model, fn think ->
+      body =
+        %{
+          model: model,
+          stream: false,
+          options: %{temperature: 0.8, num_predict: max_tokens(:gemma, opts)},
+          messages: messages
+        }
+        |> put_if(:think, think)
 
-    case Req.post(url, json: body, receive_timeout: @gemma_timeout_ms, retry: false) do
-      {:ok, %{status: 200, body: %{"message" => %{"content" => content}}}}
-      when is_binary(content) and byte_size(content) > 0 ->
-        {:ok, clean(content)}
+      case Req.post(url, json: body, receive_timeout: timeout(:gemma, opts), retry: false) do
+        {:ok, %{status: 200, body: %{"message" => %{"content" => content}} = resp}}
+        when is_binary(content) and byte_size(content) > 0 ->
+          {:ok, clean(content), meta(:gemma, model, think, ollama_usage(resp))}
 
-      {:ok, %{status: 200, body: body}} ->
-        {:error, {:empty_response, body}}
+        {:ok, %{status: 200, body: body}} ->
+          {:error, {:empty_response, body}}
 
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:bad_status, status, body}}
+        {:ok, %{status: status, body: body}} ->
+          {:error, {:bad_status, status, api_error(body)}}
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end)
   end
 
-  defp call(:gemini, messages) do
+  def complete(:gemini, messages, opts) do
     cfg = Application.fetch_env!(:sinestesia, :config)
 
-    case Keyword.get(cfg, :google_api_key) do
-      nil ->
-        {:error, :no_key}
+    with {:ok, key} <- key(cfg, :google_api_key) do
+      # Gemini wants systemInstruction separately + alternating user/model contents
+      {system, turns} = split_system(messages)
 
-      "" ->
-        {:error, :no_key}
+      contents =
+        Enum.map(turns, fn %{role: role, content: content} ->
+          %{role: gemini_role(role), parts: [%{text: content}]}
+        end)
 
-      key ->
-        # Gemini wants systemInstruction separately + alternating user/model contents
-        {system, turns} = split_system(messages)
+      model = opts[:model] || configured_model(:gemini)
 
-        contents =
-          Enum.map(turns, fn %{role: role, content: content} ->
-            %{role: gemini_role(role), parts: [%{text: content}]}
-          end)
+      url =
+        "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
 
-        # 3.1 Flash-Lite: 2.5x faster TTFT than 2.5 Flash at same-or-better
-        # quality — ~200-400ms per Director turn. NOT the "-preview" variant
-        # (discontinued 2026-07-09).
-        model = System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
-
-        url =
-          "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
-
+      with_thinking(:gemini, model, fn thinking ->
         body = %{
           systemInstruction: %{parts: [%{text: system || ""}]},
           contents: contents,
-          generationConfig: %{
-            temperature: 0.8,
-            maxOutputTokens: 100,
-            thinkingConfig: %{thinkingBudget: 0}
-          }
+          generationConfig:
+            %{temperature: 0.8, maxOutputTokens: max_tokens(:gemini, opts)}
+            |> put_if(:thinkingConfig, thinking)
         }
 
-        case Req.post(url, json: body, receive_timeout: @gemini_timeout_ms, retry: false) do
-          {:ok,
-           %{
-             status: 200,
-             body: %{
-               "candidates" => [
-                 %{"content" => %{"parts" => [%{"text" => text} | _]}} | _
-               ]
-             }
-           }}
-          when is_binary(text) and byte_size(text) > 0 ->
-            {:ok, clean(text)}
+        case Req.post(url, json: body, receive_timeout: timeout(:gemini, opts), retry: false) do
+          {:ok, %{status: 200, body: resp}} ->
+            case gemini_text(resp) do
+              text when is_binary(text) and byte_size(text) > 0 ->
+                {:ok, clean(text), meta(:gemini, model, thinking, gemini_usage(resp))}
+
+              _ ->
+                {:error, {:empty_response, gemini_usage(resp).finish || resp["promptFeedback"]}}
+            end
 
           {:ok, %{status: status, body: body}} ->
-            {:error, {:bad_status, status, body}}
+            {:error, {:bad_status, status, api_error(body)}}
 
           {:error, reason} ->
             {:error, reason}
         end
+      end)
     end
   end
 
-  defp call(:haiku, messages) do
+  def complete(:haiku, messages, opts) do
     cfg = Application.fetch_env!(:sinestesia, :config)
 
-    case Keyword.get(cfg, :anthropic_api_key) do
-      nil ->
-        {:error, :no_key}
+    with {:ok, key} <- key(cfg, :anthropic_api_key) do
+      # Anthropic also wants system separately
+      {system, turns} = split_system(messages)
+      model = opts[:model] || configured_model(:haiku)
+      headers = [{"x-api-key", key}, {"anthropic-version", "2023-06-01"}]
 
-      "" ->
-        {:error, :no_key}
-
-      key ->
-        # Anthropic also wants system separately
-        {system, turns} = split_system(messages)
-
-        body = %{
-          model: "claude-haiku-4-5",
-          max_tokens: 100,
-          system: system || "",
-          messages: turns
-        }
-
-        headers = [
-          {"x-api-key", key},
-          {"anthropic-version", "2023-06-01"}
-        ]
+      with_thinking(:haiku, model, fn thinking ->
+        body =
+          %{
+            model: model,
+            max_tokens: max_tokens(:haiku, opts),
+            system: system || "",
+            messages: turns
+          }
+          |> Map.merge(thinking || %{})
 
         case Req.post("https://api.anthropic.com/v1/messages",
                json: body,
                headers: headers,
-               receive_timeout: @haiku_timeout_ms,
+               receive_timeout: timeout(:haiku, opts),
                retry: false
              ) do
-          {:ok, %{status: 200, body: %{"content" => [%{"text" => text} | _]}}} ->
-            {:ok, clean(text)}
+          {:ok, %{status: 200, body: %{"content" => blocks} = resp}} when is_list(blocks) ->
+            # With adaptive thinking the first block is the thinking, not the answer.
+            case Enum.find_value(blocks, fn
+                   %{"type" => "text", "text" => t} -> t
+                   _ -> nil
+                 end) do
+              text when is_binary(text) and byte_size(text) > 0 ->
+                {:ok, clean(text), meta(:haiku, model, thinking, anthropic_usage(resp))}
 
-          {:ok, resp} ->
-            {:error, {:bad_status, resp.status}}
+              _ ->
+                {:error, {:empty_response, resp["stop_reason"]}}
+            end
+
+          {:ok, %{status: status, body: body}} ->
+            {:error, {:bad_status, status, api_error(body)}}
 
           {:error, reason} ->
             {:error, reason}
         end
+      end)
     end
   end
 
+  # Chat Completions — the shape the 0G sidecar speaks too. No temperature:
+  # the GPT-6 family rejects sampling knobs at several reasoning efforts with
+  # a 400, and a 400 mid-song costs a frame; the prompt carries the variety.
+  def complete(:openai, messages, opts) do
+    cfg = Application.fetch_env!(:sinestesia, :config)
+
+    with {:ok, key} <- key(cfg, :openai_api_key) do
+      model = opts[:model] || configured_model(:openai)
+
+      with_thinking(:openai, model, fn reasoning ->
+        body =
+          %{model: model, messages: messages, max_completion_tokens: max_tokens(:openai, opts)}
+          |> Map.merge(reasoning || %{})
+
+        case Req.post("https://api.openai.com/v1/chat/completions",
+               json: body,
+               headers: [{"authorization", "Bearer " <> key}],
+               receive_timeout: timeout(:openai, opts),
+               retry: false
+             ) do
+          {:ok,
+           %{
+             status: 200,
+             body: %{"choices" => [%{"message" => %{"content" => content}} = choice | _]} = resp
+           }}
+          when is_binary(content) and byte_size(content) > 0 ->
+            # The API names the exact snapshot it ran ("gpt-6-luna-2026-05-18").
+            answered = if is_binary(resp["model"]), do: resp["model"], else: model
+            {:ok, clean(content), meta(:openai, answered, reasoning, chat_usage(resp, choice))}
+
+          {:ok, %{status: 200, body: body}} ->
+            {:error, {:empty_response, get_in(body, ["choices", Access.at(0), "finish_reason"])}}
+
+          {:ok, %{status: status, body: body}} ->
+            {:error, {:bad_status, status, api_error(body)}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      end)
+    end
+  end
+
+  ## Thinking
+
+  @doc """
+  How to switch `model`'s thinking off, most-off first; `nil` means "send no
+  thinking field at all" (the model's own default).
+
+  The thinking switch is the one request field every vendor keeps changing —
+  Gemini went `thinkingBudget: 0` → `thinkingLevel`, 3.8 Flash and Gemini 4
+  have no `minimal` at all; Anthropic went `enabled`/`disabled` → `adaptive` +
+  `output_config.effort`, Sonnet 5.5's floor is `between_tools`, Opus 5.5
+  cannot stop thinking; OpenAI's `reasoning_effort: "none"` exists on Luna but
+  400s on Astra and 6.1 Sol — and the one a wrong value fails on with a 400.
+  `complete/3` tries these in order and remembers, per model, the first the API
+  accepted, so a retry is paid once per boot rather than once per turn.
+  """
+  @spec thinking_candidates(provider(), String.t()) :: [term()]
+  def thinking_candidates(:gemma, _model), do: [false, nil]
+
+  def thinking_candidates(:gemini, model) do
+    cond do
+      # 2.5 and 3.1 take a token budget; 0 turns thinking off.
+      String.starts_with?(model, ["gemini-2.5", "gemini-3.1"]) -> [%{thinkingBudget: 0}, nil]
+      # 3.8 Flash and Gemini 4 always reason; "low" is their floor.
+      String.starts_with?(model, ["gemini-3.8", "gemini-4"]) -> [%{thinkingLevel: "low"}, nil]
+      # 3.5 Flash-Lite, 3.6 Flash: levels, with a real "minimal".
+      true -> [%{thinkingLevel: "minimal"}, %{thinkingLevel: "low"}, nil]
+    end
+  end
+
+  def thinking_candidates(:haiku, model) do
+    cond do
+      String.starts_with?(model, "claude-haiku-5") ->
+        [%{thinking: %{type: "disabled"}}, %{thinking: %{type: "between_tools"}}, nil]
+
+      String.starts_with?(model, "claude-sonnet-5") ->
+        [%{thinking: %{type: "between_tools"}}, %{thinking: %{type: "disabled"}}, nil]
+
+      String.starts_with?(model, ["claude-opus-5", "claude-fable", "claude-mythos"]) ->
+        [%{output_config: %{effort: "low"}}, nil]
+
+      # Haiku 4.5 and older never think unless asked to.
+      true ->
+        [nil]
+    end
+  end
+
+  def thinking_candidates(:openai, model) do
+    if String.starts_with?(model, ["gpt-6-astra", "gpt-6.1"]),
+      do: [%{reasoning_effort: "low"}, nil],
+      else: [
+        %{reasoning_effort: "none"},
+        %{reasoning_effort: "minimal"},
+        %{reasoning_effort: "low"},
+        nil
+      ]
+  end
+
+  def thinking_candidates(:zerog, _model), do: [nil]
+
+  @doc """
+  Whether `model` reasons before every answer no matter what we send — the
+  models whose lowest setting is still a `low`. Their output cap must leave
+  room for the thinking (it counts), and their latency is not a live latency.
+  """
+  @spec always_thinks?(provider(), String.t()) :: boolean()
+  def always_thinks?(provider, model) do
+    case thinking_candidates(provider, model) do
+      [%{thinkingLevel: "low"} | _] -> true
+      [%{output_config: _} | _] -> true
+      [%{reasoning_effort: "low"} | _] -> true
+      _ -> false
+    end
+  end
+
+  defp with_thinking(provider, model, request) do
+    key = {__MODULE__, :thinking, provider, model}
+
+    candidates =
+      case :persistent_term.get(key, :unknown) do
+        :unknown -> thinking_candidates(provider, model)
+        known -> [known]
+      end
+
+    attempt(candidates, key, request)
+  end
+
+  defp attempt([cfg | rest], key, request) do
+    case request.(cfg) do
+      {:ok, _, _} = ok ->
+        if :persistent_term.get(key, :unknown) != cfg, do: :persistent_term.put(key, cfg)
+        ok
+
+      {:error, {:bad_status, 400, message}} = error ->
+        # A remembered setting that stopped working is forgotten, so the next
+        # turn climbs the ladder again instead of failing forever.
+        :persistent_term.erase(key)
+
+        case rest do
+          [] ->
+            error
+
+          [next | _] ->
+            Logger.info(
+              "[director] #{provider_of(key)} rejected #{inspect(cfg)} (#{message}); trying #{inspect(next)}"
+            )
+
+            attempt(rest, key, request)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp provider_of({_, _, provider, model}), do: "#{provider} #{model}"
+
+  ## Usage
+
+  defp meta(provider, model, thinking, usage) do
+    %{
+      provider: provider,
+      model: model,
+      thinking: thinking,
+      in_tokens: nil,
+      out_tokens: nil,
+      thinking_tokens: nil,
+      finish: nil,
+      prefill_ms: nil,
+      decode_ms: nil,
+      load_ms: nil
+    }
+    |> Map.merge(usage)
+  end
+
+  # OpenAI shape (OpenAI itself, the 0G sidecar): completion_tokens already
+  # includes the reasoning tokens.
+  defp chat_usage(resp, choice) do
+    u = resp["usage"] || %{}
+
+    %{
+      in_tokens: u["prompt_tokens"],
+      out_tokens: u["completion_tokens"],
+      thinking_tokens: get_in(u, ["completion_tokens_details", "reasoning_tokens"]),
+      finish: choice["finish_reason"]
+    }
+  end
+
+  # Gemini bills thoughts as output but counts them apart from the answer.
+  defp gemini_usage(resp) do
+    u = resp["usageMetadata"] || %{}
+    thoughts = u["thoughtsTokenCount"]
+
+    out =
+      case u["candidatesTokenCount"] do
+        n when is_integer(n) -> n + (thoughts || 0)
+        _ -> nil
+      end
+
+    %{
+      in_tokens: u["promptTokenCount"],
+      out_tokens: out,
+      thinking_tokens: thoughts,
+      finish: get_in(resp, ["candidates", Access.at(0), "finishReason"])
+    }
+  end
+
+  # Anthropic's output_tokens include thinking; it does not say how many.
+  defp anthropic_usage(resp) do
+    u = resp["usage"] || %{}
+    %{in_tokens: u["input_tokens"], out_tokens: u["output_tokens"], finish: resp["stop_reason"]}
+  end
+
+  # Ollama reports its own clock: prompt processing, generation and model load, in ns.
+  defp ollama_usage(resp) do
+    ms = fn k ->
+      case resp[k] do
+        n when is_number(n) -> n / 1_000_000
+        _ -> nil
+      end
+    end
+
+    %{
+      in_tokens: resp["prompt_eval_count"],
+      out_tokens: resp["eval_count"],
+      finish: resp["done_reason"],
+      prefill_ms: ms.("prompt_eval_duration"),
+      decode_ms: ms.("eval_duration"),
+      load_ms: ms.("load_duration")
+    }
+  end
+
+  # The first part that is an answer, not a thought. A candidate that spent its
+  # whole output budget deliberating has no parts at all.
+  defp gemini_text(%{"candidates" => [%{"content" => %{"parts" => parts}} | _]})
+       when is_list(parts) do
+    Enum.find_value(parts, fn
+      %{"thought" => true} -> nil
+      %{"text" => t} when is_binary(t) -> t
+      _ -> nil
+    end)
+  end
+
+  defp gemini_text(_), do: nil
+
   ## Helpers
+
+  @default_max_tokens %{gemma: 80, gemini: 100, haiku: 100, openai: 100, zerog: 100}
+
+  # Room for a 4-12 word element plus its position; the cap only bites when
+  # the model is already off-format. `DIRECTOR_ELEMENT_WORDS` above the
+  # default needs `DIRECTOR_MAX_TOKENS` raised with it.
+  defp max_tokens(provider, opts) do
+    opts[:max_tokens] ||
+      case Integer.parse(System.get_env("DIRECTOR_MAX_TOKENS", "")) do
+        {n, _} when n > 0 -> n
+        _ -> @default_max_tokens[provider]
+      end
+  end
+
+  defp timeout(provider, opts), do: opts[:timeout_ms] || timeout_ms(provider)
+
+  defp key(cfg, name) do
+    case Keyword.get(cfg, name) do
+      k when is_binary(k) and k != "" -> {:ok, k}
+      _ -> {:error, :no_key}
+    end
+  end
+
+  defp put_if(map, _key, nil), do: map
+  defp put_if(map, key, value), do: Map.put(map, key, value)
+
+  # One line a person at the sound desk can read, whatever shape the vendor's
+  # error document takes.
+  defp api_error(%{"error" => %{"message" => m}}) when is_binary(m), do: String.slice(m, 0, 300)
+  defp api_error(%{"error" => m}) when is_binary(m), do: String.slice(m, 0, 300)
+  defp api_error(body), do: body |> inspect() |> String.slice(0, 300)
 
   defp split_system([%{role: "system", content: s} | rest]), do: {s, rest}
   defp split_system(messages), do: {nil, messages}

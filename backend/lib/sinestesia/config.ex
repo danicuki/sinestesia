@@ -111,6 +111,12 @@ defmodule Sinestesia.Config do
       doc: "Anthropic. Used by DIRECTOR_PROVIDER=haiku and as the song-identification fallback."
     },
     %{
+      key: "OPENAI_API_KEY",
+      group: :keys,
+      secret: true,
+      doc: "OpenAI. Used by DIRECTOR_PROVIDER=openai."
+    },
+    %{
       key: "CLOUDFLARE_ACCOUNT_ID",
       group: :keys,
       secret: true,
@@ -128,7 +134,8 @@ defmodule Sinestesia.Config do
       key: "STT_PROVIDER",
       group: :stt,
       default: "elevenlabs",
-      values: "elevenlabs | deepgram | gemini | local_whisper | both | all | eleven_local | replay",
+      values:
+        "elevenlabs | deepgram | gemini | local_whisper | both | all | eleven_local | replay",
       doc:
         "Which speech-to-text engine transcribes the singing. both = elevenlabs + deepgram, all = those + local_whisper, eleven_local = elevenlabs + local_whisper (A/B runs; the first final wins). Compare them on real sung audio with mix sinestesia.bench.stt."
     },
@@ -270,9 +277,9 @@ defmodule Sinestesia.Config do
       key: "DIRECTOR_PROVIDER",
       group: :director,
       default: "gemma",
-      values: "gemma | gemini | haiku | zerog (alias: 0g)",
+      values: "gemma | gemini | haiku (alias: anthropic) | openai | zerog (alias: 0g)",
       doc:
-        "Which LLM turns each sung line into a scene prompt. Falls through the chain on failure."
+        "Which LLM turns each sung line into a scene prompt. Falls through the chain on failure. Compare them on real sung lines with mix sinestesia.bench.director."
     },
     %{
       key: "OLLAMA_URL",
@@ -290,7 +297,38 @@ defmodule Sinestesia.Config do
       key: "GEMINI_MODEL",
       group: :director,
       default: "gemini-3.1-flash-lite",
-      doc: "Model for DIRECTOR_PROVIDER=gemini."
+      doc:
+        "Model for DIRECTOR_PROVIDER=gemini. Thinking is switched off per model family (budget 0 on 2.5/3.1, minimal on 3.5 Flash-Lite and 3.6 Flash); 3.8 Flash and Gemini 4 can only go down to low — not for the live path."
+    },
+    %{
+      key: "ANTHROPIC_MODEL",
+      group: :director,
+      default: "claude-haiku-4-5",
+      doc:
+        "Model for DIRECTOR_PROVIDER=haiku. Haiku 5.5 is called with thinking disabled, Sonnet 5.5 with between_tools (its floor); Opus 5.5 cannot stop thinking."
+    },
+    %{
+      key: "OPENAI_MODEL",
+      group: :director,
+      default: "gpt-6-luna",
+      doc:
+        "Model for DIRECTOR_PROVIDER=openai, called with reasoning_effort none. GPT-6 Astra and 6.1 Sol cannot switch reasoning off — too slow for the live path."
+    },
+    %{
+      key: "DIRECTOR_ELEMENT_WORDS",
+      group: :director,
+      default: "4-12",
+      values: "min-max words",
+      doc:
+        "How long a compose-mode NEW: element may be. Local SDXL hears 77 CLIP tokens of element + style; Flux (T5) and Nano Banana take paragraphs. Longer costs output tokens, which on a local model cost time — measure with mix sinestesia.bench.director --words 30-45 before raising it, and raise DIRECTOR_MAX_TOKENS with it."
+    },
+    %{
+      key: "DIRECTOR_MAX_TOKENS",
+      group: :director,
+      default: nil,
+      values: "tokens",
+      doc:
+        "Output cap for every Director provider. Unset = 80 on Ollama, 100 on the cloud providers: room for a 4-12 word element and its position."
     },
     %{
       key: "ZEROG_SIDECAR_URL",
@@ -687,16 +725,8 @@ defmodule Sinestesia.Config do
   """
   @spec effective() :: [{String.t(), String.t()}]
   def effective do
-    cfg = Application.fetch_env!(:sinestesia, :config)
     director = Sinestesia.Director.provider()
-
-    director_model =
-      case director do
-        :gemma -> Keyword.get(cfg, :ollama_model)
-        :gemini -> System.get_env("GEMINI_MODEL", "gemini-3.1-flash-lite")
-        :haiku -> "claude-haiku-4-5"
-        :zerog -> "(chosen by the 0G sidecar)"
-      end
+    director_model = Sinestesia.Director.configured_model(director)
 
     # The image line reports the mode that will run, not the one requested, and
     # says so when they differ — the whole point of the capability table.

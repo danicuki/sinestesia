@@ -41,5 +41,6 @@ config :sinestesia, :config,
   fal_api_key: System.get_env("FAL_API_KEY"),
   google_api_key: System.get_env("GOOGLE_API_KEY"),
   anthropic_api_key: System.get_env("ANTHROPIC_API_KEY"),
+  openai_api_key: System.get_env("OPENAI_API_KEY"),
   ollama_url: get_env.("OLLAMA_URL", "http://localhost:11434"),
   ollama_model: get_env.("OLLAMA_MODEL", "gemma4:12b-mlx")

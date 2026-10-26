@@ -7,9 +7,10 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   runs the same work against several providers back-to-back and prints a
   side-by-side table so the trade-off is legible.
 
-  The image stage is the one implemented here (the current priority). The
-  `stt` and `director` stages are scaffolded and will tell you they're not
-  wired up yet.
+  The image stage is the one implemented here. STT and the Director have
+  benchmarks of their own — `mix sinestesia.bench.stt` streams real sung audio,
+  `mix sinestesia.bench.director` replays real sung lines — and `stt` /
+  `director` here only point you there.
 
   ## Image stage
 
@@ -117,8 +118,8 @@ defmodule Mix.Tasks.Sinestesia.Bench do
 
     case stage do
       "image" -> bench_image(opts)
-      "stt" -> not_implemented("stt")
-      "director" -> not_implemented("director")
+      "stt" -> delegated("stt")
+      "director" -> delegated("director")
       other -> Mix.raise("unknown stage #{inspect(other)} — try: image | stt | director")
     end
   end
@@ -217,18 +218,29 @@ defmodule Mix.Tasks.Sinestesia.Bench do
 
   # Each candidate normalizes its provider call to {:ok, _} | {:error, reason}.
   defp candidate_fun("fal", "t2i", prompt, _seed), do: fn -> ImageGen.Fal.generate(prompt) end
-  defp candidate_fun("fal", "i2i", prompt, seed), do: fn -> ImageGen.FalImg2Img.generate(prompt, seed) end
+
+  defp candidate_fun("fal", "i2i", prompt, seed),
+    do: fn -> ImageGen.FalImg2Img.generate(prompt, seed) end
 
   # Gemini image models are :generateContent, so t2i and i2i are the same call
   # (the seed goes in as image_url).
-  defp candidate_fun("google", "t2i", prompt, _seed), do: fn -> ImageGen.GeminiImage.generate(prompt) end
-  defp candidate_fun("google", "i2i", prompt, seed), do: fn -> ImageGen.GeminiImage.generate(prompt, image_url: seed) end
+  defp candidate_fun("google", "t2i", prompt, _seed),
+    do: fn -> ImageGen.GeminiImage.generate(prompt) end
 
-  defp candidate_fun("cloudflare", "t2i", prompt, _seed), do: fn -> ImageGen.Cloudflare.text2img(prompt) end
-  defp candidate_fun("cloudflare", "i2i", prompt, seed), do: fn -> ImageGen.Cloudflare.img2img(prompt, seed) end
+  defp candidate_fun("google", "i2i", prompt, seed),
+    do: fn -> ImageGen.GeminiImage.generate(prompt, image_url: seed) end
 
-  defp candidate_fun("local", "t2i", prompt, _seed), do: fn -> ImageGen.LocalSdxl.generate(prompt, nil) end
-  defp candidate_fun("local", "i2i", prompt, seed), do: fn -> ImageGen.LocalSdxl.generate(prompt, seed) end
+  defp candidate_fun("cloudflare", "t2i", prompt, _seed),
+    do: fn -> ImageGen.Cloudflare.text2img(prompt) end
+
+  defp candidate_fun("cloudflare", "i2i", prompt, seed),
+    do: fn -> ImageGen.Cloudflare.img2img(prompt, seed) end
+
+  defp candidate_fun("local", "t2i", prompt, _seed),
+    do: fn -> ImageGen.LocalSdxl.generate(prompt, nil) end
+
+  defp candidate_fun("local", "i2i", prompt, seed),
+    do: fn -> ImageGen.LocalSdxl.generate(prompt, seed) end
 
   # :timer.tc returns microseconds; normalize the various provider shapes,
   # keeping the returned url/data-url payload so we can save the image.
@@ -254,7 +266,10 @@ defmodule Mix.Tasks.Sinestesia.Bench do
         {name, image_dimensions(bytes)}
 
       {:error, reason} ->
-        Mix.shell().info("   (couldn't save #{provider} #{mode} image: #{inspect(reason, limit: 3)})")
+        Mix.shell().info(
+          "   (couldn't save #{provider} #{mode} image: #{inspect(reason, limit: 3)})"
+        )
+
         {nil, nil}
     end
   end
@@ -262,8 +277,10 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   # Read pixel dimensions straight from the file header — providers disagree on
   # aspect ratio (e.g. Cloudflare returns square), which matters for the 16:9
   # stage, so it's worth surfacing in the table.
-  defp image_dimensions(<<137, 80, 78, 71, 13, 10, 26, 10, _len::32, "IHDR", w::32, h::32, _::binary>>),
-    do: "#{w}x#{h}"
+  defp image_dimensions(
+         <<137, 80, 78, 71, 13, 10, 26, 10, _len::32, "IHDR", w::32, h::32, _::binary>>
+       ),
+       do: "#{w}x#{h}"
 
   defp image_dimensions(<<0xFF, 0xD8, rest::binary>>), do: jpeg_dimensions(rest)
   defp image_dimensions(_), do: nil
@@ -291,7 +308,11 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   defp decode_image("data:image/" <> rest) do
     case String.split(rest, ",", parts: 2) do
       [meta, b64] ->
-        ext = if String.starts_with?(meta, "jpeg") or String.starts_with?(meta, "jpg"), do: "jpg", else: "png"
+        ext =
+          if String.starts_with?(meta, "jpeg") or String.starts_with?(meta, "jpg"),
+            do: "jpg",
+            else: "png"
+
         {:ok, ext, Base.decode64!(b64)}
 
       _ ->
@@ -302,7 +323,11 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   defp decode_image("http" <> _ = url) do
     case Req.get(url, retry: false, decode_body: false) do
       {:ok, %{status: 200, body: bytes}} ->
-        ext = if String.contains?(url, ".jpg") or String.contains?(url, ".jpeg"), do: "jpg", else: "png"
+        ext =
+          if String.contains?(url, ".jpg") or String.contains?(url, ".jpeg"),
+            do: "jpg",
+            else: "png"
+
         {:ok, ext, bytes}
 
       {:ok, %{status: status}} ->
@@ -347,7 +372,18 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   # Builds the whole results block as a string so it can be both printed and
   # written verbatim to the bench-<ts>.txt file.
   defp render_table(rows) do
-    header = ["provider", "mode", "ok", "min ms", "med ms", "avg ms", "res", "$/img", "total $", "image"]
+    header = [
+      "provider",
+      "mode",
+      "ok",
+      "min ms",
+      "med ms",
+      "avg ms",
+      "res",
+      "$/img",
+      "total $",
+      "image"
+    ]
 
     body =
       Enum.map(rows, fn
@@ -378,7 +414,10 @@ defmodule Mix.Tasks.Sinestesia.Bench do
         cells -> fmt_row(cells, widths)
       end)
 
-    fastest = rows |> Enum.filter(&(&1[:status] == :ok and &1.avg)) |> Enum.min_by(& &1.avg, fn -> nil end)
+    fastest =
+      rows
+      |> Enum.filter(&(&1[:status] == :ok and &1.avg))
+      |> Enum.min_by(& &1.avg, fn -> nil end)
 
     footer =
       [
@@ -443,12 +482,13 @@ defmodule Mix.Tasks.Sinestesia.Bench do
   defp median_or_nil([]), do: nil
   defp median_or_nil(xs), do: xs |> Enum.sort() |> Enum.at(div(length(xs), 2))
 
-  # ── Stage scaffolds ──────────────────────────────────────────────────────────
+  # ── Other stages ─────────────────────────────────────────────────────────────
 
-  defp not_implemented(stage) do
+  # STT and the Director each grew a bench of their own — real sung audio, real
+  # sung lines — too different from "time one image" to share this table.
+  defp delegated(stage) do
     Mix.shell().info(
-      "the #{stage} stage isn't wired into the benchmark yet — image is the current priority.\n" <>
-        "structure to add it: declare candidates per provider, reuse timed/1 and print_table/1."
+      "the #{stage} stage has its own benchmark: mix sinestesia.bench.#{stage} (mix help sinestesia.bench.#{stage})"
     )
   end
 

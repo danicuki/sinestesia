@@ -29,7 +29,9 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   Model specs are `provider:model`. Providers are the `DIRECTOR_PROVIDER`
   values — `gemma`, `gemini`, `haiku`, `openai`, `zerog` — and `ollama`,
   `google`, `anthropic` are accepted as the obvious aliases (the row still
-  names the provider the way `.env` would).
+  names the provider the way `.env` would). `openai:` rows go wherever
+  `OPENAI_BASE_URL` points — OpenAI itself by default, or a local proxy that
+  speaks the same shape — and every row records the endpoint it measured.
 
   The corpus is what the Director really hears: the STT finals of the replay
   sessions in `tests/sessions/` (the duo's own takes), plus the reference lines
@@ -40,9 +42,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
   Results accumulate in `bench-director/`: `results/<variant>.json`, the
   `report.md` scorecard, and `replies.md` with every reply under its lyric for
   the duo to read side by side. Models can be measured on different days and
-  machines — each row records when and on which host. A variant that already
-  has rows for the selected lines is asked about before anything is sent
-  (`--overwrite` / `--reuse` answer for all). Latency is measured from where
+  machines — each row records when and on which host. Songs a model already
+  has rows for are not sent again: only the missing ones run, and measuring
+  the stored ones again is asked about first (`--overwrite` / `--reuse` answer
+  for every model). Latency is measured from where
   the task runs, so cloud rows belong on the machine that will run the show
   and local rows on the machine that owns the GPU: the Mac, for both.
 
@@ -142,16 +145,28 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     variants == [] &&
       Mix.raise("no models to run — no API key in .env and no Ollama; or pass --models")
 
-    keys = MapSet.new(for s <- songs, i <- 0..(length(s.lines) - 1)//1, do: {s.id, i})
-    {run, kept} = Enum.split_with(variants, &(decide(&1.id, keys, opts) == :run))
+    # The store is the cache: songs a model already has rows for are not sent
+    # again unless asked, and only whole songs count — a conversation cannot be
+    # resumed from a stored half.
+    plan =
+      for v <- variants do
+        stored = cached_rows(v.id)
+        {done, todo} = Enum.split_with(songs, &song_stored?(&1, stored))
+        again? = done != [] and decide(v.id, done, stored, opts) == :run
 
-    kept != [] &&
-      Mix.shell().info("   stored rows stand for: #{Enum.map_join(kept, ", ", & &1.id)}")
+        %{
+          variant: v,
+          songs: if(again?, do: songs, else: todo),
+          kept: if(again?, do: [], else: done)
+        }
+      end
 
-    turns = Enum.sum(Enum.map(songs, &length(&1.lines)))
+    run = Enum.reject(plan, &(&1.songs == []))
+    all_turns = Enum.sum(Enum.map(songs, &length(&1.lines)))
+    turns = Enum.sum(for p <- run, s <- p.songs, do: length(s.lines))
 
     Mix.shell().info(
-      "── director bench: #{length(songs)} songs, #{turns} lines × #{length(run)} models, elements of #{words} words, #{prompt} prompt → #{@store}/"
+      "── director bench: #{length(songs)} songs, #{all_turns} lines × #{length(variants)} models, elements of #{words} words, #{prompt} prompt → #{@store}/"
     )
 
     Enum.each(
@@ -159,14 +174,25 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
       &Mix.shell().info("   #{String.pad_trailing(&1.id, 14)} #{length(&1.lines)} lines")
     )
 
-    Enum.each(
-      run,
-      &Mix.shell().info(
-        "   #{&1.id}#{if &1.always_thinks, do: "  (reasons on every turn — cap #{&1.max_tokens})", else: ""}"
-      )
-    )
+    Enum.each(plan, fn p ->
+      status =
+        cond do
+          p.songs == [] -> "all #{length(p.kept)} song(s) stored — nothing to send"
+          p.kept == [] -> "#{length(p.songs)} song(s) to run"
+          true -> "#{length(p.songs)} song(s) to run, #{length(p.kept)} stored"
+        end
 
-    Mix.shell().info("   ≈ #{estimate(run, turns)} at list price for the cloud rows")
+      thinks =
+        if p.variant.always_thinks,
+          do: "  (reasons on every turn — cap #{p.variant.max_tokens})",
+          else: ""
+
+      Mix.shell().info("   #{p.variant.id}: #{status}#{thinks}")
+    end)
+
+    Mix.shell().info(
+      "   #{turns} turns to send ≈ #{estimate(run)} at list price for the cloud rows"
+    )
 
     if opts[:dry_run], do: exit({:shutdown, 0})
 
@@ -174,20 +200,27 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     System.put_env("DIRECTOR_ELEMENT_WORDS", words)
 
     measured =
-      Enum.flat_map(run, fn v ->
-        case bench_variant(v, songs) do
+      Enum.flat_map(run, fn p ->
+        case bench_variant(p.variant, p.songs) do
           [] ->
             []
 
           rows ->
             # Stored as soon as it is measured: a later model failing costs nothing already paid for.
             rows = rows |> Jason.encode!() |> Jason.decode!()
-            store_rows(v.id, rows)
-            [v.id]
+            store_rows(p.variant.id, rows)
+            [p.variant.id]
         end
       end)
 
     finish(measured)
+  end
+
+  # A song counts as measured when every one of its selected lines has a row;
+  # one stored with fewer lines is replayed whole.
+  defp song_stored?(song, stored) do
+    keys = MapSet.new(stored, &row_key/1)
+    Enum.all?(0..(length(song.lines) - 1)//1, &MapSet.member?(keys, {song.id, &1}))
   end
 
   defp prompt_kind(nil), do: :compose
@@ -280,20 +313,28 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
 
   defp default_roster do
     cfg = Application.get_env(:sinestesia, :config, [])
+    cloud = Enum.filter(@default_cloud, fn {provider, _} -> available?(provider, cfg) end)
 
-    cloud =
-      Enum.filter(@default_cloud, fn {provider, _} ->
-        key = Keyword.get(cfg, @keys[provider])
-        is_binary(key) and key != ""
-      end)
+    for {provider, key} <- @keys, not available?(provider, cfg) do
+      extra = if provider == :openai, do: " and no OPENAI_BASE_URL", else: ""
 
-    for {provider, key} <- @keys, not Enum.any?(cloud, &(elem(&1, 0) == provider)) do
       Mix.shell().info(
-        "(#{key |> to_string() |> String.upcase()} unset — skipping #{provider} models)"
+        "(#{key |> to_string() |> String.upcase()} unset#{extra} — skipping #{provider} models)"
       )
     end
 
     cloud ++ local_roster(cfg)
+  end
+
+  # A key — or, for openai, an endpoint of its own that needs none.
+  defp available?(:openai, cfg),
+    do: key?(cfg, :openai_api_key) or System.get_env("OPENAI_BASE_URL", "") != ""
+
+  defp available?(provider, cfg), do: key?(cfg, @keys[provider])
+
+  defp key?(cfg, name) do
+    v = Keyword.get(cfg, name)
+    is_binary(v) and v != ""
   end
 
   # The configured Ollama model when it is actually pulled; the rest of what is
@@ -364,11 +405,13 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
 
   # A rough bill before anything is sent: ~1,000 prompt tokens and ~60 output
   # tokens a turn, list price, no caching; models that reason add to it.
-  defp estimate(variants, turns) do
+  defp estimate(plan) do
     total =
-      variants
-      |> Enum.map(fn v ->
-        case DirectorBench.price(v.model) do
+      plan
+      |> Enum.map(fn p ->
+        turns = Enum.sum(Enum.map(p.songs, &length(&1.lines)))
+
+        case DirectorBench.price(p.variant.model) do
           {per_in, per_out} -> turns * (1_000 * per_in + 60 * per_out) / 1_000_000
           nil -> 0.0
         end
@@ -376,7 +419,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
       |> Enum.sum()
 
     "$#{:erlang.float_to_binary(total / 1, decimals: 2)}" <>
-      if(Enum.any?(variants, & &1.always_thinks), do: " plus thinking tokens", else: "")
+      if(Enum.any?(plan, & &1.variant.always_thinks), do: " plus thinking tokens", else: "")
   end
 
   # ── one model over the corpus ────────────────────────────────────────────
@@ -458,6 +501,8 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
       ms: ms,
       budget_ms: Director.timeout_ms(v.provider),
       over_budget: ms > Director.timeout_ms(v.provider),
+      # A proxy's latency is the proxy's: the row says where it was sent.
+      endpoint: if(v.provider == :openai, do: Director.openai_base_url(), else: nil),
       at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       host: host()
     }
@@ -530,13 +575,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     |> Enum.flat_map(&(read_json(&1) || []))
   end
 
-  defp decide(id, keys, opts) do
-    have = Enum.filter(cached_rows(id), &(row_key(&1) in keys))
-
+  # Whether the songs a model already has rows for (`done`) are measured again.
+  # `--overwrite` / `--reuse` answer without asking.
+  defp decide(id, done, stored, opts) do
     cond do
-      have == [] ->
-        :run
-
       opts[:overwrite] ->
         :run
 
@@ -544,6 +586,8 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
         :reuse
 
       true ->
+        ids = Enum.map(done, & &1.id)
+        have = Enum.filter(stored, &(&1["song"] in ids))
         at = have |> Enum.map(& &1["at"]) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
         host = have |> Enum.map(& &1["host"]) |> Enum.reject(&is_nil/1) |> List.first()
 
@@ -552,7 +596,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
 
         answer =
           case Mix.shell().prompt(
-                 "   #{id}: #{length(have)} rows stored (#{where}). Re-run and overwrite? [y/N]"
+                 "   #{id}: #{length(done)} song(s) already measured (#{where}). Measure them again? [y/N]"
                ) do
             s when is_binary(s) -> s |> String.trim() |> String.downcase()
             _ -> ""

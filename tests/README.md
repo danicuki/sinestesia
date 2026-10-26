@@ -210,8 +210,14 @@ mix sinestesia.bench.director --report             # the scorecard over everythi
 - Results accumulate in `backend/bench-director/` (gitignored):
   `results/<variant>.json`, `report.md`, and `replies.md` with every reply
   under its lyric, for the duo to read side by side. Rows record when and on
-  which host they were measured; a variant that already has rows is asked
-  about before it is re-run (`--overwrite` / `--reuse` answer for all).
+  which host they were measured. The store is the cache: songs a model
+  already has rows for are not sent again, only the missing ones run, and
+  measuring the stored ones again is asked about first (`--overwrite` /
+  `--reuse` answer for every model).
+- `openai:` rows go wherever `OPENAI_BASE_URL` points: OpenAI itself by
+  default (needs `OPENAI_API_KEY`), or a local proxy speaking the
+  chat-completions shape, key optional. Every row records the endpoint it
+  measured, and a proxy's latency is the proxy's.
 - Run it on the show machine. Cloud latency is measured from wherever the
   task runs, and local rows measure that machine's GPU — the Mac for both.
 - Model specs are `provider:model` with the `DIRECTOR_PROVIDER` names

@@ -147,6 +147,7 @@ defmodule Sinestesia.DirectorBench do
       variant: variant,
       provider: first(rows, "provider"),
       model: first(rows, "model"),
+      endpoint: first(rows, "endpoint"),
       turns: length(rows),
       errors: length(rows) - length(ok),
       p50: pct(ms, 50),
@@ -202,7 +203,7 @@ defmodule Sinestesia.DirectorBench do
             cfgs -> "thinking #{Enum.join(cfgs, " / ")}"
           end
 
-        "- **#{c.variant}** — DIRECTOR_PROVIDER=#{c.provider}, model `#{c.model}`, #{thinking}; " <>
+        "- **#{c.variant}** — DIRECTOR_PROVIDER=#{c.provider}, model `#{c.model}`#{via(c)}, #{thinking}; " <>
           "#{c.turns} turns, #{c.errors} failed, input #{int(c.in_tokens)} tokens/turn at the median."
       end)
 
@@ -322,6 +323,9 @@ defmodule Sinestesia.DirectorBench do
   defp usd(nil, provider) when provider in ["gemma", "zerog"], do: "0 (local)"
   defp usd(nil, _), do: "—"
   defp usd(x, _), do: "$#{:erlang.float_to_binary(x / 1, decimals: 2)}"
+
+  defp via(%{endpoint: nil}), do: ""
+  defp via(%{endpoint: url}), do: " via #{url}"
 
   defp measured(%{at: nil, host: host}), do: host
   defp measured(%{at: at, host: host}), do: String.slice(at, 0, 10) <> " " <> host

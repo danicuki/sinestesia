@@ -686,13 +686,16 @@ defmodule Sinestesia.Director do
     end
   end
 
+  @openai_api "https://api.openai.com/v1"
+
   # Chat Completions — the shape the 0G sidecar speaks too. No temperature:
   # the GPT-6 family rejects sampling knobs at several reasoning efforts with
   # a 400, and a 400 mid-song costs a frame; the prompt carries the variety.
   def complete(:openai, messages, opts) do
     cfg = Application.fetch_env!(:sinestesia, :config)
+    base = openai_base_url()
 
-    with {:ok, key} <- key(cfg, :openai_api_key) do
+    with {:ok, headers} <- openai_headers(cfg, base) do
       model = opts[:model] || configured_model(:openai)
 
       with_thinking(:openai, model, fn reasoning ->
@@ -700,9 +703,9 @@ defmodule Sinestesia.Director do
           %{model: model, messages: messages, max_completion_tokens: max_tokens(:openai, opts)}
           |> Map.merge(reasoning || %{})
 
-        case Req.post("https://api.openai.com/v1/chat/completions",
+        case Req.post(base <> "/chat/completions",
                json: body,
-               headers: [{"authorization", "Bearer " <> key}],
+               headers: headers,
                receive_timeout: timeout(:openai, opts),
                retry: false
              ) do
@@ -726,6 +729,28 @@ defmodule Sinestesia.Director do
             {:error, reason}
         end
       end)
+    end
+  end
+
+  @doc """
+  Where the `openai` provider posts: OpenAI itself, unless `OPENAI_BASE_URL`
+  names another endpoint that speaks the same shape — a local proxy in front of
+  a Codex/ChatGPT login, OpenRouter, a vLLM box. Trailing slash dropped.
+  """
+  def openai_base_url do
+    case System.get_env("OPENAI_BASE_URL", "") |> String.trim() |> String.trim_trailing("/") do
+      "" -> @openai_api
+      url -> url
+    end
+  end
+
+  # OpenAI itself needs the key. A proxy holds its own credentials, so against
+  # any other endpoint a missing key just means no Authorization header.
+  defp openai_headers(cfg, base) do
+    case {key(cfg, :openai_api_key), base} do
+      {{:ok, key}, _} -> {:ok, [{"authorization", "Bearer " <> key}]}
+      {{:error, :no_key}, @openai_api} -> {:error, :no_key}
+      {{:error, :no_key}, _proxy} -> {:ok, []}
     end
   end
 

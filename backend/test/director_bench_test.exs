@@ -267,6 +267,18 @@ defmodule Sinestesia.DirectorBenchTest do
     end
   end
 
+  describe "openai_base_url/0" do
+    test "is OpenAI unless OPENAI_BASE_URL names a compatible endpoint" do
+      with_env("OPENAI_BASE_URL", nil, fn ->
+        assert Director.openai_base_url() == "https://api.openai.com/v1"
+      end)
+
+      with_env("OPENAI_BASE_URL", "http://127.0.0.1:8787/v1/", fn ->
+        assert Director.openai_base_url() == "http://127.0.0.1:8787/v1"
+      end)
+    end
+  end
+
   defp with_env(key, value, fun) do
     previous = System.get_env(key)
     if value, do: System.put_env(key, value), else: System.delete_env(key)

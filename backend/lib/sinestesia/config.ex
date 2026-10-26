@@ -315,6 +315,14 @@ defmodule Sinestesia.Config do
         "Model for DIRECTOR_PROVIDER=openai, called with reasoning_effort none. GPT-6 Astra and 6.1 Sol cannot switch reasoning off — too slow for the live path."
     },
     %{
+      key: "OPENAI_BASE_URL",
+      group: :director,
+      default: nil,
+      values: "URL",
+      doc:
+        "Where DIRECTOR_PROVIDER=openai posts. Unset = https://api.openai.com/v1, which needs OPENAI_API_KEY. Any endpoint speaking the OpenAI chat-completions shape works — a local proxy in front of a Codex/ChatGPT login, OpenRouter, vLLM — and against one of those the key is optional. The bench records the endpoint on every row: a proxy's latency is the proxy's, not OpenAI's."
+    },
+    %{
       key: "DIRECTOR_ELEMENT_WORDS",
       group: :director,
       default: "4-12",

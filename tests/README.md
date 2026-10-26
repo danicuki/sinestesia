@@ -218,23 +218,12 @@ mix sinestesia.bench.director --report             # the scorecard over everythi
   default (needs `OPENAI_API_KEY`), or a local proxy speaking the
   chat-completions shape, key optional. Every row records the endpoint it
   measured, and a proxy's latency is the proxy's.
-- To spend a ChatGPT/Codex subscription instead of an API key, run a proxy
-  that reuses the Codex CLI login (`~/.codex/auth.json`) on loopback. The one
-  checked (2026-10-26) is `@abenvenuto/codex-openai-proxy` (MIT, Node ≥ 22.12,
-  `codex` on PATH; read its `src/` first — it handles your ChatGPT token):
-  ```bash
-  npx @abenvenuto/codex-openai-proxy                       # 127.0.0.1:8787
-  curl -s http://127.0.0.1:8787/v1/models | jq '.data[].id' # what the account can run
-  curl -s http://127.0.0.1:8787/v1/models/gpt-6-luna/reasoning | jq   # is "none" allowed?
-  OPENAI_BASE_URL=http://127.0.0.1:8787/v1 mix sinestesia.bench.director --models openai:gpt-6-luna
-  ```
-  What such rows do NOT measure: the Codex backend swaps the system prompt
-  for Codex's own base instructions (ours arrives as a developer message, so
-  format and quality are indicative, not the API's), it returns no `usage`
-  (tokens and $/show blank — take them from an API-key run), and it ignores
-  the output cap (`cut` is always false). It is an undocumented endpoint
-  under a subscription meant for interactive use; a 401 means the Codex
-  login expired (`codex login`).
+- No proxy is recommended here. The Codex-login proxies on GitHub
+  (looked at 2026-10-26) are third-party code holding your ChatGPT token on a
+  machine that also holds every other key, and what they measure is not the
+  API: the Codex backend swaps the system prompt for Codex's own, reports no
+  `usage` and ignores the output cap. An API key measures the real path, and
+  a full `openai:` run costs about a cent.
 - Run it on the show machine. Cloud latency is measured from wherever the
   task runs, and local rows measure that machine's GPU — the Mac for both.
 - Model specs are `provider:model` with the `DIRECTOR_PROVIDER` names

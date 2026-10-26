@@ -127,6 +127,11 @@ defmodule Sinestesia.DirectorBenchTest do
       assert_in_delta s.valid, 0.75, 1.0e-9
       assert s.pos_repeats == 1
       assert s.cost_per_show > 0
+
+      # Content per second of waiting: 5 words over the well-formed turns' round
+      # trips (400/600/900 ms → 12.5/8.3/5.6 words/s, median 8.3); tokens over all.
+      assert_in_delta s.words_per_s, 5 * 1000 / 600, 1.0e-9
+      assert_in_delta s.out_tps, 20 * 1000 / 900, 1.0e-9
     end
 
     test "failed turns are counted, not averaged in" do
@@ -154,6 +159,54 @@ defmodule Sinestesia.DirectorBenchTest do
       s = DirectorBench.summarize("x", rows)
       assert s.errors == 1 and s.p50 == 100
       assert s.error_messages == ["HTTP 404: no such model"]
+    end
+  end
+
+  describe "report/2" do
+    test "answers the questions in sentences before the table" do
+      row = fn variant, provider, model, ms, kind, over ->
+        %{
+          "variant" => variant,
+          "provider" => provider,
+          "model" => model,
+          "song" => "dinda",
+          "turn" => 0,
+          "ms" => ms,
+          "over_budget" => over,
+          "kind" => kind,
+          "pos" => "top",
+          "repeat_pos" => false,
+          "words" => 8,
+          "in_tokens" => 900,
+          "out_tokens" => 16,
+          "words_spec" => "4-12",
+          "cut" => false,
+          "error" => nil
+        }
+      end
+
+      rows =
+        List.duplicate(row.("gemma:g", "gemma", "gemma4:12b", 400, "invalid", false), 2) ++
+          List.duplicate(row.("gemma:g", "gemma", "gemma4:12b", 400, "new", false), 2) ++
+          List.duplicate(row.("gemini:f", "gemini", "gemini-3.5-flash-lite", 650, "new", false), 4) ++
+          List.duplicate(row.("gemini:a", "gemini", "gemini-4-argon", 3_200, "atmos", true), 4)
+
+      report = DirectorBench.report(rows, [])
+
+      assert report =~ "**Fastest:** `gemma:g`, 400 ms at the median (local). Fastest cloud model: `gemini:f`, 650 ms."
+      assert report =~ "kept the format (≥ 95%) and never missed the live budget:** `gemini:f`, 650 ms."
+      assert report =~ "**Over the live budget:** `gemini:a` on 100% of turns (p95 3200 ms)"
+      assert report =~ "**Off-format replies:** `gemma:g` 50%"
+      assert report =~ "**Most content per second of waiting:** `gemma:g`, 20.0 words/s (40.0 out tok/s)."
+      assert report =~ "`--words 30-45` measures who writes long elements fastest"
+      assert report =~ "**Cheapest cloud model:** `gemini:f`"
+      assert report =~ "ranged from 0% (`gemma:g`) to 100% (`gemini:a`)"
+      assert report =~ "| words/element | words/s | out tok/s | $/show |"
+      assert report =~ "- **ATMOS** — of the well-formed replies"
+    end
+
+    test "says so when there is nothing to rank" do
+      assert DirectorBench.report([], []) =~ "Nothing measured yet."
     end
   end
 

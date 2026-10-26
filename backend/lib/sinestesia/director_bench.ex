@@ -143,6 +143,18 @@ defmodule Sinestesia.DirectorBench do
 
     thinking = for r <- ok, is_integer(r["thinking_tokens"]), do: r["thinking_tokens"]
 
+    # Content per second of waiting — what a second buys the stage. Words are
+    # vendor-neutral; tokens are each vendor's own count of the same reply.
+    words_per_s =
+      for r <- valid, is_integer(r["words"]), is_number(r["ms"]), r["ms"] > 0 do
+        r["words"] * 1000 / r["ms"]
+      end
+
+    out_tps =
+      for r <- ok, is_integer(r["out_tokens"]), is_number(r["ms"]), r["ms"] > 0 do
+        r["out_tokens"] * 1000 / r["ms"]
+      end
+
     %{
       variant: variant,
       provider: first(rows, "provider"),
@@ -163,6 +175,8 @@ defmodule Sinestesia.DirectorBench do
       thinking_tokens: if(thinking == [], do: nil, else: pct(thinking, 50)),
       cut: Enum.count(ok, & &1["cut"]),
       decode_tps: pct(decode_tps, 50),
+      words_per_s: pct(words_per_s, 50),
+      out_tps: pct(out_tps, 50),
       cost_per_show: cost_per_show(ok),
       thinking: ok |> Enum.map(& &1["thinking"]) |> Enum.reject(&is_nil/1) |> Enum.uniq(),
       at: rows |> Enum.map(& &1["at"]) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
@@ -189,9 +203,14 @@ defmodule Sinestesia.DirectorBench do
     table =
       Enum.map_join(cards, "\n", fn c ->
         "| #{c.variant}#{mark.(c)} | #{int(c.p50)} | #{int(c.p95)} | #{percent(c.over_budget)} | " <>
-          "#{percent(c.valid)} | #{percent(c.atmos)} | #{c.pos_repeats} | #{int(c.element_words)} | " <>
-          "#{int(c.out_tokens)} | #{int(c.thinking_tokens)} | #{c.cut} | #{int(c.decode_tps)} | " <>
-          "#{usd(c.cost_per_show, c.provider)} | #{measured(c)} |"
+          "#{percent(c.valid)} | #{percent(c.atmos)} | #{int(c.element_words)} | #{dec(c.words_per_s)} | " <>
+          "#{dec(c.out_tps)} | #{usd(c.cost_per_show, c.provider)} | #{measured(c)} |"
+      end)
+
+    details =
+      Enum.map_join(cards, "\n", fn c ->
+        "| #{c.variant} | #{int(c.first_turn_p50)} | #{int(c.in_tokens)} | #{int(c.out_tokens)} | " <>
+          "#{int(c.thinking_tokens)} | #{c.cut} | #{c.pos_repeats} | #{int(c.decode_tps)} | #{c.errors} |"
       end)
 
     legend =
@@ -223,38 +242,162 @@ defmodule Sinestesia.DirectorBench do
     """
     ## Director bench — #{length(songs)} songs, #{turns} sung lines, elements of #{Enum.join(specs, " / ")} words
 
-    **p50 / p95** = ms from sending the sung line to the reply in hand: the full
-    non-streaming round trip the pipeline waits for before it can ask for a picture,
-    over every turn. **Over budget** = share of turns slower than the provider's live
-    timeout (3 s cloud, 8 s Ollama), where the chain would have moved on without the
-    reply. **Format** = replies that are exactly `NEW: … | POS: <place>` or `ATMOS: …`;
-    anything else reaches the image model as a salvaged fragment. **ATMOS** = share of
-    well-formed replies that chose an atmospheric shift over a new element. **POS
-    repeats** = consecutive elements placed at the same position, which the prompt
-    forbids. **Words/element** = median length of a `NEW:` element. **Out / thinking
-    tok** = median output tokens billed per turn, and how many of them were reasoning
-    where the API says. **Cut** = replies the output cap truncated. **Local tok/s** =
-    Ollama's own generation speed (prompt processing excluded). **$/show** = 15 songs ×
-    40 lines at list price, no prompt caching, thinking billed as output. Sorted by p50.
+    ### In short
 
-    | model | p50 ms | p95 ms | over budget | format | ATMOS | POS repeats | words/element | out tok | thinking tok | cut | local tok/s | $/show | measured |
-    |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+    #{verdict(cards, specs)}
+
+    ### Scorecard
+
+    | model | p50 ms | p95 ms | over budget | format | ATMOS | words/element | words/s | out tok/s | $/show | measured |
+    |---|---|---|---|---|---|---|---|---|---|---|
     #{table}
     #{fresh}
+    Sorted by p50. The columns:
+
+    - **p50 / p95 ms** — from sending the sung line to having the reply: the whole
+      round trip the pipeline waits before it can ask for a picture. Half the turns
+      were faster than p50, 95% faster than p95.
+    - **over budget** — turns slower than the live timeout (3 s cloud, 8 s Ollama).
+      On stage the chain moves on without those replies.
+    - **format** — replies that are exactly `NEW: … | POS: <place>` or `ATMOS: …`.
+      Anything else reaches the image model as a salvaged fragment.
+    - **ATMOS** — of the well-formed replies, how many painted nothing new and only
+      shifted the mood of the whole picture (`ATMOS:` instead of `NEW:`). The prompt
+      allows it only for lines with nothing drawable. Every model saw the same lines,
+      so a higher share is a more hesitant director, not a different song;
+      `replies.md` shows which lines each model passed on.
+    - **words/element** — median length of a `NEW:` element.
+    - **words/s** — words of the reply per second of round trip: how much paintable
+      content a second of waiting buys. The prompt caps the element length, so with
+      short elements this mostly ranks waiting time; `--words 30-45` measures who
+      writes long elements fastest.
+    - **out tok/s** — output tokens billed per second of round trip, the same idea
+      in each vendor's own tokens. Tokenizers differ (the same 8-word element is ~15
+      tokens at Google and ~25 at Anthropic), so compare vendors on words/s.
+    - **$/show** — #{@show_turns} turns (15 songs × 40 lines) at list price, no prompt
+      caching, thinking billed as output. Local models cost GPU time only.
+    - **measured** — when and where. Latency is that machine's network and GPU;
+      cloud rows taken anywhere but the show machine measure someone else's network.
+
+    What each row ran:
 
     #{legend}
     #{if errors == "", do: "", else: "\n### Errors\n\n" <> errors <> "\n"}
-    Latency is measured from the machine the task ran on (last column); cloud rows
-    taken anywhere but the show machine measure someone else's network, and local
-    rows measure that machine's GPU. Ollama's first turn of each song pays the whole
-    system prompt (no prefix cache yet): first-turn p50 is in the details.
-
     ### Details
 
-    | model | first turn p50 ms | in tok | out tok | thinking tok | errors |
-    |---|---|---|---|---|---|
-    #{Enum.map_join(cards, "\n", &"| #{&1.variant} | #{int(&1.first_turn_p50)} | #{int(&1.in_tokens)} | #{int(&1.out_tokens)} | #{int(&1.thinking_tokens)} | #{&1.errors} |")}
+    | model | first turn p50 ms | in tok | out tok | thinking tok | cut | POS repeats | local tok/s | errors |
+    |---|---|---|---|---|---|---|---|---|
+    #{details}
+
+    - **first turn** — the first line of each song carries the whole system prompt;
+      on Ollama without a prefix cache that is the slow turn.
+    - **in / out / thinking tok** — median tokens billed per turn as each API reports
+      them; thinking is how many of the output tokens were reasoning, where the API
+      says so (blank = the API reported none).
+    - **cut** — replies the output cap truncated. **POS repeats** — consecutive
+      elements at the same position, which the prompt forbids.
+    - **local tok/s** — Ollama's own generation speed, prompt processing excluded.
+      Cloud APIs report nothing comparable; words/s above is the cross-vendor number.
     """
+  end
+
+  # The questions the table is there to answer, answered in sentences.
+  defp verdict([], _specs), do: "Nothing measured yet."
+
+  defp verdict(cards, specs) do
+    scored = Enum.filter(cards, &is_number(&1.p50))
+    fastest = Enum.min_by(scored, & &1.p50, fn -> nil end)
+    remote = Enum.reject(scored, &(&1.provider == "gemma"))
+    fastest_remote = Enum.min_by(remote, & &1.p50, fn -> nil end)
+
+    clean =
+      scored
+      |> Enum.filter(&((&1.valid || 0) >= 0.95 and (&1.over_budget || 0) == 0))
+      |> Enum.min_by(& &1.p50, fn -> nil end)
+
+    richest =
+      scored |> Enum.filter(&is_number(&1.words_per_s)) |> Enum.max_by(& &1.words_per_s, fn -> nil end)
+
+    priced = Enum.filter(scored, &is_number(&1.cost_per_show))
+    late = scored |> Enum.filter(&((&1.over_budget || 0) > 0)) |> Enum.sort_by(& &1.over_budget, :desc)
+    sloppy = scored |> Enum.filter(&((&1.valid || 1) < 0.95)) |> Enum.sort_by(& &1.valid)
+    atmos = Enum.filter(scored, &is_number(&1.atmos))
+    short? = Enum.all?(specs, &(upper(&1) <= 15))
+
+    [
+      fastest &&
+        "**Fastest:** `#{fastest.variant}`, #{int(fastest.p50)} ms at the median" <>
+          if(fastest.provider == "gemma", do: " (local)", else: "") <>
+          "." <>
+          if(fastest_remote && fastest_remote != fastest,
+            do: " Fastest cloud model: `#{fastest_remote.variant}`, #{int(fastest_remote.p50)} ms.",
+            else: ""
+          ),
+      case clean do
+        nil -> "**No model** kept the format on ≥ 95% of replies while never missing the live budget."
+        c -> "**Fastest that also kept the format (≥ 95%) and never missed the live budget:** `#{c.variant}`, #{int(c.p50)} ms."
+      end,
+      case late do
+        [] ->
+          "**Live budget:** every model answered every turn within it."
+
+        cs ->
+          "**Over the live budget:** " <>
+            Enum.map_join(cs, ", ", &"`#{&1.variant}` on #{percent(&1.over_budget)} of turns (p95 #{int(&1.p95)} ms)") <>
+            " — not usable live. Everyone else answered in time."
+      end,
+      case sloppy do
+        [] ->
+          "**Format:** every model kept it on at least 95% of replies."
+
+        cs ->
+          "**Off-format replies:** " <>
+            Enum.map_join(cs, ", ", &"`#{&1.variant}` #{percent(1 - &1.valid)}") <>
+            "; each one reaches the image model as a salvaged fragment. The rest kept the format on ≥ 95%."
+      end,
+      richest &&
+        "**Most content per second of waiting:** `#{richest.variant}`, #{dec(richest.words_per_s)} words/s" <>
+          if(richest.out_tps, do: " (#{dec(richest.out_tps)} out tok/s)", else: "") <>
+          "." <>
+          if(short?,
+            do:
+              " With elements capped at #{Enum.join(specs, " / ")} words every model writes about the same amount, " <>
+                "so this ranks waiting time, not writing speed; `--words 30-45` measures who writes long elements fastest.",
+            else: ""
+          ),
+      case priced do
+        [] ->
+          nil
+
+        cs ->
+          cheapest = Enum.min_by(cs, & &1.cost_per_show)
+          dearest = Enum.max_by(cs, & &1.cost_per_show)
+
+          "**Cheapest cloud model:** `#{cheapest.variant}`, #{usd(cheapest.cost_per_show, cheapest.provider)} a show" <>
+            if(dearest != cheapest,
+              do: "; the dearest, `#{dearest.variant}`, #{usd(dearest.cost_per_show, dearest.provider)}.",
+              else: "."
+            )
+      end,
+      case atmos do
+        [] ->
+          nil
+
+        cs ->
+          least = Enum.min_by(cs, & &1.atmos)
+          most = Enum.max_by(cs, & &1.atmos)
+
+          "**ATMOS** — lines answered with a mood shift instead of something new to paint — " <>
+            if(least == most,
+              do: "was #{percent(least.atmos)} for `#{least.variant}`.",
+              else:
+                "ranged from #{percent(least.atmos)} (`#{least.variant}`) to #{percent(most.atmos)} (`#{most.variant}`). " <>
+                  "Same lines for every model, so the spread is each director's taste; `replies.md` shows which lines."
+            )
+      end
+    ]
+    |> Enum.reject(&(&1 in [nil, false]))
+    |> Enum.map_join("\n", &("- " <> &1))
   end
 
   @doc "Every reply, song by song and line by line, with each model's answer under the lyric."
@@ -316,6 +459,17 @@ defmodule Sinestesia.DirectorBench do
   defp int(nil), do: "—"
   defp int(x) when is_float(x), do: x |> round() |> Integer.to_string()
   defp int(x), do: to_string(x)
+
+  defp dec(nil), do: "—"
+  defp dec(x), do: :erlang.float_to_binary(x / 1, decimals: 1)
+
+  # The upper bound of a "min-max" words spec; anything else counts as short.
+  defp upper(spec) do
+    case Regex.run(~r/\A\d+-(\d+)\z/, to_string(spec)) do
+      [_, n] -> String.to_integer(n)
+      _ -> 0
+    end
+  end
 
   defp percent(nil), do: "—"
   defp percent(x), do: "#{round(x * 100)}%"

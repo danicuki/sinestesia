@@ -203,10 +203,95 @@ defmodule Sinestesia.DirectorBenchTest do
       assert report =~ "ranged from 0% (`gemma:g`) to 100% (`gemini:a`)"
       assert report =~ "| words/element | words/s | out tok/s | $/show |"
       assert report =~ "- **ATMOS** — of the well-formed replies"
+
+      # One length per model: nothing to fit, so the report says what to run.
+      assert report =~ "### How long can an element be?"
+      assert report =~ "One element length measured per model so far."
+      refute report =~ "Most words within"
     end
 
     test "says so when there is nothing to rank" do
       assert DirectorBench.report([], []) =~ "Nothing measured yet."
+    end
+  end
+
+  describe "length_fit/1 — how far a model can go within the budget" do
+    # A model that costs 600 ms before writing, writes 200 tok/s (5 ms a token)
+    # and spends 6 tokens of scaffolding plus 1.5 a word.
+    defp fit_rows(variant, spec, words, n) do
+      tokens = 6 + round(1.5 * words)
+
+      for i <- 1..n do
+        %{
+          "variant" => variant,
+          "provider" => "gemini",
+          "model" => "gemini-3.5-flash-lite",
+          "prompt" => "compose",
+          "song" => "dinda",
+          "turn" => i,
+          "ms" => 600 + 5 * tokens,
+          "kind" => "new",
+          "words" => words,
+          "words_spec" => spec,
+          "out_tokens" => tokens,
+          "error" => nil
+        }
+      end
+    end
+
+    test "recovers base and writing speed from two lengths and inverts them per target" do
+      rows = fit_rows("gemini:f", "4-12", 8, 5) ++ fit_rows("gemini:f@30-45", "30-45", 40, 5)
+
+      [f] = DirectorBench.length_fit(rows)
+      assert f.model == "gemini:f"
+      assert f.rows == 10
+      assert_in_delta f.base_ms, 600, 1.0e-6
+      assert_in_delta f.tok_s, 200, 1.0e-6
+      assert_in_delta f.tokens_per_word, 1.5, 1.0e-6
+      assert Enum.map(f.specs, &{&1.spec, &1.words}) == [{"4-12", 8}, {"30-45", 40}]
+
+      # (1000 − 600) / 5 = 80 tokens; (80 − 6) / 1.5 = 49.3 words.
+      assert f.words_in == %{1_000 => 49, 2_000 => 182, 3_000 => 316}
+
+      report = DirectorBench.report(rows, [])
+      assert report =~ "**Most words within 1 s of round trip:** `gemini:f`, about 49 (base 600 ms, writes ~200 tok/s)"
+      assert report =~ "| gemini:f | 4-12 → 8 (690 ms), 30-45 → 40 (930 ms) | 600 | 200 | 1.5 | 49 | 182 | 300+ |"
+    end
+
+    test "one length is not a fit, nor are replies the model never finished" do
+      assert DirectorBench.length_fit(fit_rows("gemini:f", "4-12", 8, 12)) == []
+
+      slow = fit_rows("gemma:g", "4-12", 8, 5) ++ fit_rows("gemma:g@30-45", "30-45", 40, 5)
+      broken = Enum.map(slow, &Map.put(&1, "kind", "invalid"))
+      assert DirectorBench.length_fit(broken) == []
+    end
+
+    test "when the model ignored the longer ask, the report says what it wrote instead" do
+      # Asked for 30-45, wrote 8 again: no spread, so no fit — and that is the finding.
+      rows = fit_rows("gemini:f", "4-12", 8, 5) ++ fit_rows("gemini:f@30-45", "30-45", 8, 5)
+      assert DirectorBench.length_fit(rows) == []
+
+      report = DirectorBench.report(rows, [])
+      assert report =~ "no model's replies spread enough to fit"
+      assert report =~ "- `gemini:f`: asked 4-12 → wrote 8, 30-45 → wrote 8 words at the median"
+    end
+
+    test "a base over the target leaves no room to write" do
+      rows =
+        (fit_rows("x:m", "4-12", 8, 5) ++ fit_rows("x:m@30-45", "30-45", 40, 5))
+        |> Enum.map(&Map.update!(&1, "ms", fn ms -> ms + 1_000 end))
+
+      [f] = DirectorBench.length_fit(rows)
+      assert f.words_in[1_000] == 0
+      assert DirectorBench.report(rows, []) =~ "no model has room to write anything"
+    end
+
+    test "fit/1 is plain least squares" do
+      assert {intercept, slope} = DirectorBench.fit([{0, 1}, {1, 3}, {2, 5}])
+      assert_in_delta intercept, 1, 1.0e-9
+      assert_in_delta slope, 2, 1.0e-9
+      assert DirectorBench.fit([{3, 1}, {3, 2}]) == nil
+      assert DirectorBench.fit([{1, 1}]) == nil
     end
   end
 
@@ -293,6 +378,29 @@ defmodule Sinestesia.DirectorBenchTest do
     test "anything that is not min-max falls back rather than breaking the prompt" do
       with_env("DIRECTOR_ELEMENT_WORDS", "lots", fn ->
         assert Director.element_words() == "4-12"
+        assert Director.element_words_upper() == 12
+      end)
+    end
+
+    test "above 15 words the examples are written long and a rule says to use the whole length" do
+      with_env("DIRECTOR_ELEMENT_WORDS", nil, fn ->
+        [%{content: prompt}] = Director.init_conversation(nil, prompt: :compose)
+        assert prompt =~ "NEW: a round yellow sun | POS: top"
+        refute prompt =~ "hem flaring wide"
+        refute prompt =~ "Use the WHOLE length"
+      end)
+
+      with_env("DIRECTOR_ELEMENT_WORDS", "30-45", fn ->
+        assert Director.element_words_upper() == 45
+        [%{content: prompt}] = Director.init_conversation(nil, prompt: :compose)
+        assert prompt =~ "Use the WHOLE length: 30-45 words of concrete visual detail"
+        assert prompt =~ "hem flaring wide"
+        refute prompt =~ "NEW: a round yellow sun | POS: top"
+        # Every long example really is long: the models copy what they see.
+        [_, examples] = String.split(prompt, "EXAMPLES", parts: 2)
+        elements = for [_, element] <- Regex.scan(~r/NEW: ([^|]+) \| POS/, examples), do: element
+        assert length(elements) == 4
+        for element <- elements, do: assert(length(String.split(element)) in 30..45)
       end)
     end
 

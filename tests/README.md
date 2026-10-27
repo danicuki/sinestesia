@@ -203,6 +203,8 @@ cd backend
 mix sinestesia.bench.director                      # every model with a key in .env + the configured Ollama model
 mix sinestesia.bench.director --models anthropic:claude-haiku-5-5,gemini:gemini-3.5-flash-lite,gemma:gemma4:12b-mlx
 mix sinestesia.bench.director --words 30-45        # longer elements (DIRECTOR_ELEMENT_WORDS), output cap raised to fit
+mix sinestesia.bench.director --words 4-12,30-45,80-120   # three lengths → per model: base ms, real writing tok/s,
+                                                          # words that fit in 1 / 2 / 3 s ("How long can an element be?")
 mix sinestesia.bench.director --songs dinda --lines 8 --dry-run
 mix sinestesia.bench.director --report             # the scorecard over everything measured so far
 ```

@@ -21,6 +21,8 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
       mix sinestesia.bench.director                  # every model there is a key for + the configured Ollama model
       mix sinestesia.bench.director --models anthropic:claude-haiku-5-5,gemini:gemini-3.5-flash-lite,gemma:gemma4:12b-mlx
       mix sinestesia.bench.director --words 30-45    # the "rich element" variant (DIRECTOR_ELEMENT_WORDS), cap raised to fit
+      mix sinestesia.bench.director --words 4-12,30-45,80-120   # three lengths: fits base + writing speed per model,
+                                                                # and how many words fit in 1 / 2 / 3 s
       mix sinestesia.bench.director --songs dinda,pt-aquarela --lines 8
       mix sinestesia.bench.director --prompt global  # the whole-scene prompt Google/Pollinations get instead
       mix sinestesia.bench.director --report         # the scorecard over everything measured so far
@@ -128,10 +130,18 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
 
   defp bench(opts) do
     prompt = prompt_kind(opts[:prompt])
-    words = opts[:words] || Director.default_element_words()
 
-    Regex.match?(~r/\A\d+-\d+\z/, words) ||
-      Mix.raise("--words wants min-max, e.g. 30-45 (got #{inspect(words)})")
+    # One spec, or several for the length fit: each is its own variant in the store.
+    specs =
+      (opts[:words] || Director.default_element_words())
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.uniq()
+
+    Enum.each(specs, fn w ->
+      Regex.match?(~r/\A\d+-\d+\z/, w) ||
+        Mix.raise("--words wants min-max specs, comma-separated, e.g. 30-45 or 4-12,30-45,80-120 (got #{inspect(w)})")
+    end)
 
     songs = corpus(opts)
 
@@ -140,7 +150,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
         "no songs to replay — check --songs, or prepare tests/stt/corpus with mix sinestesia.bench.stt --prepare"
       )
 
-    variants = roster(opts) |> Enum.map(&variant(&1, words, prompt))
+    variants = for m <- roster(opts), w <- specs, do: variant(m, w, prompt)
 
     variants == [] &&
       Mix.raise("no models to run — no API key in .env and no Ollama; or pass --models")
@@ -166,7 +176,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
     turns = Enum.sum(for p <- run, s <- p.songs, do: length(s.lines))
 
     Mix.shell().info(
-      "── director bench: #{length(songs)} songs, #{all_turns} lines × #{length(variants)} models, elements of #{words} words, #{prompt} prompt → #{@store}/"
+      "── director bench: #{length(songs)} songs, #{all_turns} lines × #{length(variants)} variants, elements of #{Enum.join(specs, " / ")} words, #{prompt} prompt → #{@store}/"
     )
 
     Enum.each(
@@ -196,11 +206,11 @@ defmodule Mix.Tasks.Sinestesia.Bench.Director do
 
     if opts[:dry_run], do: exit({:shutdown, 0})
 
-    # The prompt reads the element length from the environment, like the stage.
-    System.put_env("DIRECTOR_ELEMENT_WORDS", words)
-
     measured =
       Enum.flat_map(run, fn p ->
+        # The prompt reads the element length from the environment, like the stage.
+        System.put_env("DIRECTOR_ELEMENT_WORDS", p.variant.words)
+
         case bench_variant(p.variant, p.songs) do
           [] ->
             []

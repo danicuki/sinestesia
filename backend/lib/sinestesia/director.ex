@@ -67,8 +67,9 @@ defmodule Sinestesia.Director do
   sidecar hears 77 CLIP tokens of element + style and drops the head, Flux (T5)
   and Nano Banana take whole paragraphs. Longer elements cost output tokens,
   and on a local model output tokens cost time — measure before raising it
-  (`mix sinestesia.bench.director --words 30-45`), and raise `DIRECTOR_MAX_TOKENS`
-  with it. Anything that is not `min-max` falls back to the default.
+  (`mix sinestesia.bench.director --words 4-12,30-45,80-120`). The output cap
+  and the prompt's examples follow it. Anything that is not `min-max` falls
+  back to the default.
   """
   def element_words do
     spec = System.get_env("DIRECTOR_ELEMENT_WORDS", @default_element_words) |> String.trim()
@@ -76,6 +77,48 @@ defmodule Sinestesia.Director do
   end
 
   def default_element_words, do: @default_element_words
+
+  @doc "The upper bound of `element_words/0`, as an integer."
+  def element_words_upper do
+    [_, upper] = String.split(element_words(), "-")
+    String.to_integer(upper)
+  end
+
+  # Models follow the examples more than the number: asked for 30-45 words next
+  # to 5-word examples, Gemma writes 7. Above this many words the examples are
+  # written long and a rule says to use the whole length.
+  @long_element_words 15
+
+  @short_examples """
+    Lyric: "eu desenho um sol amarelo" → NEW: a round yellow sun | POS: top
+    Lyric: "é fácil fazer um castelo" → NEW: a castle with tall towers | POS: right
+    Lyric: "já tive mulheres de todas as cores" → NEW: a woman dancing in a flowing red dress | POS: left
+    Lyric: "do tipo acanhada" → NEW: a shy woman figure hiding under a wide straw hat | POS: bottom-right
+    Lyric: "molha o céu, molha o chão" → NEW: heavy diagonal rain streaks | POS: top-left
+    Lyric: "vai voando" → ATMOS: a gentle sense of upward drift
+  """
+
+  @long_examples """
+    Lyric: "eu desenho um sol amarelo" → NEW: a round yellow sun with thick, uneven rays radiating outward, its disc warm orange at the rim and pale gold at the center, hanging just above the horizon line where the light spills across everything beneath it | POS: top
+    Lyric: "já tive mulheres de todas as cores" → NEW: a woman dancing mid-spin in a flowing red dress, hem flaring wide, bare arms raised above her head, dark curls lifted by the turn, bracelets catching light, her body a long diagonal of motion against the open ground | POS: left
+    Lyric: "do tipo acanhada" → NEW: a shy woman figure hiding under a wide straw hat, shoulders drawn in, both hands holding the brim down over her eyes, a long plain dress to her ankles, bare feet turned inward on dry ground, the hat's shadow covering most of her face | POS: bottom-right
+    Lyric: "molha o céu, molha o chão" → NEW: heavy diagonal rain streaks, dense silver lines slanting left to right, bursting into white splashes where they strike puddles, the air between them thick and gray, every surface below slick and reflecting the sky | POS: top-left
+    Lyric: "vai voando" → ATMOS: a gentle sense of upward drift
+  """
+
+  defp long_elements?, do: element_words_upper() > @long_element_words
+
+  defp examples do
+    String.trim_trailing(if long_elements?(), do: @long_examples, else: @short_examples)
+  end
+
+  defp length_rule do
+    if long_elements?() do
+      "\n- Use the WHOLE length: #{element_words()} words of concrete visual detail about that ONE element — shape, color, material, light, pose, what touches what. Not a list of several things."
+    else
+      ""
+    end
+  end
 
   defp system_prompt(style, :classic) do
     """
@@ -127,15 +170,10 @@ defmodule Sinestesia.Director do
     - Choose a POS likely to be EMPTY space. VARY the position across the song — never repeat the previous POS.
     - The FIRST line of a song is always NEW, POS top or center.
     - Do NOT mention any art style, medium, technique or artist — content only.
-    - NEVER ask the singer for input. NEVER write meta-commentary. No text. No logos. No quotes. English only.
+    - NEVER ask the singer for input. NEVER write meta-commentary. No text. No logos. No quotes. English only.#{length_rule()}
 
     EXAMPLES (illustration only — these are NOT drawn, start fresh for the real song):
-      Lyric: "eu desenho um sol amarelo" → NEW: a round yellow sun | POS: top
-      Lyric: "é fácil fazer um castelo" → NEW: a castle with tall towers | POS: right
-      Lyric: "já tive mulheres de todas as cores" → NEW: a woman dancing in a flowing red dress | POS: left
-      Lyric: "do tipo acanhada" → NEW: a shy woman figure hiding under a wide straw hat | POS: bottom-right
-      Lyric: "molha o céu, molha o chão" → NEW: heavy diagonal rain streaks | POS: top-left
-      Lyric: "vai voando" → ATMOS: a gentle sense of upward drift
+    #{examples()}
     """
   end
 
@@ -962,14 +1000,15 @@ defmodule Sinestesia.Director do
 
   @default_max_tokens %{gemma: 80, gemini: 100, haiku: 100, openai: 100, zerog: 100}
 
-  # Room for a 4-12 word element plus its position; the cap only bites when
-  # the model is already off-format. `DIRECTOR_ELEMENT_WORDS` above the
-  # default needs `DIRECTOR_MAX_TOKENS` raised with it.
+  # Room for the element plus its position; the cap only bites when the model
+  # is already off-format. It grows with `DIRECTOR_ELEMENT_WORDS` (about three
+  # tokens a word plus scaffolding) so a longer element is never cut by the
+  # default; `DIRECTOR_MAX_TOKENS` overrides either way.
   defp max_tokens(provider, opts) do
     opts[:max_tokens] ||
       case Integer.parse(System.get_env("DIRECTOR_MAX_TOKENS", "")) do
         {n, _} when n > 0 -> n
-        _ -> @default_max_tokens[provider]
+        _ -> max(@default_max_tokens[provider], 40 + element_words_upper() * 3)
       end
   end
 

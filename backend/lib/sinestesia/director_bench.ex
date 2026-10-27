@@ -14,6 +14,10 @@ defmodule Sinestesia.DirectorBench do
   # A show: 15 songs of ~40 sung lines, one Director turn each.
   @show_turns 600
 
+  # Director latencies the length fit is inverted for: a frame within a second,
+  # within two, and the cloud timeout.
+  @length_targets_ms [1_000, 2_000, 3_000]
+
   # List prices, USD per million tokens, read on each vendor's pricing page on
   # 2026-10-24. Thinking tokens bill as output everywhere. The longest matching
   # prefix wins, so an OpenAI snapshot id ("gpt-6-luna-2026-05-18") prices as
@@ -35,6 +39,9 @@ defmodule Sinestesia.DirectorBench do
 
   @doc "Turns in the show the cost column prices."
   def show_turns, do: @show_turns
+
+  @doc "Latency targets the length fit answers for, in ms."
+  def length_targets, do: @length_targets_ms
 
   @doc """
   List price for `model` as `{usd_per_million_in, usd_per_million_out}`, or
@@ -129,6 +136,120 @@ defmodule Sinestesia.DirectorBench do
     end
   end
 
+  @doc """
+  How long an element each model can write within a latency target, fitted from
+  every well-formed reply it gave across the element lengths measured:
+  round trip ≈ base + tokens × ms_per_token, and tokens ≈ tok0 + words ×
+  tokens_per_word, both least squares. Base is a turn with nothing to write
+  (network and prompt processing); the slope is the model's real writing speed,
+  which no cloud API reports. Needs replies at clearly different lengths — a
+  token spread of 30 or more over at least 8 rows — so one `--words` spec rarely
+  qualifies and `--words 4-12,30-45,80-120` does.
+
+  One map per provider:model (and prompt), sorted by words within the first
+  target; models without a fit are left out.
+  """
+  def length_fit(rows) do
+    rows
+    |> Enum.filter(&usable_for_fit?/1)
+    |> Enum.group_by(&{&1["provider"], &1["model"], &1["prompt"]})
+    |> Enum.map(fn {_key, rs} -> fit_model(rs) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(&(-&1.words_in[hd(@length_targets_ms)]))
+  end
+
+  defp usable_for_fit?(r) do
+    is_nil(r["error"]) and r["kind"] in ["new", "atmos", "scene"] and
+      is_integer(r["out_tokens"]) and is_number(r["ms"]) and is_integer(r["words"]) and
+      r["words"] > 0
+  end
+
+  defp fit_model(rs) do
+    tokens = Enum.map(rs, & &1["out_tokens"])
+    spread = Enum.max(tokens) - Enum.min(tokens)
+
+    with true <- length(rs) >= 8 and spread >= 30,
+         {base, per_token} when per_token > 0 <- fit(Enum.map(rs, &{&1["out_tokens"], &1["ms"]})),
+         {tok0, per_word} when per_word > 0 <- fit(Enum.map(rs, &{&1["words"], &1["out_tokens"]})) do
+      %{
+        model: model_of(rs),
+        rows: length(rs),
+        specs: specs_of(rs),
+        base_ms: max(base, 0.0),
+        ms_per_token: per_token,
+        tok_s: 1000 / per_token,
+        tokens_per_word: per_word,
+        words_in:
+          for t <- @length_targets_ms, into: %{} do
+            {t, words_within(t, base, per_token, tok0, per_word)}
+          end
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  # Models measured at several lengths whose replies did not spread: what was
+  # asked against what came back, so the report can say why there is no fit.
+  defp asked_vs_wrote(rows) do
+    rows
+    |> Enum.filter(&usable_for_fit?/1)
+    |> Enum.group_by(&{&1["provider"], &1["model"], &1["prompt"]})
+    |> Enum.map(fn {_key, rs} -> %{model: model_of(rs), specs: specs_of(rs)} end)
+    |> Enum.filter(&(length(&1.specs) >= 2))
+    |> Enum.sort_by(& &1.model)
+  end
+
+  # The variant without its length suffix: one line per model, not per spec.
+  defp model_of(rs), do: rs |> hd() |> Map.fetch!("variant") |> String.replace(~r/@\d+-\d+/, "")
+
+  # Per `--words` spec: the median round trip, and the median length of the
+  # `NEW:` elements actually written (ATMOS shifts stay short by design).
+  defp specs_of(rs) do
+    rs
+    |> Enum.group_by(& &1["words_spec"])
+    |> Enum.map(fn {spec, srs} ->
+      elements =
+        case Enum.filter(srs, &(&1["kind"] == "new")) do
+          [] -> srs
+          new -> new
+        end
+
+      %{
+        spec: spec,
+        p50: pct(Enum.map(srs, & &1["ms"]), 50),
+        words: pct(Enum.map(elements, & &1["words"]), 50),
+        rows: length(srs)
+      }
+    end)
+    |> Enum.sort_by(&upper(&1.spec))
+  end
+
+  # Words that fit in `target_ms` of round trip under the two fits; 0 when the
+  # base alone is over the target.
+  defp words_within(target_ms, base, per_token, tok0, per_word) do
+    tokens = (target_ms - base) / per_token
+    words = (tokens - tok0) / per_word
+    if words < 0, do: 0, else: trunc(words)
+  end
+
+  @doc "Least-squares `{intercept, slope}` of y on x; nil without two distinct x."
+  def fit(pairs) when length(pairs) < 2, do: nil
+
+  def fit(pairs) do
+    n = length(pairs)
+    mx = Enum.sum(Enum.map(pairs, &elem(&1, 0))) / n
+    my = Enum.sum(Enum.map(pairs, &elem(&1, 1))) / n
+    sxx = Enum.sum(for {x, _} <- pairs, do: (x - mx) * (x - mx))
+
+    if sxx == 0 do
+      nil
+    else
+      slope = Enum.sum(for {x, y} <- pairs, do: (x - mx) * (y - my)) / sxx
+      {my - slope * mx, slope}
+    end
+  end
+
   @doc "One scorecard line over a variant's rows."
   def summarize(variant, rows) do
     ok = Enum.reject(rows, & &1["error"])
@@ -198,6 +319,7 @@ defmodule Sinestesia.DirectorBench do
       |> Enum.map(fn {variant, rs} -> summarize(variant, rs) end)
       |> Enum.sort_by(&(&1.p50 || 1.0e12))
 
+    fits = length_fit(rows)
     mark = fn c -> if c.variant in updated, do: " ✦", else: "" end
 
     table =
@@ -239,12 +361,64 @@ defmodule Sinestesia.DirectorBench do
         else:
           "\n✦ measured in this run; the other rows are from the store (bench-director/results/)."
 
+    lengths =
+      case fits do
+        [] ->
+          case asked_vs_wrote(rows) do
+            [] ->
+              "One element length measured per model so far. Run `--words 4-12,30-45,80-120` " <>
+                "(three lengths; the store keeps each apart) to fit how far each model can go within the budget."
+
+            notes ->
+              "Several lengths were measured, but no model's replies spread enough to fit " <>
+                "(30 tokens apart over 8 or more well-formed rows):\n\n" <>
+                Enum.map_join(notes, "\n", fn n ->
+                  "- `#{n.model}`: asked " <>
+                    Enum.map_join(n.specs, ", ", &"#{&1.spec} → wrote #{int(&1.words)}") <>
+                    " words at the median"
+                end) <>
+                "\n\nModels follow the examples more than the number; the compose prompt shows long " <>
+                "examples once the spec goes above 15 words. Rows measured before that count short."
+          end
+
+        fits ->
+          header = Enum.map_join(@length_targets_ms, " | ", &"words in #{sec(&1)} s")
+
+          lines =
+            Enum.map_join(fits, "\n", fn f ->
+              asked = Enum.map_join(f.specs, ", ", &"#{&1.spec} → #{int(&1.words)} (#{int(&1.p50)} ms)")
+              cells = Enum.map_join(@length_targets_ms, " | ", &words_cell(f.words_in[&1]))
+
+              "| #{f.model} | #{asked} | #{int(f.base_ms)} | #{int(f.tok_s)} | #{dec(f.tokens_per_word)} | #{cells} |"
+            end)
+
+          """
+          Fitted from every well-formed reply of a model across the element lengths
+          measured: round trip ≈ base + tokens × ms/token, least squares. **Base** is a
+          turn with nothing to write — network and prompt processing. **tok/s** is the
+          slope: the model's real writing speed, which no cloud API reports. **Words in
+          N s** inverts the fit for a Director latency target. **Asked → wrote** is the
+          `--words` spec against the median element actually written at it; models
+          anchor on the prompt's short examples and under-deliver long requests.
+
+          | model | asked → wrote (p50 ms) | base ms | tok/s | tok/word | #{header} |
+          |---|---|---|---|---|#{String.duplicate("---|", length(@length_targets_ms))}
+          #{lines}
+
+          Two more caps apply before any of this: the image provider's prompt window
+          (local SDXL reads ~77 CLIP tokens, so ~12-word elements once the scene is
+          re-listed; fal Flux takes ~60–80 words; Nano Banana more), and whether a
+          longer direction stays faithful to the lyric — the bench does not judge that
+          yet; `replies.md` is where to read it.
+          """
+      end
+
     """
     ## Director bench — #{length(songs)} songs, #{turns} sung lines, elements of #{Enum.join(specs, " / ")} words
 
     ### In short
 
-    #{verdict(cards, specs)}
+    #{verdict(cards, specs, fits)}
 
     ### Scorecard
 
@@ -282,6 +456,10 @@ defmodule Sinestesia.DirectorBench do
     What each row ran:
 
     #{legend}
+
+    ### How long can an element be?
+
+    #{lengths}
     #{if errors == "", do: "", else: "\n### Errors\n\n" <> errors <> "\n"}
     ### Details
 
@@ -302,9 +480,9 @@ defmodule Sinestesia.DirectorBench do
   end
 
   # The questions the table is there to answer, answered in sentences.
-  defp verdict([], _specs), do: "Nothing measured yet."
+  defp verdict([], _specs, _fits), do: "Nothing measured yet."
 
-  defp verdict(cards, specs) do
+  defp verdict(cards, specs, fits) do
     scored = Enum.filter(cards, &is_number(&1.p50))
     fastest = Enum.min_by(scored, & &1.p50, fn -> nil end)
     remote = Enum.reject(scored, &(&1.provider == "gemma"))
@@ -394,6 +572,22 @@ defmodule Sinestesia.DirectorBench do
                 "ranged from #{percent(least.atmos)} (`#{least.variant}`) to #{percent(most.atmos)} (`#{most.variant}`). " <>
                   "Same lines for every model, so the spread is each director's taste; `replies.md` shows which lines."
             )
+      end,
+      case fits do
+        [] ->
+          nil
+
+        [best | _] ->
+          t = hd(@length_targets_ms)
+
+          case best.words_in[t] do
+            0 ->
+              "**Within #{sec(t)} s of round trip** no model has room to write anything: the base alone is longer."
+
+            n ->
+              "**Most words within #{sec(t)} s of round trip:** `#{best.model}`, about #{n} " <>
+                "(base #{int(best.base_ms)} ms, writes ~#{int(best.tok_s)} tok/s). The fit is in \"How long can an element be?\"."
+          end
       end
     ]
     |> Enum.reject(&(&1 in [nil, false]))
@@ -462,6 +656,14 @@ defmodule Sinestesia.DirectorBench do
 
   defp dec(nil), do: "—"
   defp dec(x), do: :erlang.float_to_binary(x / 1, decimals: 1)
+
+  defp sec(ms) when rem(ms, 1000) == 0, do: Integer.to_string(div(ms, 1000))
+  defp sec(ms), do: :erlang.float_to_binary(ms / 1000, decimals: 1)
+
+  # Beyond ~300 words no image prompt is listening.
+  defp words_cell(0), do: "too slow"
+  defp words_cell(n) when n > 300, do: "300+"
+  defp words_cell(n), do: Integer.to_string(n)
 
   # The upper bound of a "min-max" words spec; anything else counts as short.
   defp upper(spec) do

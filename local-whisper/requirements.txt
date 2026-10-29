@@ -4,3 +4,5 @@ openai-whisper>=20250625
 silero-vad>=5.1.2
 websockets>=12.0
 numpy>=1.26
+# The NVIDIA Nemotron backends (Apple Silicon only) need mlx-audio at a pinned
+# git commit — on purpose not on this list; see README.md, "NVIDIA Nemotron".

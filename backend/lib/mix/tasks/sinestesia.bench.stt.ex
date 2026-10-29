@@ -24,6 +24,10 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       mix sinestesia.bench.stt --whisper tiny,medium               # more local sizes
       mix sinestesia.bench.stt --whisper small --whisper-tag beam5 \\
         --whisper-env "WHISPER_BEAM_SIZE=5;INTERIM_INTERVAL_MS=1000"  # sidecar knobs (';'-separated)
+      mix sinestesia.bench.stt --whisper nemotron-asr              # NVIDIA's streaming 0.6B (mlx-audio in the venv)
+      mix sinestesia.bench.stt --whisper nemotron-asr \\
+        --whisper-env "NEMOTRON_LOOKAHEAD_MS=160"                  # its look-ahead: 80 | 160 | 320 | 560 | 1120 ms
+      mix sinestesia.bench.stt --whisper ~/models/nemotron-transcribe-4bit   # Nemotron 3.5 Transcribe, converted
       mix sinestesia.bench.stt --dry-run            # what a run would measure, and what it would keep
       mix sinestesia.bench.stt --report             # the table over everything measured so far
       mix sinestesia.bench.stt --rescore            # re-score it all after fixing a ref
@@ -59,6 +63,13 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
   `WHISPER_LANGUAGES` does on stage. Raw events are kept with every row, so
   `--rescore` re-scores them after a reference is corrected.
   Costs: a full corpus pass is ~8 min of audio per engine — cents.
+
+  NVIDIA's two Nemotron speech models run through the same sidecar when its
+  venv has `mlx-audio` (Apple Silicon): `nemotron-asr`, the streaming 0.6B
+  RNNT, joins the default local roster; Nemotron 3.5 Transcribe, the 30B
+  offline speech LLM, only by name or by the path of a 4-bit conversion — its
+  bf16 checkpoint is 67.5 GB and needs ~66 GB of memory. See
+  `local-whisper/README.md`, "NVIDIA Nemotron".
   """
   use Mix.Task
   require Logger
@@ -666,10 +677,18 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     end)
   end
 
-  # Local Whisper. Asked for nothing in particular, the two sizes the local
-  # verdict came down to, on whatever backend the sidecar's venv can run,
-  # with detection restricted to the corpus languages — the stage setting.
+  # Local models. Asked for nothing in particular, the two Whisper sizes the
+  # local verdict came down to, on whatever backend the sidecar's venv can run,
+  # with detection restricted to the corpus languages — the stage setting —
+  # plus NVIDIA's streaming 0.6B when the venv has mlx-audio. Nemotron 3.5
+  # Transcribe never runs unasked: its official checkpoint is 67.5 GB.
   @default_whisper ["small", "large-v3-turbo"]
+  @nemotron_backends ["nemotron-asr", "nemotron-transcribe"]
+  @nemotron_asr_repo "mlx-community/nemotron-3.5-asr-streaming-0.6b"
+  @nemotron_transcribe_repo "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B"
+  # PyPI's mlx-audio 0.6.3 (2026-10-28) predates the Transcribe port; this
+  # commit of main (2026-10-29) has both Nemotron models.
+  @mlx_audio_pin "git+https://github.com/Blaizzy/mlx-audio.git@4f1a90ca3d412607df18704c7fd33c380ecb4c4a"
 
   defp whisper_variants(opts) do
     python = sidecar_python()
@@ -683,7 +702,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
           []
 
         File.exists?(python) ->
-          @default_whisper
+          default_local(python)
 
         true ->
           Mix.shell().info("(no local-whisper venv at #{python} — skipping local Whisper; see local-whisper/README.md)")
@@ -694,8 +713,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       []
     else
       check_venv!(python)
-      backend = opts[:whisper_backend] || probe_backend(python)
-      threads = opts[:whisper_threads] || if(backend == "faster-whisper", do: System.schedulers_online())
+      probed = opts[:whisper_backend] || probe_backend(python)
       env = parse_env(opts[:whisper_env])
 
       env =
@@ -703,26 +721,158 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
           do: env,
           else: [{"WHISPER_LANGUAGES", Enum.join(corpus_languages(), ",")} | env]
 
+      {_, languages} = List.keyfind(env, "WHISPER_LANGUAGES", 0)
+      tag = if opts[:whisper_tag], do: "+#{opts[:whisper_tag]}", else: ""
+
       for name <- models do
+        backend = backend_for(name, opts[:whisper_backend], probed)
         model = resolve_model(name, backend)
+        nemotron? = backend in @nemotron_backends
+        if nemotron?, do: check_nemotron!(python, backend, model)
+
+        threads =
+          if nemotron?,
+            do: nil,
+            else: opts[:whisper_threads] || if(backend == "faster-whisper", do: System.schedulers_online())
+
+        {id, desc} =
+          case backend do
+            "nemotron-asr" ->
+              lookahead = lookahead_ms(env)
+
+              {"nemotron-#{nemotron_name(model)}@#{lookahead}ms",
+               "NVIDIA #{Path.basename(model)} on mlx-audio — cache-aware streaming RNNT, #{lookahead} ms look-ahead, " <>
+                 "language auto-detected by the model, one final per phrase the sidecar's VAD closes (0.65 s of silence)"}
+
+            "nemotron-transcribe" ->
+              {"nemotron-#{nemotron_name(model)}",
+               "NVIDIA Nemotron 3.5 Transcribe (#{model}) on mlx-audio — an offline speech LLM; the sidecar hands it " <>
+                 "each VAD phrase like Whisper, the language asked of the model within #{languages}"}
+
+            _ ->
+              {"whisper-" <> whisper_name(model) <> if(threads, do: "@#{threads}t", else: ""),
+               "local Whisper #{model} on #{backend}" <>
+                 if(threads, do: " (#{threads} CPU threads)", else: "") <>
+                 ", detection restricted to #{languages}"}
+          end
 
         %{
-          id:
-            "whisper-" <> whisper_name(model) <>
-              if(threads, do: "@#{threads}t", else: "") <>
-              if(opts[:whisper_tag], do: "+#{opts[:whisper_tag]}", else: ""),
+          id: id <> tag,
           provider: :local_whisper,
           price: :local,
           model: model,
           backend: backend,
           threads: threads,
           sidecar_env: env,
-          desc:
-            "local Whisper #{model} on #{backend}" <>
-              if(threads, do: " (#{threads} CPU threads)", else: "") <>
-              ", detection restricted to #{List.keyfind(env, "WHISPER_LANGUAGES", 0) |> elem(1)}",
+          desc: desc,
           env: fn _ -> %{} end
-          }
+        }
+      end
+    end
+  end
+
+  defp default_local(python) do
+    if nemotron_importable?(python, "nemotron_asr"),
+      do: @default_whisper ++ ["nemotron-asr"],
+      else: @default_whisper
+  end
+
+  # NVIDIA's models are told apart by name — the aliases, a repo id or a
+  # converted folder; everything else is Whisper on the probed backend.
+  defp backend_for(_name, forced, _probed) when is_binary(forced), do: forced
+
+  defp backend_for(name, nil, probed) do
+    down = String.downcase(name)
+
+    cond do
+      name == "nemotron-asr" or (String.contains?(down, "nemotron") and String.contains?(down, "asr")) ->
+        "nemotron-asr"
+
+      name == "nemotron-transcribe" or (String.contains?(down, "nemotron") and String.contains?(down, "transcribe")) ->
+        "nemotron-transcribe"
+
+      true ->
+        probed
+    end
+  end
+
+  defp lookahead_ms(env) do
+    case List.keyfind(env, "NEMOTRON_LOOKAHEAD_MS", 0) do
+      {_, ms} -> ms
+      nil -> "560"
+    end
+  end
+
+  # "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B" → transcribe,
+  # ".../Nemotron-3.5-Transcribe-30B-A4B-EA-4bit" → transcribe-ea-4bit,
+  # "~/models/nemotron-transcribe-4bit" → transcribe-4bit,
+  # "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit" → asr-0.6b-8bit.
+  defp nemotron_name(model) do
+    model
+    |> Path.basename()
+    |> String.downcase()
+    |> String.replace(~r/^nvidia-/, "")
+    |> String.replace("nemotron-3.5-", "")
+    |> String.replace(~r/^nemotron-/, "")
+    |> String.replace("-30b-a4b", "")
+    |> String.replace("-streaming", "")
+  end
+
+  # The Nemotron ports live in mlx-audio, which the venv only has if it was
+  # installed on purpose (Apple Silicon). Fails here, with the fix, rather
+  # than as a sidecar dying at import time once the cloud passes are done.
+  defp check_nemotron!(python, backend, model) do
+    module = if backend == "nemotron-asr", do: "nemotron_asr", else: "nemotron_transcribe"
+
+    nemotron_importable?(python, module) ||
+      Mix.raise("""
+      #{backend} needs mlx-audio in the sidecar venv (Apple Silicon only):
+
+          cd local-whisper && uv pip install --python .venv/bin/python 'mlx-audio[stt] @ #{@mlx_audio_pin}'
+
+      (local-whisper/README.md, "NVIDIA Nemotron")
+      """)
+
+    # The official checkpoint is bf16: 67.5 GB to download, ~66 GB of memory
+    # on MLX. Said before the download, not after it.
+    if model == @nemotron_transcribe_repo do
+      case memory_gb() do
+        gb when is_number(gb) and gb < 80 ->
+          Mix.shell().info(
+            "   ⚠ #{model} is the official bf16 checkpoint — 67.5 GB to download, ~66 GB of memory on MLX — and this " <>
+              "machine has #{round(gb)} GB. Convert it to 4-bit first and pass the folder (local-whisper/README.md, " <>
+              "\"NVIDIA Nemotron\"); otherwise this pass dies loading it."
+          )
+
+        _ ->
+          :ok
+      end
+    end
+  end
+
+  defp nemotron_importable?(python, module) do
+    match?({_, 0}, System.cmd(python, ["-c", "import mlx_audio.stt.models.#{module}"], stderr_to_stdout: true))
+  end
+
+  # In GiB, the unit a "48 GB" Mac is sold in and `free -g` prints.
+  @gib 1024 * 1024 * 1024
+
+  defp memory_gb do
+    case :os.type() do
+      {:unix, :darwin} ->
+        with {out, 0} <- System.cmd("sysctl", ["-n", "hw.memsize"], stderr_to_stdout: true),
+             {bytes, _} <- Integer.parse(String.trim(out)) do
+          bytes / @gib
+        else
+          _ -> nil
+        end
+
+      _ ->
+        with {:ok, meminfo} <- File.read("/proc/meminfo"),
+             [_, kb] <- Regex.run(~r/MemTotal:\s+(\d+)/, meminfo) do
+          String.to_integer(kb) * 1024 / @gib
+        else
+          _ -> nil
         end
     end
   end
@@ -736,6 +886,15 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     |> String.replace_prefix("faster-whisper-", "")
     |> String.replace_prefix("whisper-", "")
     |> String.replace_suffix("-mlx", "")
+  end
+
+  # The Nemotron aliases name NVIDIA's repos; a repo id or a converted folder
+  # is passed through (a path expanded, a repo id left alone).
+  defp resolve_model("nemotron-asr", "nemotron-asr"), do: @nemotron_asr_repo
+  defp resolve_model("nemotron-transcribe", "nemotron-transcribe"), do: @nemotron_transcribe_repo
+
+  defp resolve_model(name, backend) when backend in @nemotron_backends do
+    if String.starts_with?(name, ["~", "/", "."]), do: Path.expand(name), else: name
   end
 
   # A size name maps onto the mlx-community conversion on the mlx backend;
@@ -1072,7 +1231,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
         {variants, :not_started}
 
       w ->
-        Mix.shell().info("   starting whisper sidecar: #{w.model} (#{w.backend || "sidecar default backend"})")
+        Mix.shell().info("   starting sidecar: #{w.model} on #{w.backend || "its default backend"}")
         File.mkdir_p!(Path.join(@store, "logs"))
 
         sc =
@@ -1272,7 +1431,7 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
       Enum.map_join(rows, "\n", fn r ->
         desc =
           Enum.find_value(by_variant[r.variant], & &1["desc"]) || known[r.variant] ||
-            if(String.starts_with?(r.variant, "whisper-"), do: "local Whisper sidecar", else: "?")
+            fallback_desc(r.variant)
 
         "- **#{r.variant}** — #{desc}"
       end)
@@ -1319,6 +1478,11 @@ defmodule Mix.Tasks.Sinestesia.Bench.Stt do
     #{if notes == "", do: "", else: "\nErrors:\n" <> notes}
     """
   end
+
+  # Rows stored before descriptions were, named by their id's family.
+  defp fallback_desc("whisper-" <> _), do: "local Whisper sidecar"
+  defp fallback_desc("nemotron-" <> _), do: "local NVIDIA Nemotron through the mlx-audio sidecar"
+  defp fallback_desc(_), do: "?"
 
   defp score(nil), do: "—"
   defp score(wer), do: to_string(max(0, round((1 - wer) * 100)))

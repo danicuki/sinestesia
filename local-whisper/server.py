@@ -1,5 +1,5 @@
 """
-Local Whisper STT WebSocket server for Sinestesia.
+Local STT WebSocket sidecar for Sinestesia.
 
 Drop-in replacement for ElevenLabs / Deepgram streaming STT. Listens on
 ws://localhost:8002/transcribe, expects 16kHz Int16 LE PCM as binary frames,
@@ -9,25 +9,36 @@ already understands:
     {"type": "transcript", "text": "...", "is_final": false}
     {"type": "transcript", "text": "...", "is_final": true}
 
-Uses:
-  - mlx-whisper       Metal-accelerated Whisper on Apple Silicon (M1+)
-  - openai-whisper    PyTorch backend for ROCm/CUDA GPUs
-  - faster-whisper    CPU/CUDA fallback on Linux/Intel
-  - silero-vad        Voice activity detection for segment boundaries
+Backends (WHISPER_BACKEND):
+  - mlx                  mlx-whisper, Metal-accelerated Whisper on Apple Silicon (M1+)
+  - torch                openai-whisper, PyTorch backend for ROCm/CUDA GPUs
+  - faster-whisper       CTranslate2, CPU/CUDA fallback on Linux/Intel
+  - nemotron-transcribe  NVIDIA Nemotron 3.5 Transcribe 30B-A4B through mlx-audio —
+                         an OFFLINE speech LLM; the phrase buffering below is what
+                         makes it usable live (README.md, "NVIDIA Nemotron")
+  - nemotron-asr         NVIDIA nemotron-3.5-asr-streaming-0.6b through mlx-audio —
+                         a cache-aware streaming RNNT, decoded as the audio arrives
+  - silero-vad           Voice activity detection for phrase boundaries, every backend
 
-Streaming pattern (similar to ElevenLabs Scribe v2 with VAD commit):
+Streaming pattern for the OFFLINE models (Whisper, Nemotron Transcribe), similar
+to ElevenLabs Scribe v2 with VAD commit:
   - Buffer incoming PCM into a numpy float32 array
   - Every INTERIM_INTERVAL_MS, transcribe the un-committed buffer and emit
     as is_final=false (rolling preview)
   - Run Silero VAD on the buffer continuously; when silence > VAD_SILENCE_MS
     is detected after speech, transcribe the segment, emit as is_final=true,
     drop the committed audio from the buffer
+
+The STREAMING model (nemotron-asr) decodes while the phrase is still being sung
+instead — one RNNT session per phrase, partials as the words come out — and the
+same VAD decides where the phrase ends and its final is emitted (handle_stream).
 """
 
 import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
@@ -62,6 +73,13 @@ try:
 except Exception:
     torch_whisper = None
 
+# mlx-audio carries the NVIDIA Nemotron ports (Apple Silicon only). Optional:
+# the Whisper backends do not need it.
+try:
+    from mlx_audio.stt import load as mlx_audio_load
+except Exception:
+    mlx_audio_load = None
+
 # silero-vad ships as a small torch model wrapped in a simple Python API.
 # It's CPU-light and gives sub-100ms latency on M-series.
 from silero_vad import load_silero_vad, get_speech_timestamps
@@ -77,14 +95,22 @@ log = logging.getLogger("local-whisper")
 # ──────────────────────────────────────────────────────────────────────────────
 
 SAMPLE_RATE = 16_000  # MUST match what the backend / browser sends
+NEMOTRON_TRANSCRIBE = "nemotron-transcribe"
+NEMOTRON_ASR = "nemotron-asr"
 DEFAULT_BACKEND = "mlx" if mlx_whisper is not None else "torch" if torch is not None else "faster-whisper"
 WHISPER_BACKEND = os.environ.get("WHISPER_BACKEND", DEFAULT_BACKEND)
 # Default to small, not medium: when SDXL Turbo + Gemma 12B are also sharing
 # the Apple GPU, medium's ~400ms-per-interim load starves the other two and
 # Director latency balloons from ~1.5s to ~6s. small (~150ms) leaves headroom.
 # If you have a dedicated box for STT (no SDXL/Gemma), bump back to medium.
-DEFAULT_MODEL = "mlx-community/whisper-small-mlx" if WHISPER_BACKEND == "mlx" else "small"
-MODEL_REPO = os.environ.get("WHISPER_MODEL", DEFAULT_MODEL)
+DEFAULT_MODELS = {
+    "mlx": "mlx-community/whisper-small-mlx",
+    # NVIDIA's official checkpoint: 67.5 GB of bf16 on disk, ~66 GB of memory
+    # on MLX. A 48 GB Mac runs the 4-bit conversion instead (README.md).
+    NEMOTRON_TRANSCRIBE: "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B",
+    NEMOTRON_ASR: "mlx-community/nemotron-3.5-asr-streaming-0.6b",
+}
+MODEL_REPO = os.environ.get("WHISPER_MODEL", DEFAULT_MODELS.get(WHISPER_BACKEND, "small"))
 FASTER_WHISPER_DEVICE = os.environ.get("FASTER_WHISPER_DEVICE", "cpu")
 FASTER_WHISPER_COMPUTE_TYPE = os.environ.get("FASTER_WHISPER_COMPUTE_TYPE", "int8")
 faster_model = None
@@ -115,7 +141,8 @@ LOW_CONFIDENCE_FALLBACK = os.environ.get("WHISPER_LANGUAGE_FALLBACK") or None
 # hear; the argmax is taken within that set and the probability renormalized
 # over it, so LANGUAGE_LOCK_MIN_PROB means "how sure, among OUR languages".
 # Empty = any language (the library default). Ignored when WHISPER_LANGUAGE
-# pins one.
+# pins one. Nemotron Transcribe has no language head: the set becomes the
+# labels of its language-identification prompt (nemotron_detect_language).
 CANDIDATE_LANGUAGES = [l.strip() for l in os.environ.get("WHISPER_LANGUAGES", "").split(",") if l.strip()]
 
 # Only a FINAL with at least this many words may lock the session's language.
@@ -154,9 +181,21 @@ BIND_PORT = int(os.environ.get("BIND_PORT", "8002"))
 WHISPER_BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "1"))
 WHISPER_TEMPERATURE_FALLBACK = os.environ.get("WHISPER_TEMPERATURE_FALLBACK", "0") in ("1", "true", "on")
 # ~2 tokens per sung word; 20s of singing is well under 160 tokens, a
-# repetition loop is not.
+# repetition loop is not. Nemotron Transcribe gets the same cap: its report
+# lists "generation loops" among the known failure modes.
 WHISPER_MAX_NEW_TOKENS = int(os.environ.get("WHISPER_MAX_NEW_TOKENS", "160"))
 TEMPERATURES = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0] if WHISPER_TEMPERATURE_FALLBACK else [0.0]
+
+# nemotron-asr: how far the streaming encoder looks ahead before it commits to
+# a frame — one of the look-aheads the model was trained with. Lower = words
+# appear sooner; NVIDIA's FLEURS numbers give up about one WER point from
+# 1120 ms to 80 ms (Portuguese 5.5 → 6.3). A phrase's FINAL does not depend
+# on it: the end of the phrase is flushed through the encoder (see flush).
+NEMOTRON_LOOKAHEAD_MS = int(os.environ.get("NEMOTRON_LOOKAHEAD_MS", "560"))
+LOOKAHEAD_FRAMES = {80: 0, 160: 1, 320: 3, 560: 6, 1120: 13}  # ms → right-context frames of 80 ms
+# The streaming decoder spells a phrase word by word; its partials are
+# coalesced to at most one every so many ms so the socket is not flooded.
+STREAM_EMIT_MS = 150
 
 # One decode at a time, in submission order. The receive loop never awaits a
 # decode (see handle): audio keeps draining and VAD keeps running while the
@@ -273,15 +312,148 @@ def detect_candidate_language(audio: np.ndarray) -> tuple[Optional[str], Optiona
         return None, None
 
 
-def transcribe(audio: np.ndarray, language: Optional[str]) -> tuple[str, Optional[str], Optional[float]]:
-    """Run Whisper on the given mono float32 audio.
+# ── NVIDIA Nemotron through mlx-audio ────────────────────────────────────────
+#
+# Two very different models share the loader:
+#   nemotron-transcribe  Nemotron 3.5 Transcribe 30B-A4B (34B total, ~4.3B
+#                        active): a speech encoder feeding a Mamba/MoE LLM. An
+#                        offline model — NVIDIA's report: "the released model
+#                        ... does not provide native streaming transcription".
+#                        It is driven exactly like Whisper here: the VAD cuts
+#                        phrases, every interim is a full decode of the buffer.
+#   nemotron-asr         nemotron-3.5-asr-streaming-0.6b: a cache-aware
+#                        FastConformer-RNNT built for live audio, 40 locales,
+#                        language auto-detected. Fed as it arrives — see
+#                        handle_stream below.
+
+_nemotron_model = None
+
+# Nemotron Transcribe is prompted in words; nemotron-asr takes a locale key.
+LANGUAGE_NAMES = {
+    "pt": "Portuguese", "en": "English", "it": "Italian", "de": "German", "es": "Spanish",
+    "fr": "French", "nl": "Dutch", "pl": "Polish", "ru": "Russian", "uk": "Ukrainian",
+    "tr": "Turkish", "ar": "Arabic", "hi": "Hindi", "ja": "Japanese", "ko": "Korean",
+    "zh": "Chinese", "vi": "Vietnamese", "sv": "Swedish", "da": "Danish", "nb": "Norwegian",
+    "fi": "Finnish", "cs": "Czech", "hu": "Hungarian", "ro": "Romanian", "el": "Greek",
+    "bg": "Bulgarian", "hr": "Croatian", "sk": "Slovak", "sl": "Slovenian", "lt": "Lithuanian",
+    "lv": "Latvian", "et": "Estonian", "he": "Hebrew", "th": "Thai", "mt": "Maltese",
+}
+LOCALES = {
+    "pt": "pt-BR", "en": "en-US", "it": "it-IT", "de": "de-DE", "es": "es-ES", "fr": "fr-FR",
+    "nl": "nl-NL", "pl": "pl-PL", "ru": "ru-RU", "uk": "uk-UA", "tr": "tr-TR", "ar": "ar-AR",
+    "hi": "hi-IN", "ja": "ja-JP", "ko": "ko-KR", "zh": "zh-CN", "vi": "vi-VN", "sv": "sv-SE",
+    "da": "da-DK", "nb": "nb-NO", "fi": "fi-FI", "cs": "cs-CZ", "hu": "hu-HU", "ro": "ro-RO",
+    "el": "el-GR", "bg": "bg-BG", "hr": "hr-HR", "sk": "sk-SK", "sl": "sl-SI", "lt": "lt-LT",
+    "lv": "lv-LV", "et": "et-EE", "he": "he-IL", "th": "th-TH", "mt": "mt-MT",
+}
+# Markup the models emit and the stage must not read: <spk:0>, <ev:laugh>,
+# <sty:...>, <|im_end|>, and the <pt-BR> language tag of nemotron-asr's auto mode.
+TAG_RE = re.compile(r"<[^<>\n]{1,40}>")
+LANG_TAG_RE = re.compile(r"<([a-z]{2,3}-[A-Z]{2})>")
+
+
+def language_name(code: str) -> str:
+    return LANGUAGE_NAMES.get(code.lower(), code)
+
+
+def locale_for(code: str) -> str:
+    """'pt' → 'pt-BR'; a full locale ('pt-PT') is passed through."""
+    return code if "-" in code else LOCALES.get(code.lower(), code)
+
+
+def get_nemotron_model():
+    """Load the configured Nemotron checkpoint once. `strict`: a checkpoint
+    whose weights do not all land in the model would transcribe garbage with
+    no error — better to die here, with the missing keys in the log."""
+    global _nemotron_model
+    if mlx_audio_load is None:
+        raise RuntimeError(
+            f"WHISPER_BACKEND={WHISPER_BACKEND} needs mlx-audio in this venv (Apple Silicon) — "
+            "README.md, section 'NVIDIA Nemotron'"
+        )
+    if _nemotron_model is None:
+        t0 = time.time()
+        log.info("loading %s through mlx-audio: %s", WHISPER_BACKEND, MODEL_REPO)
+        _nemotron_model = mlx_audio_load(os.path.expanduser(MODEL_REPO), strict=True)
+        log.info("model loaded in %.0fs", time.time() - t0)
+    return _nemotron_model
+
+
+def nemotron_prompt(language: Optional[str]) -> str:
+    """The verbatim-transcription instruction from NVIDIA's model card, with the
+    language named once the session has locked one."""
+    spoken = language_name(language) if language else "as spoken"
+    return (
+        f"Audio transcription. Language: {spoken}. Wording: verbatim, including fillers "
+        "and repetitions. Formatting: punctuation and capitalization. Output: transcript only."
+    )
+
+
+def clean_markup(text: str) -> str:
+    return re.sub(r"\s{2,}", " ", TAG_RE.sub("", text)).strip()
+
+
+def nemotron_transcribe(audio: np.ndarray, language: Optional[str]) -> str:
+    out = get_nemotron_model().generate(
+        audio.astype(np.float32),
+        task="asr",
+        prompt=nemotron_prompt(language),
+        max_tokens=WHISPER_MAX_NEW_TOKENS,
+        temperature=0.0,
+    )
+    return clean_markup(out.text or "")
+
+
+def nemotron_detect_language(audio: np.ndarray) -> Optional[str]:
+    """Nemotron Transcribe has no language head, so the model is asked — with
+    the answer restricted to the set the show is sung in, as WHISPER_LANGUAGES
+    does for Whisper. The language-identification prompt is the model card's.
+    One short extra decode per final, until the session locks a language."""
+    if not CANDIDATE_LANGUAGES:
+        return None
+    labels = ", ".join(language_name(c) for c in CANDIDATE_LANGUAGES)
+    out = get_nemotron_model().generate(
+        audio.astype(np.float32),
+        task="asr",
+        prompt=(
+            "Identify the spoken language. Respond with exactly one label from "
+            f"{labels} and nothing else."
+        ),
+        max_tokens=8,
+        temperature=0.0,
+    )
+    answer = clean_markup(out.text or "").lower()
+    for code in CANDIDATE_LANGUAGES:
+        if language_name(code).lower() in answer or answer.strip(" .") == code.lower():
+            return code
+    log.info("language id answer %r matches none of %s", answer, CANDIDATE_LANGUAGES)
+    return None
+
+
+def transcribe(audio: np.ndarray, language: Optional[str], detect: bool = False) -> tuple[str, Optional[str], Optional[float]]:
+    """Run the offline model on the given mono float32 audio.
     Returns (text, detected_language, probability). `language=None` triggers
     auto-detect (within CANDIDATE_LANGUAGES when set); pass an explicit code
-    to skip detection. Errors are swallowed so a bad chunk doesn't kill the
-    session."""
+    to skip detection. `detect` is the final's flag: the Whisper backends
+    detect on every decode regardless, Nemotron Transcribe only when asked,
+    since for it detection is a second decode. Errors are swallowed so a bad
+    chunk doesn't kill the session."""
     if len(audio) < int(0.2 * SAMPLE_RATE):
         return "", None, None
     detected_prob = None
+
+    if WHISPER_BACKEND == NEMOTRON_TRANSCRIBE:
+        try:
+            text = nemotron_transcribe(audio, language)
+            detected = language
+            if language is None and detect and len(text.split()) >= MIN_LOCK_WORDS:
+                detected = nemotron_detect_language(audio)
+            # No probability: an answer from the set locks (maybe_learn_language).
+            return text, detected, None
+        except Exception:
+            log.exception("nemotron transcribe failed on %d-sample audio", len(audio))
+            return "", None, None
+
     if language is None and CANDIDATE_LANGUAGES:
         language, detected_prob = detect_candidate_language(audio)
         if language is not None:
@@ -440,16 +612,16 @@ def maybe_learn_language(session: Session, detected: Optional[str], probability:
         session.detected_language = detected
 
 
-async def decode(audio: np.ndarray, language: Optional[str]):
+async def decode(audio: np.ndarray, language: Optional[str], detect: bool = False):
     """transcribe() on the single decode worker, without blocking the loop."""
-    return await asyncio.get_event_loop().run_in_executor(DECODER, transcribe, audio, language)
+    return await asyncio.get_event_loop().run_in_executor(DECODER, transcribe, audio, language, detect)
 
 
 async def finalize(ws, session: Session, utterance: np.ndarray, lang: Optional[str], generation: int):
     """Decode a committed utterance and emit it as final (unless the song
     changed meanwhile). Finals are full utterances, so auto-detect is
     reliable here and the result locks the session's language."""
-    text, detected, probability = await decode(utterance, lang)
+    text, detected, probability = await decode(utterance, lang, detect=True)
     if session.generation != generation:
         return
     if len(text.split()) >= MIN_LOCK_WORDS:
@@ -577,6 +749,235 @@ async def handle(ws):
         raise
 
 
+# ── The streaming model: nemotron-asr ────────────────────────────────────────
+#
+# An RNNT session takes PCM as it arrives and spells the words out while the
+# phrase is still being sung; nothing is re-decoded. What the sidecar adds is
+# the phrase: Silero VAD still says where it ends, and at that point the
+# session is CLOSED — the encoder flushes the frames its look-ahead was holding
+# back, the remaining words come out, and that text is the final. The next
+# phrase starts a new session, so a phrase begins without the previous one as
+# left context; sung phrases are separated by the breath the VAD cut on, so
+# that context was mostly silence anyway. One session per phrase also keeps
+# every private detail of the decoder (frame positions, caches) out of here:
+# the sidecar only ever calls feed / step / close / done / cancel.
+
+
+@dataclass
+class Phrase:
+    """One RNNT session and the text it has produced so far."""
+
+    session: object
+    text: str = ""
+    last_emit: float = 0.0
+    pump: Optional[asyncio.Task] = None
+
+
+@dataclass
+class Stream:
+    """Per-connection state of the streaming backend."""
+
+    phrase: Optional[Phrase] = None  # None while the next session is being made
+    backlog: list = field(default_factory=list)  # PCM that arrived meanwhile
+    # Audio since the last commit, for the VAD only — the model already has it.
+    audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
+    speech_started: bool = False
+    language: Optional[str] = None  # the <xx-YY> tag the model emitted in auto mode
+    generation: int = 0
+    tasks: set = field(default_factory=set)
+
+
+def new_stream_session():
+    """A fresh RNNT session for the next phrase. Construction does model work,
+    so it runs on the decoder thread like everything else that touches MLX."""
+    model = get_nemotron_model()
+    right = LOOKAHEAD_FRAMES.get(NEMOTRON_LOOKAHEAD_MS)
+    if right is None:
+        raise ValueError(f"NEMOTRON_LOOKAHEAD_MS={NEMOTRON_LOOKAHEAD_MS}: use one of {sorted(LOOKAHEAD_FRAMES)}")
+    # mlx-audio's session takes the multilingual checkpoint's look-ahead from
+    # the model's default (its transcription_delay_ms applies to the English
+    # checkpoint only), so the default is set to ours before each session.
+    model.default_att_context_size = [model.default_att_context_size[0], right]
+    language = locale_for(FORCE_LANGUAGE) if FORCE_LANGUAGE else "auto"
+    return model.create_streaming_session(language=language)
+
+
+def drain(session, steps: int = 48) -> list[str]:
+    """Advance the decoder over whatever audio is queued; returns the new text
+    deltas. A step evaluates at most 32 joint outputs (blanks included), so
+    48 steps cover several seconds of audio — far more than arrives between
+    two feeds — and cost nothing once the queue is empty."""
+    out: list[str] = []
+    for _ in range(steps):
+        out.extend(session.step(max_decode_tokens=32))
+    return out
+
+
+def flush(session, max_steps: int = 4000) -> list[str]:
+    """End of phrase: close the input and decode what the look-ahead was still
+    holding back. Returns the remaining deltas."""
+    session.close()
+    out: list[str] = []
+    steps = 0
+    while not session.done and steps < max_steps:
+        out.extend(session.step(max_decode_tokens=64))
+        steps += 1
+    return out
+
+
+def absorb(st: Stream, text: str, deltas: list[str]) -> str:
+    """Append the decoder's deltas to a phrase, noting the language tag it
+    emits in auto mode and dropping every piece of markup."""
+    raw = text + "".join(deltas)
+    for match in LANG_TAG_RE.finditer(raw):
+        if st.language != match.group(1):
+            st.language = match.group(1)
+            log.info("language detected: %s", st.language)
+    return clean_markup(raw)
+
+
+async def handle_stream(ws):
+    log.info("client connected from %s (streaming %s)", ws.remote_address, MODEL_REPO)
+    st = Stream()
+    vad_model = load_silero_vad()
+    loop = asyncio.get_event_loop()
+
+    def keep(task: asyncio.Task) -> asyncio.Task:
+        # asyncio keeps only weak references to tasks (see Session.finals).
+        st.tasks.add(task)
+        task.add_done_callback(st.tasks.discard)
+        return task
+
+    async def pump(phrase: Phrase, generation: int):
+        try:
+            deltas = await loop.run_in_executor(DECODER, drain, phrase.session)
+        except Exception:
+            log.exception("streaming decode failed")
+            return
+        if not deltas:
+            return
+        phrase.text = absorb(st, phrase.text, deltas)
+        now = time.monotonic()
+        if (
+            st.phrase is phrase
+            and st.generation == generation
+            and phrase.text
+            and (now - phrase.last_emit) * 1000 >= STREAM_EMIT_MS
+        ):
+            phrase.last_emit = now
+            await emit(ws, phrase.text, is_final=False)
+
+    def schedule_pump():
+        phrase = st.phrase
+        if phrase is not None and (phrase.pump is None or phrase.pump.done()):
+            phrase.pump = keep(asyncio.create_task(pump(phrase, st.generation)))
+
+    async def finish(phrase: Phrase, generation: int):
+        """Flush the closed phrase on the decoder thread and emit its final.
+        The flush is queued behind any drain in flight for the same session,
+        so that drain's words land in phrase.text before the final is read."""
+        try:
+            deltas = await loop.run_in_executor(DECODER, flush, phrase.session)
+        except Exception:
+            log.exception("streaming flush failed")
+            deltas = []
+        if st.generation != generation:
+            return
+        await emit(ws, absorb(st, phrase.text, deltas), is_final=True)
+
+    async def open_session(generation: int):
+        try:
+            session = await loop.run_in_executor(DECODER, new_stream_session)
+        except Exception:
+            log.exception("could not start a streaming session")
+            return
+        if st.generation != generation:
+            DECODER.submit(session.cancel)
+            return
+        for chunk in st.backlog:
+            session.feed(chunk)
+        st.backlog = []
+        st.phrase = Phrase(session=session)
+        schedule_pump()
+
+    def commit(cut_sample: int, why: str):
+        """Close the phrase here, decode its tail on the worker, start the next
+        one — the receive loop never waits for the model."""
+        phrase, st.phrase = st.phrase, None
+        st.audio = st.audio[cut_sample:]
+        st.speech_started = False
+        if why:
+            log.info("committing phrase: %s", why)
+        if phrase is not None:
+            keep(asyncio.create_task(finish(phrase, st.generation)))
+        # Created after `finish`, so its model work queues behind the flush.
+        keep(asyncio.create_task(open_session(st.generation)))
+
+    keep(asyncio.create_task(open_session(st.generation)))
+
+    try:
+        async for message in ws:
+            if isinstance(message, (bytes, bytearray)):
+                chunk = pcm16_to_float32(bytes(message))
+                if chunk.size == 0:
+                    continue
+                if st.phrase is None:
+                    st.backlog.append(chunk)
+                else:
+                    try:
+                        st.phrase.session.feed(chunk)
+                    except Exception as e:  # the session's 30 s queue limit, or a closed input
+                        log.warning("feed failed (%s) — closing the phrase", e)
+                        commit(len(st.audio), "feed failed")
+                        st.backlog.append(chunk)
+                        continue
+                    schedule_pump()
+                st.audio = np.concatenate([st.audio, chunk])
+
+                segments = vad_speech_segments(st.audio, vad_model)
+                buffer_dur = len(st.audio) / SAMPLE_RATE
+                if segments:
+                    st.speech_started = True
+                    last = segments[-1]
+                    if (buffer_dur - last["end"]) * 1000 >= VAD_SILENCE_MS:
+                        commit(int(last["end"] * SAMPLE_RATE), "")
+                        continue
+
+                if buffer_dur >= MAX_BUFFER_SECS:
+                    if st.speech_started:
+                        commit(len(st.audio), f"no pause for {MAX_BUFFER_SECS:.0f}s")
+                    else:
+                        st.audio = st.audio[-int(2 * SAMPLE_RATE):]  # silence: keep a tail
+
+            else:
+                try:
+                    ctrl = json.loads(message)
+                except (ValueError, TypeError):
+                    log.debug("non-JSON text frame: %r", message)
+                    ctrl = {}
+
+                if ctrl.get("type") == "reset":
+                    st.generation += 1
+                    phrase, st.phrase = st.phrase, None
+                    st.backlog = []
+                    st.audio = np.zeros(0, dtype=np.float32)
+                    st.speech_started = False
+                    st.language = None
+                    if phrase is not None:
+                        DECODER.submit(phrase.session.cancel)  # on the decoder thread, after any drain
+                    keep(asyncio.create_task(open_session(st.generation)))
+                    log.info("session reset — phrase dropped, language detection reset")
+
+    except websockets.exceptions.ConnectionClosed as e:
+        log.info("client disconnected (%s)", e.code)
+    except Exception:
+        log.exception("handler crashed")
+        raise
+    finally:
+        phrase, st.phrase = st.phrase, None
+        if phrase is not None:
+            DECODER.submit(phrase.session.cancel)
+
 
 # ── Batch transcription (HTTP) ───────────────────────────────────────────────
 #
@@ -591,6 +992,8 @@ async def handle(ws):
 # on LOCAL_WHISPER_BATCH_PORT by a stdlib handler in a daemon thread.
 # (A dedicated port, not BIND_PORT+1: that lands on 8003, which is the local
 # SDXL sidecar's default — the two run side by side in an offline setup.)
+# It is faster-whisper whatever the realtime backend: the Nemotron ports give
+# no word timestamps.
 
 
 def transcribe_words(audio: np.ndarray, language: Optional[str]) -> list[dict]:
@@ -667,19 +1070,36 @@ def start_batch_server(port: int) -> None:
     log.info("batch transcription on http://%s:%d/transcribe_file", BIND_HOST, port)
 
 
+def warm_up() -> None:
+    """Load the model and run one second of silence through it, so the first
+    real phrase is not the one that pays for loading. A Nemotron checkpoint
+    that cannot load dies HERE, loudly — transcribe() swallows errors so a bad
+    chunk cannot kill a show, which would hide a broken model until stage time."""
+    if WHISPER_BACKEND in (NEMOTRON_TRANSCRIBE, NEMOTRON_ASR):
+        get_nemotron_model()
+    if WHISPER_BACKEND == NEMOTRON_ASR:
+        session = new_stream_session()
+        session.feed(np.zeros(SAMPLE_RATE, dtype=np.float32))
+        flush(session)
+    else:
+        _ = transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), FORCE_LANGUAGE)
+
+
 async def main():
-    log.info("using Whisper backend: %s", WHISPER_BACKEND)
+    log.info("using STT backend: %s", WHISPER_BACKEND)
     log.info("loading model: %s", MODEL_REPO)
-    # Warm the model so the first transcript isn't penalized.
-    _ = transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), FORCE_LANGUAGE)
+    warm_up()
     mode = f"forced={FORCE_LANGUAGE}" if FORCE_LANGUAGE else "auto-detect"
+    if WHISPER_BACKEND == NEMOTRON_ASR:
+        mode += f", {NEMOTRON_LOOKAHEAD_MS} ms look-ahead"
     log.info("model loaded and warmed (language: %s)", mode)
 
     start_batch_server(BATCH_PORT)
 
+    handler = handle_stream if WHISPER_BACKEND == NEMOTRON_ASR else handle
     log.info("listening on ws://%s:%d/transcribe", BIND_HOST, BIND_PORT)
     async with websockets.serve(
-        handle,
+        handler,
         BIND_HOST,
         BIND_PORT,
         max_size=10 * 1024 * 1024,

@@ -159,6 +159,8 @@ mix sinestesia.bench.stt --prepare            # once: clips, lyrics, anchors, re
 mix sinestesia.bench.stt                      # everything: cloud engines with a key in .env
                                               # + local Whisper small and large-v3-turbo
 mix sinestesia.bench.stt --variants gemini    # one engine; --whisper tiny,medium for more sizes
+mix sinestesia.bench.stt --whisper nemotron-asr                        # NVIDIA's streaming 0.6B (mlx-audio in the venv)
+mix sinestesia.bench.stt --whisper ~/models/nemotron-transcribe-4bit   # Nemotron 3.5 Transcribe, converted
 mix sinestesia.bench.stt --report             # the table over everything measured so far
 ```
 
@@ -180,6 +182,14 @@ mix sinestesia.bench.stt --report             # the table over everything measur
   Silicon (size names map to the `mlx-community` conversions), CTranslate2
   elsewhere; detection is restricted to the corpus languages like
   `WHISPER_LANGUAGES` on stage. Sidecar logs: `bench-stt/logs/`.
+- NVIDIA's Nemotron models run through the same sidecar once its venv has
+  `mlx-audio` (Apple Silicon; `local-whisper/README.md`, "NVIDIA Nemotron").
+  `nemotron-asr`, the streaming 0.6B RNNT, then joins the default local pass
+  as `nemotron-asr-0.6b@560ms` — the look-ahead is in the id, so
+  `--whisper-env "NEMOTRON_LOOKAHEAD_MS=160"` measures a second row. Nemotron
+  3.5 Transcribe, the 30B offline speech LLM, only runs when asked: by name
+  (`--whisper nemotron-transcribe`, the 67.5 GB bf16 checkpoint) or by the
+  path of a 4-bit conversion (`nemotron-transcribe-4bit`).
 - Cloud engines all stream at once (one ~9 min pass); local Whisper models
   run one at a time so they never share the GPU. Each cloud stream is
   ~40 KB/s up, and a saturated link inflates exactly the latency being

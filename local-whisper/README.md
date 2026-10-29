@@ -85,6 +85,85 @@ First run downloads the model (~250MB for small-q4) into HuggingFace's cache.
 | `medium` | ~770 MB | ~400 ms | very strong, slight latency cost |
 | `large-v3` | ~1.5 GB | ~1 s | best quality, breaks the live latency budget |
 
+## NVIDIA Nemotron (mlx-audio backends)
+
+Two NVIDIA speech models run through this same sidecar on Apple Silicon,
+through [mlx-audio](https://github.com/Blaizzy/mlx-audio). Neither is a
+Whisper; the env vars keep their `WHISPER_` names because every switch of the
+sidecar and of the bench already uses them.
+
+| `WHISPER_BACKEND` | `WHISPER_MODEL` default | what it is | memory |
+|---|---|---|---|
+| `nemotron-asr` | `mlx-community/nemotron-3.5-asr-streaming-0.6b` | NVIDIA's cache-aware **streaming** FastConformer-RNNT: 40 locales incl. pt-BR, language auto-detected. Built for live audio — the words come out while the phrase is still being sung; the VAD only decides where the phrase ends. | 1.3 GB |
+| `nemotron-transcribe` | `nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B` | NVIDIA's 30B-A4B speech LLM (Mamba/MoE, ~4.3B active). An **offline** model — its report: "does not provide native streaming transcription" — so it is driven like Whisper: the VAD cuts phrases, every interim re-decodes the buffer. Promptable: the language is asked of it, with `WHISPER_LANGUAGES` as the labels. | 67.5 GB bf16, ~20 GB at 4-bit |
+
+Install mlx-audio into the venv. PyPI's 0.6.3 (2026-10-28) predates the
+Transcribe port, so pin the commit of `main` that has both models:
+
+```bash
+cd local-whisper
+uv pip install --python .venv/bin/python 'mlx-audio[stt] @ git+https://github.com/Blaizzy/mlx-audio.git@4f1a90ca3d412607df18704c7fd33c380ecb4c4a'
+```
+
+### nemotron-asr (streaming, 0.6B)
+
+```bash
+WHISPER_BACKEND=nemotron-asr python3 server.py                            # downloads 1.3 GB once
+NEMOTRON_LOOKAHEAD_MS=160 WHISPER_BACKEND=nemotron-asr python3 server.py  # faster words, ~1 WER point
+```
+
+- `NEMOTRON_LOOKAHEAD_MS` (80 | 160 | 320 | 560 | 1120, default 560): how far
+  the encoder looks ahead before committing to a frame — the model was trained
+  at each of these. Lower = words appear sooner; NVIDIA's FLEURS table gives up
+  about one WER point from 1120 to 80 ms (Portuguese 5.5 → 6.3). Finals do not
+  depend on it: at the end of a phrase the session is closed and flushed, so
+  the last words come out whatever the look-ahead.
+- One RNNT session per phrase: a phrase starts without the previous one as
+  left context. Sung phrases are separated by the breath the VAD cut on, so
+  that context was mostly silence; it also keeps the decoder's internals out
+  of the sidecar, which only calls feed / step / close / cancel.
+- `WHISPER_LANGUAGE=pt` pins a locale (`pt` → `pt-BR`; a full locale passes
+  through). Otherwise the model detects the language and the sidecar logs the
+  `<pt-BR>`-style tag it emits. `WHISPER_LANGUAGES` has no effect here: the
+  prompt is one locale, or auto.
+- 8-bit build: `WHISPER_MODEL=mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit`.
+
+### nemotron-transcribe (30B-A4B)
+
+The official checkpoint is one 67.5 GB bf16 safetensors file and takes ~66 GB
+of memory on MLX. On a 48 GB Mac, quantize the language model to 4-bit first —
+the speech and speaker encoders stay unquantized; mlx-audio reports a 20 GB
+peak for its 4-bit model:
+
+```bash
+hf download nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B --local-dir ~/models/nemotron-transcribe
+.venv/bin/python -m mlx_audio.convert --hf-path ~/models/nemotron-transcribe \
+  --mlx-path ~/models/nemotron-transcribe-4bit --model-domain stt --quantize --q-bits 4 --q-group-size 64
+WHISPER_BACKEND=nemotron-transcribe WHISPER_MODEL=~/models/nemotron-transcribe-4bit python3 server.py
+```
+
+Caveats, written down because nobody has run this exact path here yet
+(2026-10-29):
+
+- mlx-audio's port was written against NVIDIA's early-access checkpoint
+  (`...-EA-0.1.0`, from NGC). The public release has the same `model_type`
+  (`nemo_speechlm`), prompt format and 30 s encoder chunking, but carries
+  extra weights (the CTC timestamp head, the MTP layers). The sidecar loads
+  with `strict=True`, so a weight the port does not know fails loudly at
+  start instead of transcribing garbage; if it does, the log names the key.
+- Community 4-bit conversions exist and load directly
+  (`WHISPER_MODEL=nativ-community/Nemotron-3.5-Transcribe-30B-A4B-EA-4bit`,
+  19.3 GB). They are conversions of the early-access weights, published by a
+  third party under NVIDIA's *evaluation* license. Safetensors carry no code,
+  so the risk is quality, not security: fine for a benchmark row, not for a
+  show.
+- Word timestamps are not implemented in the port, so the batch endpoint
+  (`/transcribe_file`) stays on faster-whisper whatever the realtime backend.
+- Speed on a Mac is unmeasured. mlx-audio's own figure: a 54 s clip in 1.6 s
+  on an M3 Ultra at 4-bit. What a 3–5 s sung phrase costs on an M3 Max
+  (encoder + prompt + a dozen tokens) is what `mix sinestesia.bench.stt`
+  will say.
+
 ## Wire into Sinestesia backend
 
 Once the server is running, set in `backend/.env`:

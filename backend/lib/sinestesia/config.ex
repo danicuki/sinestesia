@@ -533,7 +533,7 @@ defmodule Sinestesia.Config do
       default: nil,
       values: "1 | true | on",
       doc:
-        "When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream (same eager-bootstrap/look-ahead machinery as loading it by hand). A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in."
+        "When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream: the opening has already been sung, so no eager opening frame is rendered — the cursor is caught up to what was sung, the current scene renders reactively and the look-ahead chain continues from there. A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in."
     },
     %{
       key: "SONG_IDENTIFY_THRESHOLD",

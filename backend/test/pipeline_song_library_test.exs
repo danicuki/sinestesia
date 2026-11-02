@@ -147,6 +147,22 @@ defmodule Sinestesia.PipelineSongLibraryTest do
       assert state.script_active? == true
     end
 
+    test "on: identified mid-performance, no eager opening is held and the cursor is caught up",
+         %{pid: pid} do
+      System.put_env("SONG_AUTO_IDENTIFY", "on")
+      System.put_env("SPECULATIVE_LOOKAHEAD", "on")
+
+      sing(pid, "Numa folha qualquer eu desenho um sol amarelo")
+
+      assert_receive {:push_json, %{type: "song_identified", title: "Aquarela"}}
+      state = :sys.get_state(pid)
+      assert state.script_active?
+      # The opening has just been sung: nothing to pre-render ahead of it, and
+      # a held bootstrap would keep the reactive path from drawing anything.
+      assert state.bootstrap_speculation == nil
+      assert state.script_cursor == 0
+    end
+
     test "on: auto-identifying a song with a pinned style applies it, same as load_song", %{
       pid: pid
     } do

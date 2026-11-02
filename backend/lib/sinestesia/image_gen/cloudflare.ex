@@ -105,7 +105,7 @@ defmodule Sinestesia.ImageGen.Cloudflare do
       case Req.post(url,
              json: body,
              auth: {:bearer, token},
-             receive_timeout: 60_000,
+             receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
              retry: false
            ) do
         {:ok, %{status: 200, body: resp}} ->
@@ -131,7 +131,7 @@ defmodule Sinestesia.ImageGen.Cloudflare do
   end
 
   defp input_b64("http" <> _ = url) do
-    case Req.get(url, receive_timeout: 15_000, retry: false, decode_body: false) do
+    case Req.get(url, receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(), retry: false, decode_body: false) do
       {:ok, %{status: 200, body: bin}} -> {:ok, Base.encode64(bin)}
       {:ok, %{status: status}} -> {:error, {:input_fetch, status}}
       {:error, reason} -> {:error, {:input_fetch, reason}}

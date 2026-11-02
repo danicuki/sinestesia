@@ -1441,6 +1441,11 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  defp diagnosis(:image_timeout, _timings),
+    do:
+      "hint:   the frame missed IMAGE_TIMEOUT_MS (10 s at most) and was abandoned; the [image_gen] " <>
+        "line above names the provider, model and route it was waiting on. A faster model, fewer steps, or t2i."
+
   defp diagnosis(%Req.TransportError{reason: :econnrefused}, _timings),
     do: "hint:   nothing is listening — is the sidecar running?"
 
@@ -3294,7 +3299,7 @@ defmodule Sinestesia.Pipeline do
       # The eager opening stays for the planned case, lyrics loaded before
       # the first note. Sound-check chatter does not count as "into the
       # song" — only sung text the follower matches to a script line does.
-      # Found live (2026-11-02); HANDOFF #52.
+      # Found live (2026-11-02); HANDOFF #53.
       sung_into_script?(state) ->
         caught = catch_up_position_from_accumulated(state)
 
@@ -3530,7 +3535,7 @@ defmodule Sinestesia.Pipeline do
   # than not. Matching `start_line` exactly found nothing there, so the
   # pipeline quietly stopped looking ahead until a later reactive frame
   # happened to land on a boundary. Found live (2026-11-02) on an
-  # auto-identified song; HANDOFF #52.
+  # auto-identified song; HANDOFF #53.
   defp chunk_after(state, after_line) do
     line = after_line + 1
     Enum.find(state.chunks, &(&1.start_line <= line and line <= &1.end_line))

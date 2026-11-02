@@ -5,7 +5,7 @@ defmodule Sinestesia.PipelineMidsongTest do
   one invariant both depend on: the chain can restart from any confirmed
   line, not only from a scene boundary.
 
-  Found live (2026-11-02, HANDOFF #52): on an auto-identified song the stage
+  Found live (2026-11-02, HANDOFF #53): on an auto-identified song the stage
   stayed black while an eager render of the already-sung opening was held,
   and after it finally revealed, look-ahead stalled whenever the cursor sat
   inside a 2-3 line scene — `chunk_after/2` only found scenes STARTING at the

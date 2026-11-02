@@ -596,6 +596,8 @@ defmodule Sinestesia.Pipeline do
 
   @impl true
   def handle_info({:transcript, provider, text, is_final, recv_ts}, state) do
+    text = clean_transcript(text)
+
     # No audio flows in replay mode (last_audio_chunk_at stays 0) — latency is
     # only meaningful relative to a real chunk.
     latency =
@@ -626,6 +628,17 @@ defmodule Sinestesia.Pipeline do
       {state, :fallthrough} -> {:noreply, maybe_trigger(state)}
     end
   end
+
+  # Some models decorate what they heard: `<<letra aqui>>` showed up on the
+  # stage's karaoke line (2026-11-02). The markers mean nothing to the
+  # Director, the lyric record or the NFT's provenance, so every provider's
+  # text is stripped of them at the door, before it is pushed or remembered.
+  @doc false
+  def clean_transcript(text) when is_binary(text) do
+    text |> String.replace(~r/<<|>>/, "") |> String.trim()
+  end
+
+  def clean_transcript(_), do: ""
 
   # Replay sessions can carry the style they were recorded with.
   def handle_info({:replay_style, style}, state) do

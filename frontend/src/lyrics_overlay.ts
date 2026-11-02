@@ -114,7 +114,7 @@ export class LyricsOverlay {
   }
 
   private show(raw: string, isFinal: boolean) {
-    const text = tail(raw.replace(/\s+/g, " ").trim(), MAX_WORDS);
+    const text = tail(strip(raw), MAX_WORDS);
     if (!text) return;
 
     this.cancelTimers();
@@ -150,6 +150,13 @@ export class LyricsOverlay {
     this.hideTimer = null;
     this.wipeTimer = null;
   }
+}
+
+/** One line of plain words. Some models decorate what they heard —
+ *  `<<letra aqui>>` has shown up on stage. The backend drops the markers at
+ *  its door; this is the belt to that suspender, for an older backend. */
+function strip(raw: string): string {
+  return raw.replace(/<<|>>/g, "").replace(/\s+/g, " ").trim();
 }
 
 /** The last `n` words, with an ellipsis when something was dropped. */

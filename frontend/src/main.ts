@@ -475,7 +475,6 @@ async function start() {
       console.log(tag, m.latencyMs != null ? `+${m.latencyMs}ms` : "", m.text);
       recorder.noteTranscript(m.text, m.isFinal);
       recordControl?.setCount(recorder.count);
-      debug?.setTranscript(m);
       lyricsOverlay?.setTranscript(m);
     };
     socket.onError = (message, provider) => {

@@ -196,8 +196,9 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
 - `?debug=1` overlay (`src/debug.ts`): full-width strip along the bottom, small
   monospace, 60% opacity, semi-translucent black (spans the screen so long text
   wraps over fewer vertical lines and covers less of the image). Two columns:
-  **left** = last transcript `[provider] +Xms: "texto"` (interim dimmer than
-  final) + last Director prompt (takes the slack and wraps); **right** = rolling
+  **left** = last Director prompt (takes the slack and wraps) — the transcript
+  moved to the karaoke line below, and a "last error" row appears only once a
+  backend error arrives; **right** = rolling
   history of the last 5 timing lines `STT | DIR | IMG | TOT ms (provider)`
   color-coded per field, each with a relative `-Xs` timestamp refreshed each
   second (top row = latest cycle, so no separate "current timing" line). Reads the new `provider` /

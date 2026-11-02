@@ -1,14 +1,15 @@
 // ?debug=1 overlay — bottom-left, small monospace, for live latency/A-B
 // inspection during the show. Pure DOM, no chrome elsewhere. Reads the
-// `provider` + `latency_ms` on transcripts and the `timings` block on images
-// (PROTOCOL.md). Created only when the URL flag is present.
+// `timings` block on images (PROTOCOL.md). Created only when the URL flag is
+// present. The transcript itself is not here any more — it is the karaoke
+// line on the stage (lyrics_overlay.ts), and the console still logs every
+// message with its provider and latency.
 
 import type {
   ExpressiveFeatures,
   MelodyFeatures,
   StructureMsg,
   Timings,
-  TranscriptMsg,
 } from "./socket";
 import type { SampleSequence } from "./samples";
 
@@ -19,7 +20,6 @@ const COL = {
   tot: "#ffffff", // bold white
   prov: "#9ca3af", // gray
   dim: "#6b7280", // dimmer gray
-  interim: "#9ca3af",
   final: "#e5e7eb",
 };
 
@@ -35,7 +35,7 @@ export class DebugOverlay {
   private elMelody: HTMLDivElement;
   private elSemiotics: HTMLDivElement;
   private elStructure: HTMLDivElement;
-  private elTranscript: HTMLDivElement;
+  private elError: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
   private elHistory: HTMLDivElement;
@@ -96,10 +96,14 @@ export class DebugOverlay {
     this.elMelody = this.section(sound, "melody → director");
     this.elSemiotics = this.section(sound, "tatit & segreto semiotics (expressive)");
 
-    this.elTranscript = this.section(words, "transcript");
     this.elPrompt = this.section(words, "director prompt");
     this.elStructure = this.section(words, "structure (phase 2 — lyrics look-ahead)");
     this.elLyric = this.section(words, "sample lyric");
+    // Backend errors used to land in the transcript section. That section is
+    // gone, so they get one of their own — hidden until the first error, so
+    // a clean run doesn't carry an empty "last error" row.
+    this.elError = this.section(words, "last error");
+    this.elError.parentElement!.hidden = true;
 
     this.elHistory = this.section(run, "history (last 5)");
     this.elSamples = this.section(run, "sample sequences");
@@ -131,18 +135,7 @@ export class DebugOverlay {
     return body;
   }
 
-  // 1. Last transcript: [provider] +Xms: "texto"
-  setTranscript(m: TranscriptMsg) {
-    const prov = m.provider ?? "?";
-    const lat = m.latencyMs != null ? `+${m.latencyMs}ms` : "";
-    this.elTranscript.innerHTML =
-      span(`[${prov}]`, COL.prov) +
-      (lat ? " " + span(lat, COL.stt) : "") +
-      ": " +
-      span(`"${escapeHtml(m.text)}"`, m.isFinal ? COL.final : COL.interim);
-  }
-
-  // 2. Last Director prompt
+  // 1. Last Director prompt
   setPrompt(prompt: string) {
     this.elPrompt.textContent = prompt || "—";
   }
@@ -322,7 +315,8 @@ export class DebugOverlay {
 
   setError(message: string, provider?: string) {
     const p = provider ? `[${provider}] ` : "";
-    this.elTranscript.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
+    this.elError.parentElement!.hidden = false;
+    this.elError.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
   }
 
   // Clickable list of the pre-generated sample sequences. Picking one replays

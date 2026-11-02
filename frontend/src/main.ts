@@ -20,6 +20,7 @@ import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
 import { VerifyBadge } from "./verify_badge";
 import { MintToast } from "./mint_toast";
+import { LyricsOverlay } from "./lyrics_overlay";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
@@ -40,6 +41,19 @@ const verifyBadge = params.has("no-verify") ? null : new VerifyBadge();
 // The song-end mint moment: corner QR to claim a print of the finished canvas.
 // A corner, not a modal — the next song is already painting behind it.
 const mintToast = new MintToast();
+
+// The karaoke line — the words the voice model heard, big enough for the
+// house to read. On every stage view, clean mode included; ?no-lyrics hides
+// it. Under ?debug=1 it moves up to clear the instrumentation strip (a 30vh
+// content ceiling plus 48px of padding, see debug.ts) and drops a size — that
+// strip already costs the picture its lower third.
+const lyricsOverlay = params.has("no-lyrics")
+  ? null
+  : new LyricsOverlay(
+      DEBUG
+        ? { bottom: "calc(30vh + 60px)", fontSize: "clamp(18px, 2.2vw, 36px)" }
+        : { bottom: "9vh", fontSize: "clamp(22px, 2.8vw, 48px)" },
+    );
 
 // Hard-coded sample images for ?mock=1 development without the backend.
 const MOCK_IMAGES = [
@@ -187,6 +201,7 @@ async function playDemo(slug: string) {
     if (next !== shown) {
       debug?.setPrompt(seq.frames[next].prompt);
       debug?.setSampleLyric(seq.frames[next].lyric);
+      lyricsOverlay?.showLine(seq.frames[next].lyric);
       shown = next;
     }
   };
@@ -241,6 +256,7 @@ async function playTimeline(
       if (shown !== -2) {
         debug?.setPrompt("Musical Introduction — Waiting for vocals…");
         debug?.setSampleLyric("");
+        lyricsOverlay?.clear();
         shown = -2;
       }
       return;
@@ -267,6 +283,7 @@ async function playTimeline(
     if (i !== shown) {
       debug?.setPrompt(sorted[i].prompt);
       debug?.setSampleLyric(sorted[i].lyric ?? "");
+      lyricsOverlay?.showLine(sorted[i].lyric);
       shown = i;
     }
   };
@@ -397,6 +414,7 @@ async function start() {
 
   function endSong() {
     scene.clearImage();
+    lyricsOverlay?.clear();
     if (!socket) {
       console.log("[mock] would end song (mint + reset)");
       return;
@@ -413,6 +431,7 @@ async function start() {
   // discarding a performance shouldn't be one stray click away.
   function discardSong() {
     scene.clearImage();
+    lyricsOverlay?.clear();
     if (!socket) {
       console.log("[mock] would discard song (reset, no mint)");
       return;
@@ -457,6 +476,7 @@ async function start() {
       recorder.noteTranscript(m.text, m.isFinal);
       recordControl?.setCount(recorder.count);
       debug?.setTranscript(m);
+      lyricsOverlay?.setTranscript(m);
     };
     socket.onError = (message, provider) => {
       console.warn("[backend error]", provider ?? "", message);

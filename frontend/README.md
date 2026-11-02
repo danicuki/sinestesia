@@ -28,12 +28,21 @@ http://localhost:5173/?mock=1
 Skips the WebSocket, rotates 3 sample images every 4s, and logs would-be sends
 to the console. The mic + Rail 1 pulsing still run.
 
+### Karaoke line
+
+What the voice model heard is painted big, centred, in the lower third of the
+stage — interims as the phrase is sung, the final locked, the previous line kept
+smaller above it until the next phrase starts, fading out after 7 s of silence.
+It is on in every view, `?clean=1` included; `?no-lyrics` hides it. Under
+`?debug=1` it moves above the instrumentation strip and drops a size. Demo
+sequences (`?demo=<slug>`) show each frame's recorded `lyric` the same way.
+
 ## Architecture (three rails)
 
 | Rail | File | What |
 |---|---|---|
 | 1 — Movement | [src/audio/features.ts](src/audio/features.ts) | `AnalyserNode` → FFT(32) + RMS + onset → shader uniforms every frame. No backend round-trip. |
-| 2 — Words | handled by backend | We just send PCM; transcripts come back and are logged. |
+| 2 — Words | backend + [src/lyrics_overlay.ts](src/lyrics_overlay.ts) | We send PCM; transcripts come back, are logged, and are painted as the karaoke line on the stage. |
 | 3 — Expression | [src/audio/expressive.ts](src/audio/expressive.ts) + [worker](src/audio/expressive.worker.ts) | Essentia.js (+ DSP fallback) in a Worker → `expressive` features every 500ms. |
 
 ### Audio path

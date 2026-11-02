@@ -119,8 +119,14 @@ defmodule Sinestesia.ImageGen do
           # t2i needs no input image and no upload, so it is the one thing that
           # can still succeed here. The frame loses continuity with the previous
           # one — visible, but the alternative is a frozen stage.
+          where =
+            case last_route() do
+              %{provider: p, model: m} -> "#{p} #{m}"
+              _ -> to_string(provider())
+            end
+
           Logger.warning(
-            "[image_gen] i2i failed (#{inspect(reason)}); rendering this frame as t2i so the song continues"
+            "[image_gen] i2i failed (#{where}: #{inspect(reason)}); rendering this frame as t2i so the song continues"
           )
 
           case t2i(prompt) do

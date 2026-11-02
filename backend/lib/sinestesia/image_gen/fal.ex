@@ -28,7 +28,7 @@ defmodule Sinestesia.ImageGen.Fal do
         case Req.post(@url,
                json: body,
                headers: headers,
-               receive_timeout: timeout_ms(),
+               receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
                retry: false
              ) do
           {:ok, %{status: 200, body: %{"images" => [%{"url" => url} | _]}}} ->
@@ -47,5 +47,4 @@ defmodule Sinestesia.ImageGen.Fal do
   # saw the line, waited, then got a picture of it. This budget is a deliberate
   # give-up point, not a safety net: past it, ImageGen falls back to t2i so the
   # song keeps moving. Tunable per show/venue.
-  defp timeout_ms, do: String.to_integer(System.get_env("FAL_TIMEOUT_MS", "15000"))
 end

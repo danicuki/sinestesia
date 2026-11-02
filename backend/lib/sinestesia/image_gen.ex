@@ -71,9 +71,108 @@ defmodule Sinestesia.ImageGen do
   def supports?(provider \\ provider(), capability),
     do: Map.fetch!(capabilities(provider), capability)
 
+  # ── The one deadline ──────────────────────────────────────────────────────
+  @max_timeout_ms 10_000
+
+  @doc """
+  How long ONE frame may take, end to end: every provider, both routes, the
+  i2i→t2i fallback and the local morph included. Past it the frame is
+  abandoned and the song moves on — a picture that arrives this late is worse
+  than none (CLAUDE.md: latency is the product). `IMAGE_TIMEOUT_MS`, default
+  and hard ceiling #{@max_timeout_ms} ms: never more than 10 s, whatever the
+  env says. Enforced in one place, `generate/2`; the providers' own HTTP
+  timeouts are only backstops a second past it (`backstop_timeout_ms/0`),
+  never the thing that fires first.
+  """
+  def timeout_ms do
+    case Integer.parse(System.get_env("IMAGE_TIMEOUT_MS", "#{@max_timeout_ms}")) do
+      {ms, _} when ms >= 1_000 -> min(ms, @max_timeout_ms)
+      _ -> @max_timeout_ms
+    end
+  end
+
+  @doc "A provider's own HTTP timeout: just past the frame deadline, so the deadline is what fires."
+  def backstop_timeout_ms, do: timeout_ms() + 1_000
+
   @spec generate(String.t(), keyword()) ::
           {:ok, String.t()} | {:ok, String.t(), [String.t()]} | {:error, term()}
   def generate(prompt, opts \\ []) when is_binary(prompt) do
+    within_deadline(fn -> do_generate(prompt, opts) end, timeout_ms())
+  end
+
+  @doc false
+  # Runs `fun` in a task and abandons it at `limit` ms — killing the request
+  # with it, whatever provider, queue or sidecar it was waiting on. The
+  # provider notes its route (and what it uploaded, see note_route/4) in the
+  # TASK's process dictionary, as does the local morph its duration; both are
+  # copied back so the caller's `last_route/0` and `:morph_ms` keep working.
+  # On the timeout path the route is read out of the task BEFORE it is
+  # killed, so the log can say what was being waited on.
+  def within_deadline(fun, limit) do
+    started = System.monotonic_time(:millisecond)
+    task = Task.async(fn -> {fun.(), Process.get(:image_route), Process.get(:morph_ms)} end)
+
+    case Task.yield(task, limit) do
+      {:ok, reply} ->
+        adopt(reply)
+
+      {:exit, reason} ->
+        {:error, {:image_task_exit, reason}}
+
+      nil ->
+        route = task_route(task.pid)
+
+        case Task.shutdown(task, :brutal_kill) do
+          {:ok, reply} ->
+            adopt(reply)
+
+          _ ->
+            if route, do: Process.put(:image_route, route)
+            elapsed = System.monotonic_time(:millisecond) - started
+
+            Logger.warning(
+              "[image_gen] frame abandoned after #{elapsed}ms (IMAGE_TIMEOUT_MS=#{limit}): " <>
+                "#{describe_route(route)} gave no answer in time — a frame this late is worse than none, the song moves on"
+            )
+
+            {:error, :image_timeout}
+        end
+    end
+  end
+
+  defp adopt({result, route, morph_ms}) do
+    if route, do: Process.put(:image_route, route)
+    if morph_ms, do: Process.put(:morph_ms, morph_ms)
+    result
+  end
+
+  defp task_route(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} -> Keyword.get(dict, :image_route)
+      _ -> nil
+    end
+  end
+
+  @doc false
+  # "google gemini-3.1-flash-lite-image i2i, seed image 1.4 MB uploaded inline"
+  def describe_route(%{provider: p, route: r, model: m} = route) do
+    seed =
+      case route[:seed_bytes] do
+        b when is_integer(b) and b > 0 -> ", seed image #{human_bytes(b)} uploaded inline"
+        _ -> ""
+      end
+
+    "#{p} #{m} #{r}#{seed}"
+  end
+
+  def describe_route(_), do: "#{provider()} (route not reported)"
+
+  @doc false
+  def human_bytes(b) when b >= 1_048_576, do: "#{Float.round(b / 1_048_576, 1)} MB"
+  def human_bytes(b) when b >= 1_024, do: "#{div(b, 1_024)} KB"
+  def human_bytes(b), do: "#{b} B"
+
+  defp do_generate(prompt, opts) do
     image_url = Keyword.get(opts, :image_url)
 
     if render_mode() == :t2i do
@@ -332,15 +431,18 @@ defmodule Sinestesia.ImageGen do
   nothing about which model, which route, or which endpoint gave up.
 
   `route` is `"t2i"` or `"i2i"`; see `render_mode/0` on why only those two
-  spellings exist.
+  spellings exist. `extra` is anything else worth saying about the request
+  when it fails — `seed_bytes:` for a provider that uploads the previous
+  frame inline (see `describe_route/1`).
   """
-  def note_route(route, model, steps) do
-    Process.put(:image_route, %{
-      provider: to_string(provider()),
-      route: route,
-      model: model,
-      steps: steps
-    })
+  def note_route(route, model, steps, extra \\ []) do
+    Process.put(
+      :image_route,
+      Map.merge(
+        %{provider: to_string(provider()), route: route, model: model, steps: steps},
+        Map.new(extra)
+      )
+    )
 
     :ok
   end

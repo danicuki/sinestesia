@@ -1430,6 +1430,11 @@ defmodule Sinestesia.Pipeline do
     end
   end
 
+  defp diagnosis(:image_timeout, _timings),
+    do:
+      "hint:   the frame missed IMAGE_TIMEOUT_MS (10 s at most) and was abandoned; the [image_gen] " <>
+        "line above names the provider, model and route it was waiting on. A faster model, fewer steps, or t2i."
+
   defp diagnosis(%Req.TransportError{reason: :econnrefused}, _timings),
     do: "hint:   nothing is listening — is the sidecar running?"
 

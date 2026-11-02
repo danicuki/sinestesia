@@ -324,11 +324,12 @@ defmodule Sinestesia.Config do
         "i2i evolves the previous frame (continuity, slower). t2i re-renders each frame from the scene prompt (no drift, faster)."
     },
     %{
-      key: "FAL_TIMEOUT_MS",
+      key: "IMAGE_TIMEOUT_MS",
       group: :image,
-      default: "15000",
+      default: "10000",
+      values: "1000-10000",
       doc:
-        "Per-frame budget on fal. Past it the frame is abandoned and re-rendered as t2i rather than dropped."
+        "The one deadline for a frame, every provider and route, the i2i→t2i fallback and the local morph included. A frame that takes longer is abandoned (`[image_gen] frame abandoned …` names the provider, model, route and upload size) and the song moves on — a picture that late is worse than none. Hard ceiling 10000 whatever the value; the providers' own HTTP timeouts are only backstops just past it."
     },
     %{
       key: "IMAGE_MODE",
@@ -360,13 +361,6 @@ defmodule Sinestesia.Config do
       default: "gemini-3.1-flash-lite-image",
       doc:
         "Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed."
-    },
-    %{
-      key: "GOOGLE_IMAGE_TIMEOUT_MS",
-      group: :image,
-      default: "30000",
-      doc:
-        "How long one Google image request may take before the client gives up (`%Req.TransportError{reason: :timeout}` in the log — ours, not Google's: no HTTP status came back). An i2i request carries the previous frame inline as base64, 1-2 MB, so a slow uplink counts against this too; the `[google-image]` log line reports the elapsed time, the payload size and Google's own error when there is one. Minimum 1000."
     },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────

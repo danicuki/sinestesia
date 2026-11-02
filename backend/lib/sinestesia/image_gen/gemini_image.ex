@@ -20,25 +20,25 @@ defmodule Sinestesia.ImageGen.GeminiImage do
 
   ## When a frame fails
 
-  Every failure is logged HERE, where the request is known, before the
-  pipeline's generic fallback line — with the route and model, how long we
-  waited, how big the upload was, and what (if anything) Google answered.
-  The one that needs reading right: `%Req.TransportError{reason: :timeout}`
-  is OUR client giving up, not Google rejecting anything. No HTTP status ever
-  came back. Google took longer than `GOOGLE_IMAGE_TIMEOUT_MS` to answer (a
-  slow or overloaded model), or the upload did — an i2i call carries the
-  previous frame inline as base64, 1-2 MB per request, which on a venue's
-  uplink is not free. A rejection, by contrast, is an HTTP 4xx/5xx with
-  Google's own `status`/`message`, logged as such.
+  The frame deadline is not here: `Sinestesia.ImageGen.timeout_ms/0`
+  (`IMAGE_TIMEOUT_MS`, 10 s at most) abandons the whole frame, this request
+  included, and logs `[image_gen] frame abandoned … google <model> i2i, seed
+  image 1.4 MB uploaded inline`. No HTTP status came back by then: Google took
+  longer than the deadline to answer, or the upload did — an i2i call carries
+  the previous frame inline as base64, 1-2 MB per request, which on a venue's
+  uplink is not free. That is not a rejection. A rejection is an HTTP 4xx/5xx
+  with Google's own `status`/`message`, and THAT is logged here, where the
+  request is known: route and model, elapsed, payload, Google's message and
+  retry-after. So is a connect timeout (5 s, no TCP/TLS at all: the network
+  on our side) and any other transport error that comes back before the
+  deadline.
   """
   require Logger
 
   @default_model "gemini-3.1-flash-lite-image"
-  @default_timeout_ms 30_000
-  # Shorter than the answer limit on purpose: a hang this early (no TCP/TLS
-  # within 10 s) is the network on our side, and it should show up as a ~10 s
-  # failure, distinguishable from the ~30 s one a slow model gives.
-  @connect_timeout_ms 10_000
+  # Half the frame budget: a hang this early is the network, not the model,
+  # and it leaves time for the t2i fallback.
+  @connect_timeout_ms 5_000
 
   @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, opts \\ []) do
@@ -57,6 +57,10 @@ defmodule Sinestesia.ImageGen.GeminiImage do
 
       key ->
         with {:ok, parts, seed_bytes} <- build_parts(prompt, opts[:image_url]) do
+          # Noted again with the upload size, so the deadline's log line can
+          # say how much was on the wire when nothing came back.
+          Sinestesia.ImageGen.note_route(route, model, nil, seed_bytes: seed_bytes)
+
           url =
             "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
 
@@ -65,20 +69,19 @@ defmodule Sinestesia.ImageGen.GeminiImage do
             generationConfig: %{responseModalities: ["IMAGE"]}
           }
 
-          limit = timeout_ms()
           started = System.monotonic_time(:millisecond)
 
           result =
             Req.post(url,
               json: body,
-              receive_timeout: limit,
+              receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
               connect_options: [timeout: @connect_timeout_ms],
               retry: false
             )
 
           meta = %{
             elapsed_ms: System.monotonic_time(:millisecond) - started,
-            limit_ms: limit,
+            limit_ms: Sinestesia.ImageGen.timeout_ms(),
             seed_bytes: seed_bytes,
             prompt_bytes: byte_size(prompt)
           }
@@ -96,13 +99,6 @@ defmodule Sinestesia.ImageGen.GeminiImage do
               {:error, reason}
           end
         end
-    end
-  end
-
-  defp timeout_ms do
-    case Integer.parse(System.get_env("GOOGLE_IMAGE_TIMEOUT_MS", "#{@default_timeout_ms}")) do
-      {ms, _} when ms >= 1_000 -> ms
-      _ -> @default_timeout_ms
     end
   end
 
@@ -124,8 +120,8 @@ defmodule Sinestesia.ImageGen.GeminiImage do
     case outcome do
       {:transport, %Req.TransportError{reason: :timeout}} ->
         where =
-          if meta.elapsed_ms >= meta.limit_ms - 500 do
-            "waiting for Google's answer (limit GOOGLE_IMAGE_TIMEOUT_MS=#{meta.limit_ms})"
+          if meta.elapsed_ms >= meta.limit_ms do
+            "waiting for Google's answer, past the frame deadline (IMAGE_TIMEOUT_MS=#{meta.limit_ms})"
           else
             "connecting to Google (no TCP/TLS within #{@connect_timeout_ms}ms — the network on our side)"
           end
@@ -162,9 +158,7 @@ defmodule Sinestesia.ImageGen.GeminiImage do
     end
   end
 
-  defp human_bytes(b) when b >= 1_048_576, do: "#{Float.round(b / 1_048_576, 1)} MB"
-  defp human_bytes(b) when b >= 1_024, do: "#{div(b, 1_024)} KB"
-  defp human_bytes(b), do: "#{b} B"
+  defp human_bytes(b), do: Sinestesia.ImageGen.human_bytes(b)
 
   defp normalize_model(model), do: String.replace_prefix(model, "models/", "")
 
@@ -191,7 +185,11 @@ defmodule Sinestesia.ImageGen.GeminiImage do
   end
 
   defp inline_image("http" <> _ = url) do
-    case Req.get(url, receive_timeout: 15_000, retry: false, decode_body: false) do
+    case Req.get(url,
+           receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
+           retry: false,
+           decode_body: false
+         ) do
       {:ok, %{status: 200, body: bin}} ->
         mime = if String.contains?(url, ".png"), do: "image/png", else: "image/jpeg"
         {:ok, mime, Base.encode64(bin)}

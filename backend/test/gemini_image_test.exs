@@ -6,9 +6,9 @@ defmodule Sinestesia.ImageGen.GeminiImageTest do
   # The failure line is read at a sound desk to decide "us or Google?" — so
   # it must say what was waited on, for how long, what was uploaded, and
   # what came back. No network: the outcome is handed in.
-  @meta %{elapsed_ms: 30_012, limit_ms: 30_000, seed_bytes: 1_400_000, prompt_bytes: 120}
+  @meta %{elapsed_ms: 10_004, limit_ms: 10_000, seed_bytes: 1_400_000, prompt_bytes: 120}
 
-  test "a receive timeout: Google did not answer within our limit, with the upload size" do
+  test "a receive timeout: Google did not answer within the frame deadline, with the upload size" do
     line =
       GeminiImage.failure_line(
         "i2i",
@@ -17,8 +17,8 @@ defmodule Sinestesia.ImageGen.GeminiImageTest do
         @meta
       )
 
-    assert line =~ "[google-image] i2i gemini-3.1-flash-lite-image failed after 30012ms"
-    assert line =~ "waiting for Google's answer (limit GOOGLE_IMAGE_TIMEOUT_MS=30000)"
+    assert line =~ "[google-image] i2i gemini-3.1-flash-lite-image failed after 10004ms"
+    assert line =~ "waiting for Google's answer, past the frame deadline (IMAGE_TIMEOUT_MS=10000)"
     assert line =~ "seed image 1.3 MB inline as base64"
     assert line =~ "not a rejection"
   end
@@ -29,7 +29,7 @@ defmodule Sinestesia.ImageGen.GeminiImageTest do
         "t2i",
         "m",
         {:transport, %Req.TransportError{reason: :timeout}},
-        %{@meta | elapsed_ms: 10_003, seed_bytes: 0}
+        %{@meta | elapsed_ms: 5_003, seed_bytes: 0}
       )
 
     assert line =~ "connecting to Google"

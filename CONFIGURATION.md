@@ -157,6 +157,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `COMPOSE_MODE` | `inpaint` | `inpaint \| global` | In story mode, whether new elements are inpainted into a region or the whole frame is re-composed. |
 | `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
 | `GOOGLE_IMAGE_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed. |
+| `GOOGLE_IMAGE_TIMEOUT_MS` | `30000` | — | How long one Google image request may take before the client gives up (`%Req.TransportError{reason: :timeout}` in the log — ours, not Google's: no HTTP status came back). An i2i request carries the previous frame inline as base64, 1-2 MB, so a slow uplink counts against this too; the `[google-image]` log line reports the elapsed time, the payload size and Google's own error when there is one. Minimum 1000. |
 
 ### Cloudflare Workers AI
 

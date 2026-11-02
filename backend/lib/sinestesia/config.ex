@@ -361,6 +361,13 @@ defmodule Sinestesia.Config do
       doc:
         "Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed."
     },
+    %{
+      key: "GOOGLE_IMAGE_TIMEOUT_MS",
+      group: :image,
+      default: "30000",
+      doc:
+        "How long one Google image request may take before the client gives up (`%Req.TransportError{reason: :timeout}` in the log — ours, not Google's: no HTTP status came back). An i2i request carries the previous frame inline as base64, 1-2 MB, so a slow uplink counts against this too; the `[google-image]` log line reports the elapsed time, the payload size and Google's own error when there is one. Minimum 1000."
+    },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────
     %{

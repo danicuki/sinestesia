@@ -17,10 +17,28 @@ defmodule Sinestesia.ImageGen.GeminiImage do
   prefix is stripped. The model must be a Gemini `*-image` model — pointing
   this at an Imagen id fails with a 404, since Imagen only ever lived on
   `:predict`.
+
+  ## When a frame fails
+
+  Every failure is logged HERE, where the request is known, before the
+  pipeline's generic fallback line — with the route and model, how long we
+  waited, how big the upload was, and what (if anything) Google answered.
+  The one that needs reading right: `%Req.TransportError{reason: :timeout}`
+  is OUR client giving up, not Google rejecting anything. No HTTP status ever
+  came back. Google took longer than `GOOGLE_IMAGE_TIMEOUT_MS` to answer (a
+  slow or overloaded model), or the upload did — an i2i call carries the
+  previous frame inline as base64, 1-2 MB per request, which on a venue's
+  uplink is not free. A rejection, by contrast, is an HTTP 4xx/5xx with
+  Google's own `status`/`message`, logged as such.
   """
   require Logger
 
   @default_model "gemini-3.1-flash-lite-image"
+  @default_timeout_ms 30_000
+  # Shorter than the answer limit on purpose: a hang this early (no TCP/TLS
+  # within 10 s) is the network on our side, and it should show up as a ~10 s
+  # failure, distinguishable from the ~30 s one a slow model gives.
+  @connect_timeout_ms 10_000
 
   @spec generate(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def generate(prompt, opts \\ []) do
@@ -38,7 +56,7 @@ defmodule Sinestesia.ImageGen.GeminiImage do
         {:error, :no_google_key}
 
       key ->
-        with {:ok, parts} <- build_parts(prompt, opts[:image_url]) do
+        with {:ok, parts, seed_bytes} <- build_parts(prompt, opts[:image_url]) do
           url =
             "https://generativelanguage.googleapis.com/v1beta/models/#{model}:generateContent?key=#{key}"
 
@@ -47,23 +65,117 @@ defmodule Sinestesia.ImageGen.GeminiImage do
             generationConfig: %{responseModalities: ["IMAGE"]}
           }
 
-          case Req.post(url, json: body, receive_timeout: 30_000, retry: false) do
-            {:ok, %{status: 200, body: resp}} -> extract_image(resp)
-            {:ok, resp} -> {:error, {:bad_status, resp.status, resp.body}}
-            {:error, reason} -> {:error, reason}
+          limit = timeout_ms()
+          started = System.monotonic_time(:millisecond)
+
+          result =
+            Req.post(url,
+              json: body,
+              receive_timeout: limit,
+              connect_options: [timeout: @connect_timeout_ms],
+              retry: false
+            )
+
+          meta = %{
+            elapsed_ms: System.monotonic_time(:millisecond) - started,
+            limit_ms: limit,
+            seed_bytes: seed_bytes,
+            prompt_bytes: byte_size(prompt)
+          }
+
+          case result do
+            {:ok, %{status: 200, body: resp}} ->
+              extract_image(resp)
+
+            {:ok, resp} ->
+              Logger.warning(failure_line(route, model, {:http, resp}, meta))
+              {:error, {:bad_status, resp.status, resp.body}}
+
+            {:error, reason} ->
+              Logger.warning(failure_line(route, model, {:transport, reason}, meta))
+              {:error, reason}
           end
         end
     end
   end
 
+  defp timeout_ms do
+    case Integer.parse(System.get_env("GOOGLE_IMAGE_TIMEOUT_MS", "#{@default_timeout_ms}")) do
+      {ms, _} when ms >= 1_000 -> ms
+      _ -> @default_timeout_ms
+    end
+  end
+
+  @doc false
+  # One line that says what was being waited on and what came back — for the
+  # person at the sound desk deciding whether the problem is here or at
+  # Google. `outcome` is `{:transport, reason}` (no HTTP response at all) or
+  # `{:http, %Req.Response{}}` (Google answered, with an error).
+  def failure_line(route, model, outcome, meta) do
+    head = "[google-image] #{route} #{model} failed after #{meta.elapsed_ms}ms"
+
+    payload =
+      "payload #{human_bytes(meta.prompt_bytes + meta.seed_bytes)} (" <>
+        if(meta.seed_bytes > 0,
+          do: "seed image #{human_bytes(meta.seed_bytes)} inline as base64)",
+          else: "no seed image)"
+        )
+
+    case outcome do
+      {:transport, %Req.TransportError{reason: :timeout}} ->
+        where =
+          if meta.elapsed_ms >= meta.limit_ms - 500 do
+            "waiting for Google's answer (limit GOOGLE_IMAGE_TIMEOUT_MS=#{meta.limit_ms})"
+          else
+            "connecting to Google (no TCP/TLS within #{@connect_timeout_ms}ms — the network on our side)"
+          end
+
+        "#{head}: timed out #{where}; #{payload}. No HTTP status came back, so this is " <>
+          "not a rejection: Google took longer than our limit to answer, or the upload did."
+
+      {:transport, reason} ->
+        "#{head}: transport error #{inspect(reason)} (no HTTP response); #{payload}"
+
+      {:http, resp} ->
+        "#{head}: HTTP #{resp.status}#{google_error(resp.body)}#{retry_after(resp)}; #{payload}"
+    end
+  end
+
+  # Google's error envelope: {"error": {"code": 503, "message": "...", "status": "UNAVAILABLE"}}
+  defp google_error(%{"error" => %{} = err}) do
+    status = err["status"]
+    message = err["message"]
+
+    [status, message && ~s("#{String.slice(message, 0, 300)}")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join(" ", & &1)
+    |> then(&if(&1 == "", do: "", else: " " <> &1))
+  end
+
+  defp google_error(body) when is_binary(body) and body != "", do: " " <> String.slice(body, 0, 300)
+  defp google_error(_), do: ""
+
+  defp retry_after(resp) do
+    case Req.Response.get_header(resp, "retry-after") do
+      [v | _] -> " (retry-after #{v})"
+      _ -> ""
+    end
+  end
+
+  defp human_bytes(b) when b >= 1_048_576, do: "#{Float.round(b / 1_048_576, 1)} MB"
+  defp human_bytes(b) when b >= 1_024, do: "#{div(b, 1_024)} KB"
+  defp human_bytes(b), do: "#{b} B"
+
   defp normalize_model(model), do: String.replace_prefix(model, "models/", "")
 
-  # text-only → one text part. i2i → text part + inline seed image part.
-  defp build_parts(prompt, nil), do: {:ok, [%{text: prompt}]}
+  # text-only → one text part. i2i → text part + inline seed image part. The
+  # third element is the seed's size on the wire (its base64), for the log.
+  defp build_parts(prompt, nil), do: {:ok, [%{text: prompt}], 0}
+  defp build_parts(prompt, ""), do: {:ok, [%{text: prompt}], 0}
 
   defp build_parts(prompt, image_url) do
     with {:ok, mime, b64} <- inline_image(image_url) do
-      {:ok, [%{text: prompt}, %{inlineData: %{mimeType: mime, data: b64}}]}
+      {:ok, [%{text: prompt}, %{inlineData: %{mimeType: mime, data: b64}}], byte_size(b64)}
     end
   end
 

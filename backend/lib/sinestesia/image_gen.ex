@@ -83,13 +83,28 @@ defmodule Sinestesia.ImageGen do
   env says. Enforced in one place, `generate/2`; the providers' own HTTP
   timeouts are only backstops a second past it (`backstop_timeout_ms/0`),
   never the thing that fires first.
+
+  The ceiling is a LIVE rule. An offline render (`mix sinestesia.video`)
+  has no audience waiting, and there a frame that takes 15 s still beats a
+  hole in the film — so that task lifts it with `lift_timeout_ceiling/1`,
+  and `IMAGE_TIMEOUT_MS` then means what the operator typed.
   """
   def timeout_ms do
+    ceiling = Application.get_env(:sinestesia, :image_timeout_ceiling_ms, @max_timeout_ms)
+
     case Integer.parse(System.get_env("IMAGE_TIMEOUT_MS", "#{@max_timeout_ms}")) do
-      {ms, _} when ms >= 1_000 -> min(ms, @max_timeout_ms)
+      {ms, _} when ms >= 1_000 -> min(ms, ceiling)
       _ -> @max_timeout_ms
     end
   end
+
+  @doc """
+  Raise the frame-deadline ceiling for this VM — offline renders only, never
+  the stage. `IMAGE_TIMEOUT_MS` is still the knob; this only stops it being
+  clamped to #{@max_timeout_ms} ms.
+  """
+  def lift_timeout_ceiling(ceiling_ms) when is_integer(ceiling_ms) and ceiling_ms >= @max_timeout_ms,
+    do: Application.put_env(:sinestesia, :image_timeout_ceiling_ms, ceiling_ms)
 
   @doc "A provider's own HTTP timeout: just past the frame deadline, so the deadline is what fires."
   def backstop_timeout_ms, do: timeout_ms() + 1_000

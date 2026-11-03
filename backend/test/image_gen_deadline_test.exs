@@ -37,6 +37,24 @@ defmodule Sinestesia.ImageGenDeadlineTest do
       System.put_env("IMAGE_TIMEOUT_MS", "6000")
       assert ImageGen.backstop_timeout_ms() == 7_000
     end
+
+    # mix sinestesia.video renders offline — no audience, so a 20 s frame
+    # beats a hole in the film. The ceiling moves; the default does not.
+    test "an offline render can lift the ceiling, and the default stays 10 s" do
+      on_exit(fn -> Application.delete_env(:sinestesia, :image_timeout_ceiling_ms) end)
+      ImageGen.lift_timeout_ceiling(120_000)
+
+      System.put_env("IMAGE_TIMEOUT_MS", "20000")
+      assert ImageGen.timeout_ms() == 20_000
+      System.put_env("IMAGE_TIMEOUT_MS", "500000")
+      assert ImageGen.timeout_ms() == 120_000
+      System.delete_env("IMAGE_TIMEOUT_MS")
+      assert ImageGen.timeout_ms() == 10_000
+    end
+
+    test "the ceiling can only be lifted, never lowered below the stage's 10 s" do
+      assert_raise FunctionClauseError, fn -> ImageGen.lift_timeout_ceiling(3_000) end
+    end
   end
 
   describe "within_deadline/2" do

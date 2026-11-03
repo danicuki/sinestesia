@@ -18,6 +18,56 @@ defmodule Sinestesia.MediaSourceTest do
     end
   end
 
+  # ── probes ────────────────────────────────────────────────────────────────
+  # Real ffmpeg/ffprobe here (the project cannot run without them): the
+  # fixtures are synthesised on the spot, so nothing binary is checked in.
+
+  describe "duration_ms/1 and has_video?/1" do
+    test "a camera take: duration from the header, video stream present" do
+      path =
+        fixture(
+          ["-f", "lavfi", "-i", "color=c=black:s=64x64:r=10", "-f", "lavfi", "-i",
+           "anullsrc=r=48000:cl=mono", "-t", "1.0", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+           "-c:a", "aac"],
+          "take.mp4"
+        )
+
+      assert {:ok, ms} = MediaSource.duration_ms(path)
+      assert_in_delta ms, 1_000, 60
+      assert MediaSource.has_video?(path)
+    end
+
+    test "a stage take: MediaRecorder-style webm with no header duration, audio only" do
+      # `-live 1` makes the webm muxer skip the duration/cues, exactly like
+      # the browser's MediaRecorder (ffprobe reports `N/A`, exit 0).
+      path =
+        fixture(
+          ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono", "-t", "1.5", "-c:a", "libopus", "-f",
+           "webm", "-live", "1"],
+          "stage.webm"
+        )
+
+      assert {:ok, ms} = MediaSource.duration_ms(path)
+      assert_in_delta ms, 1_500, 60
+      refute MediaSource.has_video?(path)
+    end
+
+    test "a missing file is an error that names the file, not a crash" do
+      assert {:error, msg} = MediaSource.duration_ms("/nonexistent/take.webm")
+      assert msg =~ "/nonexistent/take.webm"
+      refute MediaSource.has_video?("/nonexistent/take.webm")
+    end
+  end
+
+  defp fixture(ffmpeg_args, name) do
+    path = Path.join(tmp_out(), name)
+
+    {_, 0} =
+      System.cmd("ffmpeg", ["-v", "error", "-y"] ++ ffmpeg_args ++ [path], stderr_to_stdout: true)
+
+    path
+  end
+
   # ── shim harness ──────────────────────────────────────────────────────────
   # A shim dir replaces PATH entirely: find_executable sees exactly the tools
   # the test installs, and System.cmd runs them. Each shim logs its argv so
@@ -175,6 +225,12 @@ defmodule Sinestesia.MediaSourceTest do
   describe "separate_vocals/2" do
     test "finds vocals.wav wherever the demucs version put it" do
       out = tmp_out()
+
+      # The assertion below is on the DEFAULT device; a developer shell that
+      # exports DEMUCS_DEVICE=mps (every Apple Silicon setup) must not leak in.
+      prev = System.get_env("DEMUCS_DEVICE")
+      System.delete_env("DEMUCS_DEVICE")
+      on_exit(fn -> if prev, do: System.put_env("DEMUCS_DEVICE", prev) end)
 
       # The model-name path segment varies across Demucs versions — the shim
       # uses a deliberately unexpected one to prove the glob doesn't assume.

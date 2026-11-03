@@ -329,7 +329,7 @@ defmodule Sinestesia.Config do
       default: "10000",
       values: "1000-10000",
       doc:
-        "The one deadline for a frame, every provider and route, the i2i→t2i fallback and the local morph included. A frame that takes longer is abandoned (`[image_gen] frame abandoned …` names the provider, model, route and upload size) and the song moves on — a picture that late is worse than none. Hard ceiling 10000 whatever the value; the providers' own HTTP timeouts are only backstops just past it."
+        "The one deadline for a frame, every provider and route, the i2i→t2i fallback and the local morph included. A frame that takes longer is abandoned (`[image_gen] frame abandoned …` names the provider, model, route and upload size) and the song moves on — a picture that late is worse than none. Hard ceiling 10000 whatever the value on the live path; `mix sinestesia.video` renders offline and lifts the ceiling to 120000, so there the value is honoured as typed. The providers' own HTTP timeouts are only backstops just past it."
     },
     %{
       key: "IMAGE_MODE",
@@ -361,6 +361,14 @@ defmodule Sinestesia.Config do
       default: "gemini-3.1-flash-lite-image",
       doc:
         "Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed."
+    },
+    %{
+      key: "GOOGLE_SEED_MAX_PX",
+      group: :image,
+      default: "1024",
+      values: "0 (send as-is) | longest side in px",
+      doc:
+        "For IMAGE_PROVIDER=google i2i, the previous frame is re-encoded as a JPEG no wider than this before it is inlined as the seed (~160 ms of ffmpeg). Google's own 1376×768 PNG is ~1.2 MB and sent back on every line, and i2i with it measured 6–20 s against ~4 s for t2i; at 1024 px the upload is ~6× smaller. 0 sends the frame untouched."
     },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────

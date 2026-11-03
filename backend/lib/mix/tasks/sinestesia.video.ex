@@ -186,6 +186,14 @@ defmodule Mix.Tasks.Sinestesia.Video do
       System.put_env(k, v)
     end
 
+    # No audience here: a frame that takes 15 s still beats a hole in the
+    # film, so IMAGE_TIMEOUT_MS is honoured as typed instead of clamped to
+    # the stage's 10 s. The default stays 10 s — only the ceiling moves.
+    Sinestesia.ImageGen.lift_timeout_ceiling(120_000)
+
+    if System.get_env("IMAGE_TIMEOUT_MS"),
+      do: Mix.shell().info("[image] frame deadline #{Sinestesia.ImageGen.timeout_ms()}ms (offline render: IMAGE_TIMEOUT_MS not clamped to 10 s)")
+
     stt =
       case opts[:stt] do
         nil -> Sinestesia.BatchStt.provider()
@@ -333,7 +341,7 @@ defmodule Mix.Tasks.Sinestesia.Video do
     pip =
       cond do
         not media.has_video? and opts[:pip] not in [nil, "off"] ->
-          Mix.shell().info("[compose] --pip ignored: a URL source has no artist footage")
+          Mix.shell().info("[compose] --pip ignored: the source has no video stream (audio-only take or URL download)")
           "off"
 
         not media.has_video? ->
@@ -403,17 +411,26 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
       %{compose: audio, stt: stt_media, title: title, has_video?: false, cache: out_dir}
     else
-      %{compose: input, stt: input, title: nil, has_video?: true, cache: nil}
+      # A take saved from the stage is audio-only (MediaRecorder, mic track
+      # only) even though it sits where a camera take would — probe, don't assume.
+      %{
+        compose: input,
+        stt: input,
+        title: nil,
+        has_video?: Sinestesia.MediaSource.has_video?(input),
+        cache: nil
+      }
     end
   end
 
   defp format_tool_error({:tool_missing, bin, hint}), do: "#{bin} not found — #{hint}"
   defp format_tool_error(other), do: inspect(other)
 
-  # A camera take's output lands next to the take; a URL's "directory" is a
-  # tmp download dir nobody will look in, so the output lands in cwd.
-  defp default_out(%{has_video?: true, compose: video}, name),
-    do: Path.join(Path.dirname(video), "#{name}-sinestesia.mp4")
+  # A local take's output (camera or audio-only) lands next to the take; a
+  # URL's "directory" is a tmp download dir nobody will look in, so the
+  # output lands in cwd.
+  defp default_out(%{cache: nil, compose: take}, name),
+    do: Path.join(Path.dirname(take), "#{name}-sinestesia.mp4")
 
   defp default_out(_media, name), do: Path.expand("#{name}-sinestesia.mp4")
 
@@ -1615,15 +1632,13 @@ defmodule Mix.Tasks.Sinestesia.Video do
 
   # ── small helpers (same shapes as mix sinestesia.replay) ─────────────────
 
+  # Stage takes are MediaRecorder webms with no duration in the header;
+  # MediaSource knows how to measure those.
   defp probe_duration_ms(path) do
-    {out, 0} =
-      System.cmd("ffprobe", [
-        "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", path
-      ])
-
-    {sec, _} = Float.parse(String.trim(out))
-    round(sec * 1000)
+    case Sinestesia.MediaSource.duration_ms(path) do
+      {:ok, ms} -> ms
+      {:error, reason} -> Mix.raise(reason)
+    end
   end
 
   defp probe_even_dims(image) do

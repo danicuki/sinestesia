@@ -56,6 +56,61 @@ defmodule Sinestesia.ImageGen.GeminiImageTest do
              ~s|HTTP 503 UNAVAILABLE "The model is overloaded. Please try again later." (retry-after 7)|
   end
 
+  # The i2i seed is Google's own ~1.2 MB PNG sent straight back; shrinking it
+  # is what keeps i2i inside the frame deadline. Real ffmpeg, synthetic frame.
+  describe "shrink_seed/3" do
+    test "re-encodes a big PNG as a JPEG no wider than max_px, much smaller" do
+      {png, w, h} = synthetic_png(1376, 768)
+      {mime, b64} = GeminiImage.shrink_seed("image/png", Base.encode64(png), 1024)
+
+      assert mime == "image/jpeg"
+      jpeg = Base.decode64!(b64)
+      assert byte_size(jpeg) < byte_size(png) / 3
+      assert {1024, 572} == dims(jpeg)
+      assert {w, h} == {1376, 768}
+    end
+
+    test "a frame already smaller than max_px is not upscaled" do
+      {png, _, _} = synthetic_png(640, 360)
+      {_, b64} = GeminiImage.shrink_seed("image/png", Base.encode64(png), 1024)
+      assert {640, 360} == dims(Base.decode64!(b64))
+    end
+
+    test "max_px 0 sends the seed untouched" do
+      assert {"image/png", "abc"} == GeminiImage.shrink_seed("image/png", "abc", 0)
+    end
+
+    test "bytes ffmpeg cannot read fall back to the original seed, never to no seed" do
+      b64 = Base.encode64("not an image at all")
+      assert {"image/png", ^b64} = GeminiImage.shrink_seed("image/png", b64, 1024)
+    end
+  end
+
+  defp synthetic_png(w, h) do
+    path = Path.join(System.tmp_dir!(), "gemini-seed-#{System.os_time(:nanosecond)}.png")
+
+    {_, 0} =
+      System.cmd("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=#{w}x#{h}:r=1,noise=alls=20:allf=t",
+                            "-frames:v", "1", path], stderr_to_stdout: true)
+
+    png = File.read!(path)
+    File.rm!(path)
+    {png, w, h}
+  end
+
+  defp dims(bytes) do
+    path = Path.join(System.tmp_dir!(), "gemini-seed-#{System.os_time(:nanosecond)}.jpg")
+    File.write!(path, bytes)
+
+    {out, 0} =
+      System.cmd("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                             "-of", "csv=p=0", path])
+
+    File.rm!(path)
+    [w, h] = out |> String.trim() |> String.split(",") |> Enum.map(&String.to_integer/1)
+    {w, h}
+  end
+
   test "any other transport error names itself and says no HTTP response came" do
     line =
       GeminiImage.failure_line(

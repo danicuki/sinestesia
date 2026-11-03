@@ -369,19 +369,13 @@ defmodule Mix.Tasks.Sinestesia.Replay do
           audio_dest = Path.join(dir, audio_filename)
           {:ok, _} = File.copy(audio_path, audio_dest)
 
-          # Query audio duration
-          audio_duration_str =
-            run_cmd!("ffprobe", [
-              "-v",
-              "error",
-              "-show_entries",
-              "format=duration",
-              "-of",
-              "default=noprint_wrappers=1:nokey=1",
-              audio_dest
-            ])
-
-          {audio_duration, _} = Float.parse(audio_duration_str)
+          # Query audio duration (stage takes are MediaRecorder webms with no
+          # duration in the header — MediaSource falls back to a packet scan)
+          audio_duration =
+            case Sinestesia.MediaSource.duration_ms(audio_dest) do
+              {:ok, ms} -> ms / 1000
+              {:error, reason} -> Mix.raise(reason)
+            end
 
           # Prepend a matching black.png if there's a musical introduction
           first_frame = List.first(frames)

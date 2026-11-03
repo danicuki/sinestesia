@@ -24,6 +24,109 @@ defmodule Sinestesia.MediaSource do
   def url?(arg), do: String.match?(arg, ~r{^https?://})
 
   @doc """
+  Does this file carry a video stream?
+
+  A camera take does; a take saved from the stage is a MediaRecorder webm
+  with the microphone only, and a YouTube download is audio by design. The
+  composer must know, because its artist PIP references `[1:v]` and ffmpeg
+  refuses the whole filtergraph when that stream does not exist.
+  """
+  @spec has_video?(Path.t()) :: boolean()
+  def has_video?(path) do
+    case ffprobe([
+           "-select_streams",
+           "v:0",
+           "-show_entries",
+           "stream=codec_type",
+           "-of",
+           "csv=p=0",
+           path
+         ]) do
+      {out, 0} -> String.contains?(out, "video")
+      _ -> false
+    end
+  end
+
+  @doc """
+  The length of an audio/video file in milliseconds.
+
+  Reads the container header first. A take saved from the stage is a
+  MediaRecorder webm, and that header carries no duration (`ffprobe` prints
+  `N/A` with exit 0), so it then falls back to scanning the audio packets
+  and taking the last timestamp — that IS the song's end, it just costs a
+  decode pass instead of a header read.
+  """
+  @spec duration_ms(Path.t()) :: {:ok, non_neg_integer()} | {:error, String.t()}
+  def duration_ms(path) do
+    with {out, 0} <-
+           ffprobe([
+             "-show_entries",
+             "format=duration",
+             "-of",
+             "default=noprint_wrappers=1:nokey=1",
+             path
+           ]),
+         {sec, _} <- Float.parse(String.trim(out)) do
+      {:ok, round(sec * 1000)}
+    else
+      :error ->
+        duration_ms_by_packets(path)
+
+      {out, status} ->
+        {:error, "ffprobe failed on #{path} (status #{status}): #{String.trim(out)}"}
+    end
+  end
+
+  # Decoder warnings ("Error parsing Opus packet header" on a truncated last
+  # packet) land in the same output even at `-v error`, so the packet rows
+  # are picked out by shape rather than taken from the tail blindly.
+  defp duration_ms_by_packets(path) do
+    case ffprobe([
+           "-select_streams",
+           "a:0",
+           "-show_entries",
+           "packet=pts_time,duration_time",
+           "-of",
+           "csv=p=0",
+           path
+         ]) do
+      {out, 0} ->
+        out
+        |> String.split("\n", trim: true)
+        |> Enum.reverse()
+        |> Enum.find_value(&packet_end_s/1)
+        |> case do
+          nil ->
+            {:error,
+             "could not read the length of #{path}: the container has no duration and " <>
+               "ffprobe found no audio packets — is this a finished recording?"}
+
+          end_s ->
+            {:ok, round(end_s * 1000)}
+        end
+
+      {out, status} ->
+        {:error, "ffprobe failed on #{path} (status #{status}): #{String.trim(out)}"}
+    end
+  end
+
+  # "116.461000,0.060000" → 116.521; anything that isn't a packet row → nil
+  defp packet_end_s(line) do
+    case String.split(line, ",") |> Enum.map(&Float.parse/1) do
+      [{pts, ""} | rest] ->
+        case rest do
+          [{dur, ""} | _] -> pts + dur
+          _ -> pts
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp ffprobe(args), do: System.cmd("ffprobe", ["-v", "error" | args], stderr_to_stdout: true)
+
+  @doc """
   The persistent cache directory for a URL's downloaded/derived media.
 
   Keyed by the URL's hash under the OS user-cache dir (XDG-aware via

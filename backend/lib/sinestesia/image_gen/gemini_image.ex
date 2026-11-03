@@ -169,7 +169,71 @@ defmodule Sinestesia.ImageGen.GeminiImage do
 
   defp build_parts(prompt, image_url) do
     with {:ok, mime, b64} <- inline_image(image_url) do
+      {mime, b64} = shrink_seed(mime, b64, seed_max_px())
       {:ok, [%{text: prompt}, %{inlineData: %{mimeType: mime, data: b64}}], byte_size(b64)}
+    end
+  end
+
+  # ── seed size ─────────────────────────────────────────────────────────────
+  # The seed of an i2i call is Google's OWN previous frame: a 1376×768 PNG of
+  # ~1.2 MB, sent straight back as base64 (~1.6 MB on the wire) on every
+  # line of the song. Measured 2026-11-03: t2i answered in ~4 s while i2i
+  # with that seed took 6 s to 20 s+ and blew the frame deadline. Re-encoding
+  # it as a 1024 px JPEG costs ~160 ms of ffmpeg and cuts the upload ~6×;
+  # the model is drawing the next scene over it, not inspecting pixels.
+  @default_seed_max_px 1024
+
+  defp seed_max_px do
+    case Integer.parse(System.get_env("GOOGLE_SEED_MAX_PX", "#{@default_seed_max_px}")) do
+      {px, _} when px >= 0 -> px
+      _ -> @default_seed_max_px
+    end
+  end
+
+  @doc false
+  # `max_px` 0 sends the seed as it came. Anything that goes wrong in the
+  # shrink (no ffmpeg, odd bytes) falls back to the original bytes: a bigger
+  # upload is a slower frame, a lost seed is a lost frame.
+  def shrink_seed(mime, b64, 0), do: {mime, b64}
+
+  def shrink_seed(mime, b64, max_px) do
+    with {:ok, bytes} <- Base.decode64(b64),
+         {:ok, jpeg} <- transcode(bytes, max_px) do
+      Logger.debug(
+        "[google-image] seed #{human_bytes(byte_size(bytes))} #{mime} → " <>
+          "#{human_bytes(byte_size(jpeg))} jpeg ≤#{max_px}px for the upload"
+      )
+
+      {"image/jpeg", Base.encode64(jpeg)}
+    else
+      _ -> {mime, b64}
+    end
+  end
+
+  # System.cmd has no stdin, so the seed goes through two temp files; ffmpeg
+  # is the one image tool this codebase already depends on everywhere.
+  defp transcode(bytes, max_px) do
+    tag = "#{System.os_time(:nanosecond)}-#{:erlang.unique_integer([:positive])}"
+    src = Path.join(System.tmp_dir!(), "sinestesia-seed-#{tag}.in")
+    dst = Path.join(System.tmp_dir!(), "sinestesia-seed-#{tag}.jpg")
+
+    try do
+      File.write!(src, bytes)
+
+      args = [
+        "-v", "error", "-y", "-i", src,
+        "-vf", "scale='min(#{max_px},iw)':-2", "-q:v", "4", "-f", "mjpeg", dst
+      ]
+
+      case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
+        {_, 0} -> File.read(dst)
+        {out, status} -> {:error, {:ffmpeg, status, String.trim(out)}}
+      end
+    rescue
+      e -> {:error, e}
+    after
+      File.rm(src)
+      File.rm(dst)
     end
   end
 

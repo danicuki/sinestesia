@@ -12,7 +12,9 @@
 //
 // Text only, with a shadow rather than a box: the picture is the show and this
 // sits on top of it. Pure DOM, pointer-transparent. Reads only PROTOCOL.md
-// `transcript` messages (live) or a replay's per-frame `lyric` (demo/take).
+// `transcript` messages — live from the socket, or replayed from a saved
+// take's `events` at their recorded times — or a demo sequence's per-frame
+// `lyric`.
 
 import type { TranscriptMsg } from "./socket";
 
@@ -89,13 +91,14 @@ export class LyricsOverlay {
     document.body.appendChild(this.root);
   }
 
-  /** Live path: every `transcript` message, interim or final. */
-  setTranscript(m: TranscriptMsg) {
+  /** Every `transcript` message, interim or final — live from the socket, or
+   *  a saved take's recorded transcript replayed at the time it arrived. */
+  setTranscript(m: Pick<TranscriptMsg, "text" | "isFinal">) {
     this.show(m.text, m.isFinal);
   }
 
-  /** Replay path (demo sequences, saved takes): a line that was sung for this
-   *  frame. Empty = musical introduction, nothing to show. */
+  /** Demo sequences: the line that was sung for this frame. Empty = musical
+   *  introduction, nothing to show. */
   showLine(text: string | undefined) {
     if (!text || !text.trim()) {
       this.clear();

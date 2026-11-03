@@ -623,9 +623,30 @@ defmodule Sinestesia.Director do
   defp gemini_role("assistant"), do: "model"
   defp gemini_role(role), do: role
 
-  defp clean(text) do
-    text
-    |> String.trim()
+  @doc false
+  # Every Director mode asks for ONE line. Models still answer with more:
+  # a preamble, or — seen live 2026-11-03 with gemini-3.1-flash-lite in
+  # whole-scene mode — their previous answers echoed back, four paragraphs
+  # each a superset of the last. All of it went to the image provider and
+  # the debug strip as the prompt. The answer is the LAST non-empty line:
+  # the newest scene in an echo, the prompt after a preamble, the single
+  # NEW:/ATMOS: line in compose mode.
+  def clean(text) do
+    lines =
+      text
+      |> String.split(~r/\r?\n/)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    if length(lines) > 1 do
+      Logger.warning(
+        "[director] replied with #{length(lines)} lines where one was asked; " <>
+          "keeping the last (dropped: #{lines |> Enum.drop(-1) |> Enum.join(" / ") |> String.slice(0, 160)}…)"
+      )
+    end
+
+    lines
+    |> List.last("")
     |> String.trim_leading("\"")
     |> String.trim_trailing("\"")
   end

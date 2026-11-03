@@ -13,8 +13,8 @@
 // Text only, with a shadow rather than a box: the picture is the show and this
 // sits on top of it. Pure DOM, pointer-transparent. Reads only PROTOCOL.md
 // `transcript` messages — live from the socket, or replayed from a saved
-// take's `events` at their recorded times — or a demo sequence's per-frame
-// `lyric`.
+// take's `events` at their recorded times — or a replayed frame's own
+// `lyric`, when it carries one.
 
 import type { TranscriptMsg } from "./socket";
 

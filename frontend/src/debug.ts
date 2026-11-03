@@ -11,7 +11,6 @@ import type {
   StructureMsg,
   Timings,
 } from "./socket";
-import type { SampleSequence } from "./samples";
 
 const COL = {
   stt: "#6ee7b7", // green
@@ -39,8 +38,6 @@ export class DebugOverlay {
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
   private elHistory: HTMLDivElement;
-  private elSamples: HTMLDivElement;
-  private elParams: HTMLDivElement;
 
   private history: TimingEntry[] = [];
   private lastAudioPaint = 0; // throttle the per-frame meter to ~12Hz
@@ -106,8 +103,6 @@ export class DebugOverlay {
     this.elError.parentElement!.hidden = true;
 
     this.elHistory = this.section(run, "history (last 5)");
-    this.elSamples = this.section(run, "sample sequences");
-    this.elParams = this.section(run, "run params");
 
     this.root.append(sound, words, run);
     document.body.appendChild(this.root);
@@ -140,26 +135,9 @@ export class DebugOverlay {
     this.elPrompt.textContent = prompt || "—";
   }
 
-  // Sample-replay lyric for the current frame (demo player). Cleared with "—".
+  // Replay lyric for the current frame (take player). Cleared with "—".
   setSampleLyric(lyric?: string) {
     this.elLyric.textContent = lyric || "—";
-  }
-
-  // Sample-replay run recipe as a sorted key=value table (demo player). Sorted
-  // so two runs line up for visual A/B comparison. Absent params clears it.
-  setSampleParams(params?: Record<string, string>) {
-    const keys = params ? Object.keys(params).sort() : [];
-    if (keys.length === 0) {
-      this.elParams.textContent = "—";
-      return;
-    }
-    this.elParams.innerHTML = keys
-      .map(
-        (k) =>
-          span(`${escapeHtml(k)} = `, COL.dim) +
-          span(escapeHtml(params![k]), COL.final),
-      )
-      .join("\n");
   }
 
   // Live Rail-1 meter (called every frame; throttled to ~12Hz to spare layout).
@@ -317,55 +295,6 @@ export class DebugOverlay {
     const p = provider ? `[${provider}] ` : "";
     this.elError.parentElement!.hidden = false;
     this.elError.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
-  }
-
-  // Clickable list of the pre-generated sample sequences. Picking one replays
-  // it into the scene (onPick) so the transition shader can be iterated without
-  // a mic or the backend. The overlay root is pointer-transparent, so this
-  // section opts back into pointer events.
-  // A combo, not one link per sequence: this list is as long as the sample
-  // catalog and it sat in a fixed-height overlay, so every added sequence stole
-  // another line from the stage. One row, whatever the catalog size.
-  setSamples(seqs: SampleSequence[], onPick: (slug: string) => void) {
-    this.elSamples.innerHTML = "";
-    this.elSamples.style.pointerEvents = "auto";
-    if (seqs.length === 0) return;
-
-    const select = document.createElement("select");
-    Object.assign(select.style, {
-      maxWidth: "100%",
-      background: "rgba(0,0,0,0.55)",
-      border: "1px solid #374151",
-      borderRadius: "2px",
-      color: COL.dir,
-      font: "inherit",
-      padding: "2px 4px",
-      cursor: "pointer",
-    } as CSSStyleDeclaration);
-
-    // A placeholder first option, so picking the sequence that happens to be
-    // first in the list still fires a change event.
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "▸ play a sample…";
-    select.appendChild(placeholder);
-
-    for (const s of seqs) {
-      const opt = document.createElement("option");
-      opt.value = s.slug;
-      opt.textContent = s.title;
-      opt.title = s.description;
-      select.appendChild(opt);
-    }
-
-    select.addEventListener("change", () => {
-      const slug = select.value;
-      if (!slug) return;
-      onPick(slug);
-      select.value = ""; // back to the placeholder, ready for the next pick
-    });
-
-    this.elSamples.appendChild(select);
   }
 }
 

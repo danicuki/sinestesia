@@ -149,16 +149,15 @@ finished sequence and compile a synchronized MP4:
 REPLAY_SPEED=20 mix sinestesia.replay ../tests/sessions/jorge-vercilo---homem-aranha.json --slug homem-aranha
 ```
 
-The task exports all generated frames and updates
-`frontend/public/samples/index.json`.
+The task exports all generated frames under `frontend/public/samples/<slug>/`
+and compiles a **synchronized MP4**: a high-compatibility H.264/AAC video
+(`video.mp4` in that directory) with `ffmpeg`. If a song opens with a long
+instrumental, the video starts with a matching blank canvas, then rapid
+synthetic crossfades aligned to the song's real timeline.
 
-- **Interactive audio sync**: `http://localhost:5173/?demo=homem-aranha` shows a
-  custom glassmorphic audio player that keeps the Three.js crossfade transitions
-  in lockstep with the song's playhead during playback and scrub.
-- **Synchronized MP4**: the task compiles a high-compatibility H.264/AAC video
-  (`video.mp4` in the sample directory) with `ffmpeg`. If a song opens with a
-  long instrumental, the video starts with a matching blank canvas, then rapid
-  synthetic crossfades aligned to the song's real timeline.
+To watch a performance in the browser, use the stage's own **Save take / Load
+take**: a take ships as JSON + webm and replays with the live transitions over
+its own audio (the old `?demo=<slug>` sample player is gone).
 
 ### ⚙️ Configuration
 

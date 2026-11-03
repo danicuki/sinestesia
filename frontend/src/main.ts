@@ -16,7 +16,6 @@ import { TakeAudioRecorder } from "./take_audio";
 import { TakePlayerControl } from "./take_player";
 import { SongLibraryControl } from "./song_library";
 import { MicPanel } from "./mic";
-import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
 import { VerifyBadge } from "./verify_badge";
 import { MintToast } from "./mint_toast";
@@ -26,7 +25,6 @@ const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
 const DEBUG = params.has("debug");
 const CLEAN = params.has("clean"); // hide rehearsal chrome for a clean stage demo
-const DEMO = params.get("demo"); // sample sequence slug (or "" for the default)
 
 const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
@@ -72,8 +70,8 @@ const scene = new Scene(canvas);
 // even before the mic is unlocked.
 let fast: FastFeatures | null = null;
 let mic: MicPanel | null = null;
-// When a sample sequence is playing, this advances the continuous morph each
-// frame (see playDemo). Null on the live path.
+// When a saved take is replaying without audio, this advances it against the
+// wall clock each frame (see playTimeline). Null on the live path.
 let demoUpdate: (() => void) | null = null;
 // Assigned in start() (skipped under ?mock=1). Declared here, not there, so the
 // render loop below — which starts immediately, before start() runs — can send
@@ -105,129 +103,30 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-// ---- Sample-sequence playback (dev) ----
-// Replays the pre-generated accumulative sequences into the scene to iterate
-// the transition shader without a mic or backend. Driven by ?demo=<slug> and/or
-// the picker in the debug overlay. Works on page load — no audio needed.
-//
-// Playback is a single continuous timeline over preloaded textures rather than
-// discrete "transition then settle" steps: a global phase advances forever and
-// the morph chains frame→frame with no pause. Seconds the front takes to sweep
-// one accumulation step — bigger = slower, more deliberate morph.
-const DEMO_SEGMENT_MS = 5500;
-
-let sampleSeqs: SampleSequence[] = [];
-let demoGen = 0; // invalidates a sequence whose textures are still preloading
+// ---- Take playback ----
+let demoGen = 0; // invalidates a take whose textures are still preloading
 let activePlayer: AudioPlayerUI | null = null;
-
-async function ensureSequences(): Promise<SampleSequence[]> {
-  if (sampleSeqs.length === 0) sampleSeqs = await loadSequences();
-  return sampleSeqs;
-}
-
-async function playDemo(slug: string) {
-  const gen = ++demoGen;
-  demoUpdate = null; // freeze current playback while we resolve the new one
-
-  if (activePlayer) {
-    activePlayer.destroy();
-    activePlayer = null;
-  }
-
-  let seqs: SampleSequence[];
-  try {
-    seqs = await ensureSequences();
-  } catch (err) {
-    console.warn("[demo] failed to load /samples/index.json:", err);
-    return;
-  }
-  const seq = seqs.find((s) => s.slug === slug) ?? seqs[0];
-  if (!seq) {
-    console.warn("[demo] no sample sequences available");
-    return;
-  }
-  if (seq.slug !== slug) {
-    console.warn(
-      `[demo] unknown sequence "${slug}" — playing "${seq.slug}". Available:`,
-      seqs.map((s) => s.slug).join(", "),
-    );
-  }
-
-  debug?.setSampleParams(seq.params);
-
-  if (seq.audio) {
-    await playTimeline(
-      seq.frames.map((f) => ({
-        at_ms: f.at_ms ?? 0,
-        url: frameUrl(f),
-        prompt: f.prompt,
-        lyric: f.lyric,
-      })),
-      `/samples/${seq.audio}`,
-      `demo ${seq.slug}`,
-    );
-    return;
-  }
-
-  // Legacy / fallback timer loop (old exports without at_ms): fixed cadence.
-  const texes = await scene
-    .preload(seq.frames.map(frameUrl))
-    .catch((err) => {
-      console.warn(`[demo] failed to preload "${seq.slug}":`, err);
-      return null;
-    });
-  if (!texes) return;
-  if (gen !== demoGen) return; // a newer pick superseded us mid-load
-
-  const n = texes.length;
-  let shown = -1;
-
-  const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
-  const m = uniqueIdxs.size;
-  const ratio = m > 0 ? n / m : 1;
-  const stepDur = DEMO_SEGMENT_MS / ratio;
-
-  const start = performance.now();
-  console.log(
-    `[demo] "${seq.slug}" — ${n} frames, legacy loop @ ${stepDur.toFixed(0)}ms/step (no audio)`,
-  );
-
-  demoUpdate = () => {
-    const phase = (performance.now() - start) / stepDur;
-    const i = Math.floor(phase) % n;
-    const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
-    const next = (i + 1) % n;
-    scene.setMorph(texes[i], texes[next], t);
-    if (next !== shown) {
-      debug?.setPrompt(seq.frames[next].prompt);
-      debug?.setSampleLyric(seq.frames[next].lyric);
-      lyricsOverlay?.showLine(seq.frames[next].lyric);
-      shown = next;
-    }
-  };
-}
 
 type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: string };
 type TimelineWord = { at_ms: number; text: string; final: boolean };
 
-// One audio-synced playback shared by the demo player (pre-exported sequences)
-// and the take player (saved takes): preload the frames, then advance along
-// the timeline against the audio playhead — or against the wall clock when
-// there is no audio, for a take saved without its .webm.
+// Audio-synced playback of a saved take: preload the frames, then advance
+// along the timeline against the audio playhead — or against the wall clock
+// when there is no audio, for a take saved without its .webm.
 //
-// Two looks, deliberately different: demo sequences are accumulative morph
-// sub-frames, so they crossfade continuously edge to edge (setMorph, no warp).
-// A take replays what the STAGE showed, so `live: true` reproduces the live
-// transition instead — each reveal ink-bleeds in from the previous image over
-// the same adaptive duration the live scene would have picked, then settles.
+// Two looks: `live: false` crossfades frame to frame edge to edge (setMorph,
+// no warp). A take replays what the STAGE showed, so `live: true` reproduces
+// the live transition instead — each reveal ink-bleeds in from the previous
+// image over the same adaptive duration the live scene would have picked,
+// then settles.
 //
-// Two feeds for the karaoke line, likewise: a demo sequence carries a `lyric`
-// per frame, so the line changes with the picture. A take carries no lyric
-// per frame but the whole stream of `transcripts` — every interim and final,
-// stamped when it reached the browser — so the line is driven from those at
-// their own times and the frames leave it alone (a frame without a lyric
-// would otherwise wipe the words at every reveal, which is exactly how the
-// karaoke line went missing from loaded takes).
+// Two feeds for the karaoke line, likewise: a frame may carry its own `lyric`,
+// so the line changes with the picture. A take carries no lyric per frame but
+// the whole stream of `transcripts` — every interim and final, stamped when it
+// reached the browser — so the line is driven from those at their own times
+// and the frames leave it alone (a frame without a lyric would otherwise wipe
+// the words at every reveal, which is exactly how the karaoke line went
+// missing from loaded takes).
 async function playTimeline(
   frames: TimelineFrame[],
   audioUrl: string | null,
@@ -342,23 +241,10 @@ async function playTimeline(
   }
 }
 
-// Populate the debug picker (click a sequence to replay it in the scene).
-if (debug) {
-  ensureSequences()
-    .then((seqs) => debug!.setSamples(seqs, (slug) => playDemo(slug)))
-    .catch((err) => console.warn("[debug] samples unavailable:", err));
-}
-
-// ?demo=<slug> auto-plays on load, bypassing the mic gate entirely.
-if (DEMO !== null) {
-  gate.classList.add("hidden");
-  playDemo(DEMO);
-}
-
 // "Load take" — faithful playback of a saved take (what the browser actually
 // showed, over the take's own .webm). Mounted outside start() so a take
-// replays without unlocking the mic; loading one drops the start gate, like
-// ?demo does — reload to go back to the live path.
+// replays without unlocking the mic; loading one drops the start gate —
+// reload to go back to the live path.
 if (!CLEAN) {
   new TakePlayerControl((take) => {
     gate.classList.add("hidden");

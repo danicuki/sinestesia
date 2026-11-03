@@ -21,8 +21,8 @@ export type TakePlayback = {
   name: string;
   frames: TakeFrame[];
   // The take's transcripts, on the same clock as `frames`. A take has no
-  // per-frame `lyric` (that is the demo sequences' shape); what it has is
-  // the full stream of words, so the karaoke line replays from these.
+  // per-frame `lyric`; what it has is the full stream of words, so the
+  // karaoke line replays from these.
   transcripts: TakeWord[];
   audioUrl: string | null;
 };

@@ -34,8 +34,7 @@ What the voice model heard is painted big, centred, in the lower third of the
 stage — interims as the phrase is sung, the final locked, the previous line kept
 smaller above it until the next phrase starts, fading out after 7 s of silence.
 It is on in every view, `?clean=1` included; `?no-lyrics` hides it. Under
-`?debug=1` it moves above the instrumentation strip and drops a size. Demo
-sequences (`?demo=<slug>`) show each frame's recorded `lyric` the same way. A
+`?debug=1` it moves above the instrumentation strip and drops a size. A
 loaded take replays its `events` — every transcript, interim and final, at the
 time it reached the browser — so the line runs exactly as it did on stage.
 

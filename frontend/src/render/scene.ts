@@ -91,7 +91,10 @@ export class Scene {
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    // The canvas's CSS box, not the window: under ?debug the stylesheet gives
+    // the picture only the band above the instrumentation strip (index.html),
+    // and the drawing buffer has to match that box or the frames stretch.
+    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -113,7 +116,7 @@ export class Scene {
         uTexCurrent: { value: ph },
         uTexPrev: { value: ph },
         uResolution: {
-          value: new THREE.Vector2(window.innerWidth, window.innerHeight),
+          value: new THREE.Vector2(canvas.clientWidth, canvas.clientHeight),
         },
       },
     });
@@ -121,15 +124,18 @@ export class Scene {
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
     this.scene.add(quad);
 
-    window.addEventListener("resize", () => this.onResize());
+    // ResizeObserver, not the window event: the canvas box also changes when
+    // only its CSS does (entering fullscreen re-solves the vh-based band).
+    new ResizeObserver(() => this.onResize()).observe(canvas);
   }
 
   private onResize() {
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
-    this.material.uniforms.uResolution.value.set(
-      window.innerWidth,
-      window.innerHeight,
-    );
+    const canvas = this.renderer.domElement;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    this.renderer.setSize(w, h, false);
+    this.material.uniforms.uResolution.value.set(w, h);
   }
 
   /** Feed Rail 1 features (call before render each frame). */

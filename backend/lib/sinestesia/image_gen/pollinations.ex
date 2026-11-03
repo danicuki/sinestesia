@@ -29,7 +29,7 @@ defmodule Sinestesia.ImageGen.Pollinations do
 
     # Pre-fetch HEAD to nudge Pollinations to render and to verify availability.
     # If this fails, we still return the URL — the browser will retry.
-    case Req.head(url, receive_timeout: 12_000, retry: false) do
+    case Req.head(url, receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(), retry: false) do
       {:ok, %{status: status}} when status in 200..299 ->
         {:ok, url}
 

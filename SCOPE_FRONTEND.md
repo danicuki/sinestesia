@@ -188,21 +188,37 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
   hard-fails if WASM init misbehaves on the venue laptop.
 - `src/socket.ts`: typed WS to `ws://localhost:4000/ws/audio`, binary audio,
   JSON `expressive`/`fast_features`/`ping`, backoff reconnect (250ms→5s), 5s
-  ping. Inbound `transcript` (logged), `image` (600ms crossfade), `error`,
-  `pong`. Unknown types ignored.
+  ping. Inbound `transcript` (logged + karaoke line), `image` (600ms
+  crossfade), `error`, `pong`. Unknown types ignored.
 - `src/render/scene.ts` + shaders: fullscreen quad, two-texture crossfade,
   FFT-driven UV warp + RMS saturation/bloom + onset flash + grain + vignette.
 - `?mock=1` render-only path (no WS, rotates 3 sample images, logs sends).
 - `?debug=1` overlay (`src/debug.ts`): full-width strip along the bottom, small
   monospace, 60% opacity, semi-translucent black (spans the screen so long text
   wraps over fewer vertical lines and covers less of the image). Two columns:
-  **left** = last transcript `[provider] +Xms: "texto"` (interim dimmer than
-  final) + last Director prompt (takes the slack and wraps); **right** = rolling
+  **left** = last Director prompt (takes the slack and wraps) — the transcript
+  moved to the karaoke line below, and a "last error" row appears only once a
+  backend error arrives; **right** = rolling
   history of the last 5 timing lines `STT | DIR | IMG | TOT ms (provider)`
   color-coded per field, each with a relative `-Xs` timestamp refreshed each
   second (top row = latest cycle, so no separate "current timing" line). Reads the new `provider` /
   `latency_ms` (transcript) and `timings` block (image) from PROTOCOL.md. Socket
   callbacks now pass `TranscriptMsg` / `ImageMsg` objects carrying those fields.
+- Karaoke line (`src/lyrics_overlay.ts`): the transcript, big and centred in
+  the lower third of the stage, for the audience rather than the sound desk —
+  the debug strip's 11px monospace was unreadable past the first row. Interims
+  paint the phrase as it is sung (85% opacity), the final locks it, and when the
+  next phrase starts the finished line moves up as a dimmer, smaller "previous"
+  line so a line is never snatched away by the one-word interim that follows it.
+  Shows the last 14 words of a long phrase (a gapless chorus runs an interim to
+  20 s). Fades out after 7 s without words, cleared on end/discard song. Text
+  with a dark shadow, no box: `clamp(22px, 2.8vw, 48px)` on the stage,
+  `clamp(18px, 2.2vw, 36px)` and raised above the strip under `?debug=1`. On in
+  every view including `?clean=1`; `?no-lyrics` hides it. Demo sequences feed
+  it each frame's `lyric`; a loaded take replays its `events` (every transcript,
+  interim and final, at the time it arrived — a take has no per-frame lyric,
+  and letting the frames drive the line wiped it at every reveal), so the
+  karaoke line runs as it did live, 7 s fade included.
 - `src/style.ts` (visual style control): small input top-right (monospace, 70%
   opacity, semi-translucent black, discreet "style" label). Visible during
   rehearsal, hidden under `?clean=1`. Starts **empty** (backend owns the default

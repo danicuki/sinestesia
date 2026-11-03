@@ -70,7 +70,7 @@ defmodule Sinestesia.ImageGen.LocalSdxl do
 
     case Req.post(base_url() <> "/generate",
            json: body,
-           receive_timeout: 30_000,
+           receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
            retry: false
          ) do
       {:ok, %{status: 200, body: %{"images" => [%{"url" => url} | _]} = body}} ->

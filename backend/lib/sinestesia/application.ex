@@ -12,6 +12,10 @@ defmodule Sinestesia.Application do
     # rehearsal, is always.
     serve? = Application.get_env(:sinestesia, :start_server, true)
 
+    # The in-flight frame counter lives outside any process so a frame's
+    # log line can say how many others it was competing with.
+    Sinestesia.ImageGen.init_in_flight()
+
     children =
       [
         {Registry, keys: :unique, name: Sinestesia.PipelineRegistry},

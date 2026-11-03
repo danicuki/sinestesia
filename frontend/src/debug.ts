@@ -1,16 +1,16 @@
 // ?debug=1 overlay — bottom-left, small monospace, for live latency/A-B
 // inspection during the show. Pure DOM, no chrome elsewhere. Reads the
-// `provider` + `latency_ms` on transcripts and the `timings` block on images
-// (PROTOCOL.md). Created only when the URL flag is present.
+// `timings` block on images (PROTOCOL.md). Created only when the URL flag is
+// present. The transcript itself is not here any more — it is the karaoke
+// line on the stage (lyrics_overlay.ts), and the console still logs every
+// message with its provider and latency.
 
 import type {
   ExpressiveFeatures,
   MelodyFeatures,
   StructureMsg,
   Timings,
-  TranscriptMsg,
 } from "./socket";
-import type { SampleSequence } from "./samples";
 
 const COL = {
   stt: "#6ee7b7", // green
@@ -19,7 +19,6 @@ const COL = {
   tot: "#ffffff", // bold white
   prov: "#9ca3af", // gray
   dim: "#6b7280", // dimmer gray
-  interim: "#9ca3af",
   final: "#e5e7eb",
 };
 
@@ -35,12 +34,10 @@ export class DebugOverlay {
   private elMelody: HTMLDivElement;
   private elSemiotics: HTMLDivElement;
   private elStructure: HTMLDivElement;
-  private elTranscript: HTMLDivElement;
+  private elError: HTMLDivElement;
   private elPrompt: HTMLDivElement;
   private elLyric: HTMLDivElement;
   private elHistory: HTMLDivElement;
-  private elSamples: HTMLDivElement;
-  private elParams: HTMLDivElement;
 
   private history: TimingEntry[] = [];
   private lastAudioPaint = 0; // throttle the per-frame meter to ~12Hz
@@ -57,8 +54,11 @@ export class DebugOverlay {
       alignItems: "flex-start",
       gap: "24px",
       padding: "8px 12px",
-      // Hard ceiling: instrumentation must never creep up over the picture.
-      maxHeight: "30vh",
+      // Exactly the band index.html takes away from the picture (--debug-h):
+      // the strip never paints over the stage, and a fixed height — not a
+      // ceiling — keeps the picture from jumping as the history fills in.
+      height: "var(--debug-h, 30vh)",
+      boxSizing: "border-box",
       overflow: "hidden",
       // Clear the control dock by leaving room BELOW, not beside. Reserving a
       // right margin instead cost the columns a quarter of the screen across
@@ -96,14 +96,16 @@ export class DebugOverlay {
     this.elMelody = this.section(sound, "melody → director");
     this.elSemiotics = this.section(sound, "tatit & segreto semiotics (expressive)");
 
-    this.elTranscript = this.section(words, "transcript");
     this.elPrompt = this.section(words, "director prompt");
     this.elStructure = this.section(words, "structure (phase 2 — lyrics look-ahead)");
     this.elLyric = this.section(words, "sample lyric");
+    // Backend errors used to land in the transcript section. That section is
+    // gone, so they get one of their own — hidden until the first error, so
+    // a clean run doesn't carry an empty "last error" row.
+    this.elError = this.section(words, "last error");
+    this.elError.parentElement!.hidden = true;
 
     this.elHistory = this.section(run, "history (last 5)");
-    this.elSamples = this.section(run, "sample sequences");
-    this.elParams = this.section(run, "run params");
 
     this.root.append(sound, words, run);
     document.body.appendChild(this.root);
@@ -131,42 +133,14 @@ export class DebugOverlay {
     return body;
   }
 
-  // 1. Last transcript: [provider] +Xms: "texto"
-  setTranscript(m: TranscriptMsg) {
-    const prov = m.provider ?? "?";
-    const lat = m.latencyMs != null ? `+${m.latencyMs}ms` : "";
-    this.elTranscript.innerHTML =
-      span(`[${prov}]`, COL.prov) +
-      (lat ? " " + span(lat, COL.stt) : "") +
-      ": " +
-      span(`"${escapeHtml(m.text)}"`, m.isFinal ? COL.final : COL.interim);
-  }
-
-  // 2. Last Director prompt
+  // 1. Last Director prompt
   setPrompt(prompt: string) {
     this.elPrompt.textContent = prompt || "—";
   }
 
-  // Sample-replay lyric for the current frame (demo player). Cleared with "—".
+  // Replay lyric for the current frame (take player). Cleared with "—".
   setSampleLyric(lyric?: string) {
     this.elLyric.textContent = lyric || "—";
-  }
-
-  // Sample-replay run recipe as a sorted key=value table (demo player). Sorted
-  // so two runs line up for visual A/B comparison. Absent params clears it.
-  setSampleParams(params?: Record<string, string>) {
-    const keys = params ? Object.keys(params).sort() : [];
-    if (keys.length === 0) {
-      this.elParams.textContent = "—";
-      return;
-    }
-    this.elParams.innerHTML = keys
-      .map(
-        (k) =>
-          span(`${escapeHtml(k)} = `, COL.dim) +
-          span(escapeHtml(params![k]), COL.final),
-      )
-      .join("\n");
   }
 
   // Live Rail-1 meter (called every frame; throttled to ~12Hz to spare layout).
@@ -322,56 +296,8 @@ export class DebugOverlay {
 
   setError(message: string, provider?: string) {
     const p = provider ? `[${provider}] ` : "";
-    this.elTranscript.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
-  }
-
-  // Clickable list of the pre-generated sample sequences. Picking one replays
-  // it into the scene (onPick) so the transition shader can be iterated without
-  // a mic or the backend. The overlay root is pointer-transparent, so this
-  // section opts back into pointer events.
-  // A combo, not one link per sequence: this list is as long as the sample
-  // catalog and it sat in a fixed-height overlay, so every added sequence stole
-  // another line from the stage. One row, whatever the catalog size.
-  setSamples(seqs: SampleSequence[], onPick: (slug: string) => void) {
-    this.elSamples.innerHTML = "";
-    this.elSamples.style.pointerEvents = "auto";
-    if (seqs.length === 0) return;
-
-    const select = document.createElement("select");
-    Object.assign(select.style, {
-      maxWidth: "100%",
-      background: "rgba(0,0,0,0.55)",
-      border: "1px solid #374151",
-      borderRadius: "2px",
-      color: COL.dir,
-      font: "inherit",
-      padding: "2px 4px",
-      cursor: "pointer",
-    } as CSSStyleDeclaration);
-
-    // A placeholder first option, so picking the sequence that happens to be
-    // first in the list still fires a change event.
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = "▸ play a sample…";
-    select.appendChild(placeholder);
-
-    for (const s of seqs) {
-      const opt = document.createElement("option");
-      opt.value = s.slug;
-      opt.textContent = s.title;
-      opt.title = s.description;
-      select.appendChild(opt);
-    }
-
-    select.addEventListener("change", () => {
-      const slug = select.value;
-      if (!slug) return;
-      onPick(slug);
-      select.value = ""; // back to the placeholder, ready for the next pick
-    });
-
-    this.elSamples.appendChild(select);
+    this.elError.parentElement!.hidden = false;
+    this.elError.innerHTML = span(`⚠ ${p}${escapeHtml(message)}`, "#f87171");
   }
 }
 

@@ -596,6 +596,8 @@ defmodule Sinestesia.Pipeline do
 
   @impl true
   def handle_info({:transcript, provider, text, is_final, recv_ts}, state) do
+    text = clean_transcript(text)
+
     # No audio flows in replay mode (last_audio_chunk_at stays 0) — latency is
     # only meaningful relative to a real chunk.
     latency =
@@ -626,6 +628,17 @@ defmodule Sinestesia.Pipeline do
       {state, :fallthrough} -> {:noreply, maybe_trigger(state)}
     end
   end
+
+  # Some models decorate what they heard: `<<letra aqui>>` showed up on the
+  # stage's karaoke line (2026-11-02). The markers mean nothing to the
+  # Director, the lyric record or the NFT's provenance, so every provider's
+  # text is stripped of them at the door, before it is pushed or remembered.
+  @doc false
+  def clean_transcript(text) when is_binary(text) do
+    text |> String.replace(~r/<<|>>/, "") |> String.trim()
+  end
+
+  def clean_transcript(_), do: ""
 
   # Replay sessions can carry the style they were recorded with.
   def handle_info({:replay_style, style}, state) do
@@ -749,13 +762,16 @@ defmodule Sinestesia.Pipeline do
   # which is the wrong trade on stage.
   defp retarget_bootstrap_for_chunks(%{bootstrap_speculation: %{confirmed: false} = bs} = state)
        when not is_nil(bs) do
+    # Once the singer is into the song the trade above is wrong too (the
+    # re-render would land after its moment), and maybe_speculate_bootstrap/1
+    # would not start it anyway — so keep the one-line opening in flight.
     case bootstrap_content_and_target(state) do
       {text, _target} when text != "" and text != bs.text ->
-        Logger.debug(
-          "[bootstrap-spec] re-targeting the opening on the real scene split: #{inspect(bs.text)} → #{inspect(text)}"
-        )
-
-        state |> discard_bootstrap_speculation() |> maybe_speculate_bootstrap()
+        if sung_into_script?(state) do
+          state
+        else
+          retarget_bootstrap(state, bs, text)
+        end
 
       _ ->
         state
@@ -763,6 +779,14 @@ defmodule Sinestesia.Pipeline do
   end
 
   defp retarget_bootstrap_for_chunks(state), do: state
+
+  defp retarget_bootstrap(state, bs, text) do
+    Logger.debug(
+      "[bootstrap-spec] re-targeting the opening on the real scene split: #{inspect(bs.text)} → #{inspect(text)}"
+    )
+
+    state |> discard_bootstrap_speculation() |> maybe_speculate_bootstrap()
+  end
 
   # Forwarded so the headless replay task (and optionally the front) knows the
   # session finished. The browser ignores unknown message types per PROTOCOL.md.
@@ -1416,6 +1440,11 @@ defmodule Sinestesia.Pipeline do
         "hint:   the provider accepted the connection but never answered in budget."
     end
   end
+
+  defp diagnosis(:image_timeout, _timings),
+    do:
+      "hint:   the frame missed IMAGE_TIMEOUT_MS (10 s at most) and was abandoned; the [image_gen] " <>
+        "line above names the provider, model and route it was waiting on. A faster model, fewer steps, or t2i."
 
   defp diagnosis(%Req.TransportError{reason: :econnrefused}, _timings),
     do: "hint:   nothing is listening — is the sidecar running?"
@@ -2775,12 +2804,15 @@ defmodule Sinestesia.Pipeline do
 
   # When no lyrics/setlist are loaded, try to recognize the song from just a
   # few sung words — matched against every song's OPENING line in
-  # Sinestesia.SongLibrary — and load it mid-stream (same eager-bootstrap
-  # machinery as loading it by hand; catch_up_position_from_accumulated/1,
-  # triggered from the reveal path, positions the cursor from whatever's
-  # already been sung). A wrong guess is not worse than not guessing — it just
-  # costs a discarded speculative render once the singer's real words diverge,
-  # the same graceful fallback the rest of the look-ahead machinery relies on.
+  # Sinestesia.SongLibrary — and load it mid-stream. Same load path as
+  # loading it by hand, but since the opening has by definition already been
+  # sung, maybe_speculate_bootstrap/1 skips the eager opening render and
+  # catches the cursor up to whatever has been sung instead (its
+  # `sung_into_script?` clause); the reactive path draws the current scene
+  # and the look-ahead chain continues from there. A wrong guess is not worse
+  # than not guessing — it just costs a discarded speculative render once the
+  # singer's real words diverge, the same graceful fallback the rest of the
+  # look-ahead machinery relies on.
   #
   # This is the COLD-START case only (no script active yet). A script already
   # being active does NOT block re-identification for the rest of the show —
@@ -3253,6 +3285,32 @@ defmodule Sinestesia.Pipeline do
       state.bootstrap_done? ->
         state
 
+      # The singer is already INTO this song: it was auto-identified from its
+      # opening, or loaded by hand after the first lines. The opening has been
+      # sung, so an eager render of it would land late — line 1 on the canvas
+      # while line 4 is being sung — and, worse, hold the stage black until it
+      # did, because maybe_trigger/1's bootstrap branches wait on a held
+      # bootstrap instead of rendering reactively. Skip it: put the cursor
+      # where the singing actually is and let the reactive path draw the
+      # current scene; speculate_next/1 takes over from the first frame on.
+      # Sits ABOVE the generating?/held-bootstrap guards on purpose: a
+      # reactive render may well be in flight at this moment (that is the
+      # mid-song case), and the cursor must catch up regardless.
+      # The eager opening stays for the planned case, lyrics loaded before
+      # the first note. Sound-check chatter does not count as "into the
+      # song" — only sung text the follower matches to a script line does.
+      # Found live (2026-11-02); HANDOFF #53.
+      sung_into_script?(state) ->
+        caught = catch_up_position_from_accumulated(state)
+
+        if caught.script_cursor != state.script_cursor do
+          Logger.info(
+            "[bootstrap-spec] singing already under way (line #{caught.script_cursor} sung) — no eager opening; look-ahead continues from there"
+          )
+        end
+
+        caught
+
       not is_nil(state.bootstrap_speculation) ->
         state
 
@@ -3340,6 +3398,23 @@ defmodule Sinestesia.Pipeline do
       {:match, idx} -> idx >= target
       :no_match -> false
     end
+  end
+
+  # Has anything sung so far landed on a line of the script just loaded?
+  # The same furthest_match/4 read bootstrap_target_reached?/1 makes, from
+  # the top of the script.
+  defp sung_into_script?(%{lyrics: []}), do: false
+
+  defp sung_into_script?(state) do
+    sung_so_far = state.lyrics |> Enum.join(" ")
+
+    match?(
+      {:match, _},
+      Sinestesia.PerformanceFollower.furthest_match(sung_so_far, state.script, -1,
+        window: @bootstrap_catchup_window,
+        threshold: lyric_threshold()
+      )
+    )
   end
 
   defp spawn_bootstrap_director(state, text, gen) do
@@ -3449,8 +3524,21 @@ defmodule Sinestesia.Pipeline do
   # Sinestesia.LyricsChunker. Chunks are contiguous and cover the whole
   # script with no gaps, so this always resolves to exactly one chunk (or
   # nil past the end of the pasted lyrics).
+  #
+  # COVERING, not starting at. `after_line` is a scene boundary when the
+  # look-ahead chain hands over to itself (a revealed scene's end_line, the
+  # prerender frontier), but it is simply the last CONFIRMED line whenever
+  # the chain restarts from the follower's cursor — after the eager opening
+  # reveals and catch_up_position_from_accumulated/1 lands wherever the
+  # singer is, or after a reactive frame — and once the LyricsChunker has
+  # split the song into 2-3 line scenes, that line sits mid-scene more often
+  # than not. Matching `start_line` exactly found nothing there, so the
+  # pipeline quietly stopped looking ahead until a later reactive frame
+  # happened to land on a boundary. Found live (2026-11-02) on an
+  # auto-identified song; HANDOFF #53.
   defp chunk_after(state, after_line) do
-    Enum.find(state.chunks, &(&1.start_line == after_line + 1))
+    line = after_line + 1
+    Enum.find(state.chunks, &(&1.start_line <= line and line <= &1.end_line))
   end
 
   defp speculate_next(state) do

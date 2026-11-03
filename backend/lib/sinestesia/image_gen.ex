@@ -71,9 +71,177 @@ defmodule Sinestesia.ImageGen do
   def supports?(provider \\ provider(), capability),
     do: Map.fetch!(capabilities(provider), capability)
 
+  # ── The one deadline ──────────────────────────────────────────────────────
+  @max_timeout_ms 10_000
+
+  @doc """
+  How long ONE frame may take, end to end: every provider, both routes, the
+  i2i→t2i fallback and the local morph included. Past it the frame is
+  abandoned and the song moves on — a picture that arrives this late is worse
+  than none (CLAUDE.md: latency is the product). `IMAGE_TIMEOUT_MS`, default
+  and hard ceiling #{@max_timeout_ms} ms: never more than 10 s, whatever the
+  env says. Enforced in one place, `generate/2`; the providers' own HTTP
+  timeouts are only backstops a second past it (`backstop_timeout_ms/0`),
+  never the thing that fires first.
+
+  The ceiling is a LIVE rule. An offline render (`mix sinestesia.video`)
+  has no audience waiting, and there a frame that takes 15 s still beats a
+  hole in the film — so that task lifts it with `lift_timeout_ceiling/1`,
+  and `IMAGE_TIMEOUT_MS` then means what the operator typed.
+  """
+  def timeout_ms do
+    ceiling = Application.get_env(:sinestesia, :image_timeout_ceiling_ms, @max_timeout_ms)
+
+    case Integer.parse(System.get_env("IMAGE_TIMEOUT_MS", "#{@max_timeout_ms}")) do
+      {ms, _} when ms >= 1_000 -> min(ms, ceiling)
+      _ -> @max_timeout_ms
+    end
+  end
+
+  @doc """
+  Raise the frame-deadline ceiling for this VM — offline renders only, never
+  the stage. `IMAGE_TIMEOUT_MS` is still the knob; this only stops it being
+  clamped to #{@max_timeout_ms} ms.
+  """
+  def lift_timeout_ceiling(ceiling_ms) when is_integer(ceiling_ms) and ceiling_ms >= @max_timeout_ms,
+    do: Application.put_env(:sinestesia, :image_timeout_ceiling_ms, ceiling_ms)
+
+  @doc "A provider's own HTTP timeout: just past the frame deadline, so the deadline is what fires."
+  def backstop_timeout_ms, do: timeout_ms() + 1_000
+
   @spec generate(String.t(), keyword()) ::
           {:ok, String.t()} | {:ok, String.t(), [String.t()]} | {:error, term()}
   def generate(prompt, opts \\ []) when is_binary(prompt) do
+    within_deadline(fn -> do_generate(prompt, opts) end, timeout_ms())
+  end
+
+  @doc false
+  # Runs `fun` in a task and abandons it at `limit` ms — killing the request
+  # with it, whatever provider, queue or sidecar it was waiting on. The
+  # provider notes its route (and what it uploaded, see note_route/4) in the
+  # TASK's process dictionary, as does the local morph its duration; both are
+  # copied back so the caller's `last_route/0` and `:morph_ms` keep working.
+  # On the timeout path the route is read out of the task BEFORE it is
+  # killed, so the log can say what was being waited on.
+  def within_deadline(fun, limit) do
+    started = System.monotonic_time(:millisecond)
+    others = in_flight_enter()
+    task = Task.async(fn -> {fun.(), Process.get(:image_route), Process.get(:morph_ms)} end)
+
+    try do
+      case Task.yield(task, limit) do
+        {:ok, reply} ->
+          adopt(reply)
+
+        {:exit, reason} ->
+          {:error, {:image_task_exit, reason}}
+
+        nil ->
+          route = task_route(task.pid)
+
+          case Task.shutdown(task, :brutal_kill) do
+            {:ok, reply} ->
+              adopt(reply)
+
+            _ ->
+              if route, do: Process.put(:image_route, route)
+              elapsed = System.monotonic_time(:millisecond) - started
+
+              Logger.warning(
+                "[image_gen] frame abandoned after #{elapsed}ms (IMAGE_TIMEOUT_MS=#{limit}): " <>
+                  "#{describe_route(route)} gave no answer in time — a frame this late is worse than none, the song moves on" <>
+                  competing(others)
+              )
+
+              {:error, :image_timeout}
+          end
+      end
+    after
+      in_flight_leave()
+    end
+  end
+
+  # ── in-flight frames ──────────────────────────────────────────────────────
+  # The pipeline's reactive, speculative and deep-prerender renders are all
+  # independent tasks: nothing caps how many provider calls overlap. When a
+  # frame blows the deadline, whether it was alone or third in line behind
+  # two others is the difference between "the provider is slow" and "we
+  # are queueing on our own key" — so every frame counts the others it
+  # started alongside, and the abandoned line says so.
+  @in_flight_key {__MODULE__, :in_flight}
+
+  @doc false
+  def init_in_flight do
+    unless :persistent_term.get(@in_flight_key, nil),
+      do: :persistent_term.put(@in_flight_key, :counters.new(1, [:atomics]))
+
+    :ok
+  end
+
+  @doc "How many frames are being rendered right now."
+  def in_flight do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil -> 0
+      ref -> :counters.get(ref, 1)
+    end
+  end
+
+  # Returns how many OTHER frames were already in flight when this one started.
+  defp in_flight_enter do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil ->
+        0
+
+      ref ->
+        :counters.add(ref, 1, 1)
+        max(:counters.get(ref, 1) - 1, 0)
+    end
+  end
+
+  defp in_flight_leave do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil -> :ok
+      ref -> :counters.sub(ref, 1, 1)
+    end
+  end
+
+  defp competing(0), do: " (it was the only frame in flight)"
+  defp competing(1), do: " (1 other frame was already in flight when it started)"
+  defp competing(n), do: " (#{n} other frames were already in flight when it started)"
+
+  defp adopt({result, route, morph_ms}) do
+    if route, do: Process.put(:image_route, route)
+    if morph_ms, do: Process.put(:morph_ms, morph_ms)
+    result
+  end
+
+  defp task_route(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dict} -> Keyword.get(dict, :image_route)
+      _ -> nil
+    end
+  end
+
+  @doc false
+  # "google gemini-3.1-flash-lite-image i2i, seed image 1.4 MB uploaded inline"
+  def describe_route(%{provider: p, route: r, model: m} = route) do
+    seed =
+      case route[:seed_bytes] do
+        b when is_integer(b) and b > 0 -> ", seed image #{human_bytes(b)} uploaded inline"
+        _ -> ""
+      end
+
+    "#{p} #{m} #{r}#{seed}"
+  end
+
+  def describe_route(_), do: "#{provider()} (route not reported)"
+
+  @doc false
+  def human_bytes(b) when b >= 1_048_576, do: "#{Float.round(b / 1_048_576, 1)} MB"
+  def human_bytes(b) when b >= 1_024, do: "#{div(b, 1_024)} KB"
+  def human_bytes(b), do: "#{b} B"
+
+  defp do_generate(prompt, opts) do
     image_url = Keyword.get(opts, :image_url)
 
     if render_mode() == :t2i do
@@ -119,8 +287,14 @@ defmodule Sinestesia.ImageGen do
           # t2i needs no input image and no upload, so it is the one thing that
           # can still succeed here. The frame loses continuity with the previous
           # one — visible, but the alternative is a frozen stage.
+          where =
+            case last_route() do
+              %{provider: p, model: m} -> "#{p} #{m}"
+              _ -> to_string(provider())
+            end
+
           Logger.warning(
-            "[image_gen] i2i failed (#{inspect(reason)}); rendering this frame as t2i so the song continues"
+            "[image_gen] i2i failed (#{where}: #{inspect(reason)}); rendering this frame as t2i so the song continues"
           )
 
           case t2i(prompt) do
@@ -326,15 +500,18 @@ defmodule Sinestesia.ImageGen do
   nothing about which model, which route, or which endpoint gave up.
 
   `route` is `"t2i"` or `"i2i"`; see `render_mode/0` on why only those two
-  spellings exist.
+  spellings exist. `extra` is anything else worth saying about the request
+  when it fails — `seed_bytes:` for a provider that uploads the previous
+  frame inline (see `describe_route/1`).
   """
-  def note_route(route, model, steps) do
-    Process.put(:image_route, %{
-      provider: to_string(provider()),
-      route: route,
-      model: model,
-      steps: steps
-    })
+  def note_route(route, model, steps, extra \\ []) do
+    Process.put(
+      :image_route,
+      Map.merge(
+        %{provider: to_string(provider()), route: route, model: model, steps: steps},
+        Map.new(extra)
+      )
+    )
 
     :ok
   end

@@ -1,9 +1,11 @@
 import { mountInDock } from "./dock";
 
 // "Load take" — plays a saved take back EXACTLY as it happened: the images the
-// browser actually put on screen, at the times it showed them, over the take's
-// own audio. Pick the take's .json together with its sibling .webm in the file
-// dialog (the JSON alone replays silently, on a wall clock).
+// browser actually put on screen, at the times it showed them, and the words
+// the voice model heard (the take's `events`, every interim and final) at the
+// times they arrived, over the take's own audio. Pick the take's .json
+// together with its sibling .webm in the file dialog (the JSON alone replays
+// silently, on a wall clock).
 //
 // This is the faithful half of the replay story. `mix sinestesia.replay` is
 // the other half — it RE-GENERATES the take through the live pipeline — so a
@@ -12,9 +14,16 @@ import { mountInDock } from "./dock";
 
 export type TakeFrame = { at_ms: number; url: string; prompt: string };
 
+/** One transcript as it reached the browser — the karaoke line's feed. */
+export type TakeWord = { at_ms: number; text: string; final: boolean };
+
 export type TakePlayback = {
   name: string;
   frames: TakeFrame[];
+  // The take's transcripts, on the same clock as `frames`. A take has no
+  // per-frame `lyric`; what it has is the full stream of words, so the
+  // karaoke line replays from these.
+  transcripts: TakeWord[];
   audioUrl: string | null;
 };
 
@@ -78,6 +87,7 @@ export class TakePlayerControl {
     let session: {
       name?: string;
       audio_offset_ms?: number;
+      events?: { at_ms?: number; text?: string; final?: boolean }[];
       reveals?: { at_ms?: number; url?: string; prompt?: string }[];
     };
     try {
@@ -104,11 +114,23 @@ export class TakePlayerControl {
       return;
     }
 
+    const events = Array.isArray(session.events) ? session.events : [];
+    const transcripts = events
+      .filter(
+        (e) => typeof e?.at_ms === "number" && typeof e?.text === "string",
+      )
+      .map((e) => ({
+        at_ms: e.at_ms as number,
+        text: e.text as string,
+        final: e.final === true,
+      }));
+
     // at_ms 0 is the first EVENT; the audio starts earlier, at mic start —
-    // shift the frames onto the audio clock when there is one.
+    // shift frames and words onto the audio clock when there is one.
     if (webm) {
       const offset = session.audio_offset_ms ?? 0;
       for (const f of frames) f.at_ms += offset;
+      for (const w of transcripts) w.at_ms += offset;
     }
 
     if (this.lastAudioUrl) URL.revokeObjectURL(this.lastAudioUrl);
@@ -118,6 +140,7 @@ export class TakePlayerControl {
     onPlay({
       name: session.name ?? json.name.replace(/\.json$/, ""),
       frames,
+      transcripts,
       audioUrl: this.lastAudioUrl,
     });
   }

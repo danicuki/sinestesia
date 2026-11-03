@@ -370,11 +370,12 @@ defmodule Sinestesia.Config do
         "i2i evolves the previous frame (continuity, slower). t2i re-renders each frame from the scene prompt (no drift, faster)."
     },
     %{
-      key: "FAL_TIMEOUT_MS",
+      key: "IMAGE_TIMEOUT_MS",
       group: :image,
-      default: "15000",
+      default: "10000",
+      values: "1000-10000",
       doc:
-        "Per-frame budget on fal. Past it the frame is abandoned and re-rendered as t2i rather than dropped."
+        "The one deadline for a frame, every provider and route, the i2i→t2i fallback and the local morph included. A frame that takes longer is abandoned (`[image_gen] frame abandoned …` names the provider, model, route and upload size) and the song moves on — a picture that late is worse than none. Hard ceiling 10000 whatever the value on the live path; `mix sinestesia.video` renders offline and lifts the ceiling to 120000, so there the value is honoured as typed. The providers' own HTTP timeouts are only backstops just past it."
     },
     %{
       key: "IMAGE_MODE",
@@ -406,6 +407,22 @@ defmodule Sinestesia.Config do
       default: "gemini-3.1-flash-lite-image",
       doc:
         "Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed."
+    },
+    %{
+      key: "GOOGLE_SEED_MAX_PX",
+      group: :image,
+      default: "1024",
+      values: "0 (send as-is) | longest side in px",
+      doc:
+        "For IMAGE_PROVIDER=google i2i, the previous frame is re-encoded as a JPEG no wider than this before it is inlined as the seed (~160 ms of ffmpeg). Google's own 1376×768 PNG is ~1.2 MB and sent back on every line, and i2i with it measured 6–20 s against ~4 s for t2i; at 1024 px the upload is ~6× smaller. 0 sends the frame untouched."
+    },
+    %{
+      key: "GOOGLE_HEDGE_MS",
+      group: :image,
+      default: "5000",
+      values: "0 (off) | 1000-8999",
+      doc:
+        "For IMAGE_PROVIDER=google: when a frame's request has gone quiet for this long, fire an identical second request and take whichever answers first (`[google-image] … hedging …` in the log). Google's image latency has a long tail — most calls answer in 3–4 s, some never inside the 10 s frame deadline — and this cuts it at the price of one extra generation on the slow calls only. 0 disables; values at 9000 or above could not fire before the deadline and are treated as off."
     },
 
     # ── Cloudflare ──────────────────────────────────────────────────────────
@@ -579,7 +596,7 @@ defmodule Sinestesia.Config do
       default: nil,
       values: "1 | true | on",
       doc:
-        "When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream (same eager-bootstrap/look-ahead machinery as loading it by hand). A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in."
+        "When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream: the opening has already been sung, so no eager opening frame is rendered — the cursor is caught up to what was sung, the current scene renders reactively and the look-ahead chain continues from there. A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in."
     },
     %{
       key: "SONG_IDENTIFY_THRESHOLD",

@@ -16,22 +16,41 @@ import { TakeAudioRecorder } from "./take_audio";
 import { TakePlayerControl } from "./take_player";
 import { SongLibraryControl } from "./song_library";
 import { MicPanel } from "./mic";
-import { loadSequences, frameUrl, type SampleSequence } from "./samples";
 import { AudioPlayerUI } from "./audio_player";
 import { VerifyBadge } from "./verify_badge";
 import { MintToast } from "./mint_toast";
+import { LyricsOverlay } from "./lyrics_overlay";
 
 const params = new URLSearchParams(location.search);
 const MOCK = params.has("mock");
 const DEBUG = params.has("debug");
 const CLEAN = params.has("clean"); // hide rehearsal chrome for a clean stage demo
-const DEMO = params.get("demo"); // sample sequence slug (or "" for the default)
 
 const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across reloads
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
 const LYRICS_KEY = "sinestesia.lyrics"; // last-pasted lyrics, persisted across reloads
 
+// Before the Scene reads the canvas size: under ?debug the picture is laid
+// out above the instrumentation strip instead of under it (index.html).
+if (DEBUG) document.body.classList.add("debug");
+
 const debug = DEBUG ? new DebugOverlay() : null;
+
+// F toggles real fullscreen — the Fullscreen API, so the browser's tabs and
+// address bar go too (the OS "maximise" keeps them). Every pixel of height
+// matters once the debug strip has its own band. Ignored while typing.
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "f" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  if (document.fullscreenElement) {
+    void document.exitFullscreen();
+  } else {
+    document.documentElement.requestFullscreen().catch((err) => {
+      console.warn("[main] fullscreen refused:", err);
+    });
+  }
+});
 
 // Live "verifiable AI" proof badge — shown on the projection (including clean
 // mode) whenever the Director runs on 0G Compute. Opt out with ?no-verify.
@@ -40,6 +59,19 @@ const verifyBadge = params.has("no-verify") ? null : new VerifyBadge();
 // The song-end mint moment: corner QR to claim a print of the finished canvas.
 // A corner, not a modal — the next song is already painting behind it.
 const mintToast = new MintToast();
+
+// The karaoke line — the words the voice model heard, big enough for the
+// house to read. On every stage view, clean mode included; ?no-lyrics hides
+// it. Under ?debug=1 the picture ends where the instrumentation band starts
+// (--debug-h, index.html), so the line sits just above that edge and drops a
+// size — the picture is smaller there.
+const lyricsOverlay = params.has("no-lyrics")
+  ? null
+  : new LyricsOverlay(
+      DEBUG
+        ? { bottom: "calc(var(--debug-h) + 60px)", fontSize: "clamp(18px, 2.2vw, 36px)" }
+        : { bottom: "9vh", fontSize: "clamp(22px, 2.8vw, 48px)" },
+    );
 
 // Hard-coded sample images for ?mock=1 development without the backend.
 const MOCK_IMAGES = [
@@ -58,8 +90,8 @@ const scene = new Scene(canvas);
 // even before the mic is unlocked.
 let fast: FastFeatures | null = null;
 let mic: MicPanel | null = null;
-// When a sample sequence is playing, this advances the continuous morph each
-// frame (see playDemo). Null on the live path.
+// When a saved take is replaying without audio, this advances it against the
+// wall clock each frame (see playTimeline). Null on the live path.
 let demoUpdate: (() => void) | null = null;
 // Assigned in start() (skipped under ?mock=1). Declared here, not there, so the
 // render loop below — which starts immediately, before start() runs — can send
@@ -91,124 +123,36 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-// ---- Sample-sequence playback (dev) ----
-// Replays the pre-generated accumulative sequences into the scene to iterate
-// the transition shader without a mic or backend. Driven by ?demo=<slug> and/or
-// the picker in the debug overlay. Works on page load — no audio needed.
-//
-// Playback is a single continuous timeline over preloaded textures rather than
-// discrete "transition then settle" steps: a global phase advances forever and
-// the morph chains frame→frame with no pause. Seconds the front takes to sweep
-// one accumulation step — bigger = slower, more deliberate morph.
-const DEMO_SEGMENT_MS = 5500;
-
-let sampleSeqs: SampleSequence[] = [];
-let demoGen = 0; // invalidates a sequence whose textures are still preloading
+// ---- Take playback ----
+let demoGen = 0; // invalidates a take whose textures are still preloading
 let activePlayer: AudioPlayerUI | null = null;
 
-async function ensureSequences(): Promise<SampleSequence[]> {
-  if (sampleSeqs.length === 0) sampleSeqs = await loadSequences();
-  return sampleSeqs;
-}
-
-async function playDemo(slug: string) {
-  const gen = ++demoGen;
-  demoUpdate = null; // freeze current playback while we resolve the new one
-
-  if (activePlayer) {
-    activePlayer.destroy();
-    activePlayer = null;
-  }
-
-  let seqs: SampleSequence[];
-  try {
-    seqs = await ensureSequences();
-  } catch (err) {
-    console.warn("[demo] failed to load /samples/index.json:", err);
-    return;
-  }
-  const seq = seqs.find((s) => s.slug === slug) ?? seqs[0];
-  if (!seq) {
-    console.warn("[demo] no sample sequences available");
-    return;
-  }
-  if (seq.slug !== slug) {
-    console.warn(
-      `[demo] unknown sequence "${slug}" — playing "${seq.slug}". Available:`,
-      seqs.map((s) => s.slug).join(", "),
-    );
-  }
-
-  debug?.setSampleParams(seq.params);
-
-  if (seq.audio) {
-    await playTimeline(
-      seq.frames.map((f) => ({
-        at_ms: f.at_ms ?? 0,
-        url: frameUrl(f),
-        prompt: f.prompt,
-        lyric: f.lyric,
-      })),
-      `/samples/${seq.audio}`,
-      `demo ${seq.slug}`,
-    );
-    return;
-  }
-
-  // Legacy / fallback timer loop (old exports without at_ms): fixed cadence.
-  const texes = await scene
-    .preload(seq.frames.map(frameUrl))
-    .catch((err) => {
-      console.warn(`[demo] failed to preload "${seq.slug}":`, err);
-      return null;
-    });
-  if (!texes) return;
-  if (gen !== demoGen) return; // a newer pick superseded us mid-load
-
-  const n = texes.length;
-  let shown = -1;
-
-  const uniqueIdxs = new Set(seq.frames.map((f) => f.idx));
-  const m = uniqueIdxs.size;
-  const ratio = m > 0 ? n / m : 1;
-  const stepDur = DEMO_SEGMENT_MS / ratio;
-
-  const start = performance.now();
-  console.log(
-    `[demo] "${seq.slug}" — ${n} frames, legacy loop @ ${stepDur.toFixed(0)}ms/step (no audio)`,
-  );
-
-  demoUpdate = () => {
-    const phase = (performance.now() - start) / stepDur;
-    const i = Math.floor(phase) % n;
-    const t = phase - Math.floor(phase); // linear: constant-speed, no per-step easing
-    const next = (i + 1) % n;
-    scene.setMorph(texes[i], texes[next], t);
-    if (next !== shown) {
-      debug?.setPrompt(seq.frames[next].prompt);
-      debug?.setSampleLyric(seq.frames[next].lyric);
-      shown = next;
-    }
-  };
-}
-
 type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: string };
+type TimelineWord = { at_ms: number; text: string; final: boolean };
 
-// One audio-synced playback shared by the demo player (pre-exported sequences)
-// and the take player (saved takes): preload the frames, then advance along
-// the timeline against the audio playhead — or against the wall clock when
-// there is no audio, for a take saved without its .webm.
+// Audio-synced playback of a saved take: preload the frames, then advance
+// along the timeline against the audio playhead — or against the wall clock
+// when there is no audio, for a take saved without its .webm.
 //
-// Two looks, deliberately different: demo sequences are accumulative morph
-// sub-frames, so they crossfade continuously edge to edge (setMorph, no warp).
-// A take replays what the STAGE showed, so `live: true` reproduces the live
-// transition instead — each reveal ink-bleeds in from the previous image over
-// the same adaptive duration the live scene would have picked, then settles.
+// Two looks: `live: false` crossfades frame to frame edge to edge (setMorph,
+// no warp). A take replays what the STAGE showed, so `live: true` reproduces
+// the live transition instead — each reveal ink-bleeds in from the previous
+// image over the same adaptive duration the live scene would have picked,
+// then settles.
+//
+// Two feeds for the karaoke line, likewise: a frame may carry its own `lyric`,
+// so the line changes with the picture. A take carries no lyric per frame but
+// the whole stream of `transcripts` — every interim and final, stamped when it
+// reached the browser — so the line is driven from those at their own times
+// and the frames leave it alone (a frame without a lyric would otherwise wipe
+// the words at every reveal, which is exactly how the karaoke line went
+// missing from loaded takes).
 async function playTimeline(
   frames: TimelineFrame[],
   audioUrl: string | null,
   label: string,
   live = false,
+  transcripts: TimelineWord[] = [],
 ) {
   const gen = ++demoGen;
   demoUpdate = null;
@@ -232,15 +176,40 @@ async function playTimeline(
   // take's whole timeline is already known.
   const liveDurs = live ? liveTransitionDurations(sorted.map((f) => f.at_ms)) : null;
 
+  // The take's words, replayed in order as the playhead passes them. The
+  // overlay keeps its own live rules (interim vs final, previous line, the
+  // 7 s fade), so a pause in the singing fades the line here as it did on
+  // stage. Scrubbing backwards restarts the stream from the top.
+  const words = [...transcripts].sort((a, b) => a.at_ms - b.at_ms);
+  const wordsDrive = words.length > 0;
+  let spoken = 0;
+  let lastTimeMs = -Infinity;
+  const tickWords = (timeMs: number) => {
+    if (!wordsDrive) return;
+    if (timeMs < lastTimeMs) {
+      spoken = 0;
+      lyricsOverlay?.clear();
+    }
+    lastTimeMs = timeMs;
+    while (spoken < words.length && words[spoken].at_ms <= timeMs) {
+      const w = words[spoken++];
+      lyricsOverlay?.setTranscript({ text: w.text, isFinal: w.final });
+    }
+  };
+
   const tick = (timeMs: number) => {
+    tickWords(timeMs);
     if (sorted.length === 0) return;
 
     // Musical introduction: before the first frame, keep the canvas black.
+    // (The words may already be running: the opening lines are sung before
+    // the first picture is ready, live and therefore in a take too.)
     if (timeMs < sorted[0].at_ms) {
       scene.setBlack();
       if (shown !== -2) {
         debug?.setPrompt("Musical Introduction — Waiting for vocals…");
         debug?.setSampleLyric("");
+        if (!wordsDrive) lyricsOverlay?.clear();
         shown = -2;
       }
       return;
@@ -267,6 +236,7 @@ async function playTimeline(
     if (i !== shown) {
       debug?.setPrompt(sorted[i].prompt);
       debug?.setSampleLyric(sorted[i].lyric ?? "");
+      if (!wordsDrive) lyricsOverlay?.showLine(sorted[i].lyric);
       shown = i;
     }
   };
@@ -291,27 +261,20 @@ async function playTimeline(
   }
 }
 
-// Populate the debug picker (click a sequence to replay it in the scene).
-if (debug) {
-  ensureSequences()
-    .then((seqs) => debug!.setSamples(seqs, (slug) => playDemo(slug)))
-    .catch((err) => console.warn("[debug] samples unavailable:", err));
-}
-
-// ?demo=<slug> auto-plays on load, bypassing the mic gate entirely.
-if (DEMO !== null) {
-  gate.classList.add("hidden");
-  playDemo(DEMO);
-}
-
 // "Load take" — faithful playback of a saved take (what the browser actually
 // showed, over the take's own .webm). Mounted outside start() so a take
-// replays without unlocking the mic; loading one drops the start gate, like
-// ?demo does — reload to go back to the live path.
+// replays without unlocking the mic; loading one drops the start gate —
+// reload to go back to the live path.
 if (!CLEAN) {
   new TakePlayerControl((take) => {
     gate.classList.add("hidden");
-    void playTimeline(take.frames, take.audioUrl, `take ${take.name}`, true);
+    void playTimeline(
+      take.frames,
+      take.audioUrl,
+      `take ${take.name}`,
+      true,
+      take.transcripts,
+    );
   });
 }
 
@@ -397,6 +360,7 @@ async function start() {
 
   function endSong() {
     scene.clearImage();
+    lyricsOverlay?.clear();
     if (!socket) {
       console.log("[mock] would end song (mint + reset)");
       return;
@@ -413,6 +377,7 @@ async function start() {
   // discarding a performance shouldn't be one stray click away.
   function discardSong() {
     scene.clearImage();
+    lyricsOverlay?.clear();
     if (!socket) {
       console.log("[mock] would discard song (reset, no mint)");
       return;
@@ -456,7 +421,7 @@ async function start() {
       console.log(tag, m.latencyMs != null ? `+${m.latencyMs}ms` : "", m.text);
       recorder.noteTranscript(m.text, m.isFinal);
       recordControl?.setCount(recorder.count);
-      debug?.setTranscript(m);
+      lyricsOverlay?.setTranscript(m);
     };
     socket.onError = (message, provider) => {
       console.warn("[backend error]", provider ?? "", message);

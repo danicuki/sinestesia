@@ -28,12 +28,32 @@ http://localhost:5173/?mock=1
 Skips the WebSocket, rotates 3 sample images every 4s, and logs would-be sends
 to the console. The mic + Rail 1 pulsing still run.
 
+### Debug strip and fullscreen
+
+`?debug=1` adds the instrumentation strip (timings, director prompt, rails).
+It takes a band of its own at the bottom (`--debug-h` in `index.html`, ~150px —
+what its tallest column needs); the picture keeps the rest, letterboxed to the
+frames' 16:9 and centred, so the strip never paints over it. Press **F** anywhere for real fullscreen (the Fullscreen API — tabs and
+address bar go too, unlike the OS maximise button) and the picture gets that
+height back; **F** again, or Esc, leaves it. **M** ends the song, **R** discards
+it; all three are ignored while typing in a field.
+
+### Karaoke line
+
+What the voice model heard is painted big, centred, in the lower third of the
+stage — interims as the phrase is sung, the final locked, the previous line kept
+smaller above it until the next phrase starts, fading out after 7 s of silence.
+It is on in every view, `?clean=1` included; `?no-lyrics` hides it. Under
+`?debug=1` it moves above the instrumentation strip and drops a size. A
+loaded take replays its `events` — every transcript, interim and final, at the
+time it reached the browser — so the line runs exactly as it did on stage.
+
 ## Architecture (three rails)
 
 | Rail | File | What |
 |---|---|---|
 | 1 — Movement | [src/audio/features.ts](src/audio/features.ts) | `AnalyserNode` → FFT(32) + RMS + onset → shader uniforms every frame. No backend round-trip. |
-| 2 — Words | handled by backend | We just send PCM; transcripts come back and are logged. |
+| 2 — Words | backend + [src/lyrics_overlay.ts](src/lyrics_overlay.ts) | We send PCM; transcripts come back, are logged, and are painted as the karaoke line on the stage. |
 | 3 — Expression | [src/audio/expressive.ts](src/audio/expressive.ts) + [worker](src/audio/expressive.worker.ts) | Essentia.js (+ DSP fallback) in a Worker → `expressive` features every 500ms. |
 
 ### Audio path

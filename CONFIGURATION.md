@@ -158,11 +158,13 @@ rehearsal, where finding out now beats finding out on stage.
 | --- | --- | --- | --- |
 | `IMAGE_PROVIDER` | `fal` | `fal \| cloudflare (cf) \| google \| pollinations \| local_sdxl (local)` | Which service renders the frames. |
 | `RENDER_MODE` | `i2i` | `i2i (aliases: img2img, image2image) \| t2i (aliases: text2img, txt2img)` | i2i evolves the previous frame (continuity, slower). t2i re-renders each frame from the scene prompt (no drift, faster). |
-| `FAL_TIMEOUT_MS` | `15000` | — | Per-frame budget on fal. Past it the frame is abandoned and re-rendered as t2i rather than dropped. |
+| `IMAGE_TIMEOUT_MS` | `10000` | `1000-10000` | The one deadline for a frame, every provider and route, the i2i→t2i fallback and the local morph included. A frame that takes longer is abandoned (`[image_gen] frame abandoned …` names the provider, model, route and upload size) and the song moves on — a picture that late is worse than none. Hard ceiling 10000 whatever the value on the live path; `mix sinestesia.video` renders offline and lifts the ceiling to 120000, so there the value is honoured as typed. The providers' own HTTP timeouts are only backstops just past it. |
 | `IMAGE_MODE` | `story` | `story \| classic` | story accumulates scene elements across the song; classic redraws each line independently. |
 | `COMPOSE_MODE` | `inpaint` | `inpaint \| global` | In story mode, whether new elements are inpainted into a region or the whole frame is re-composed. |
 | `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
 | `GOOGLE_IMAGE_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed. |
+| `GOOGLE_SEED_MAX_PX` | `1024` | `0 (send as-is) \| longest side in px` | For IMAGE_PROVIDER=google i2i, the previous frame is re-encoded as a JPEG no wider than this before it is inlined as the seed (~160 ms of ffmpeg). Google's own 1376×768 PNG is ~1.2 MB and sent back on every line, and i2i with it measured 6–20 s against ~4 s for t2i; at 1024 px the upload is ~6× smaller. 0 sends the frame untouched. |
+| `GOOGLE_HEDGE_MS` | `5000` | `0 (off) \| 1000-8999` | For IMAGE_PROVIDER=google: when a frame's request has gone quiet for this long, fire an identical second request and take whichever answers first (`[google-image] … hedging …` in the log). Google's image latency has a long tail — most calls answer in 3–4 s, some never inside the 10 s frame deadline — and this cuts it at the price of one extra generation on the slow calls only. 0 disables; values at 9000 or above could not fire before the deadline and are treated as off. |
 
 ### Cloudflare Workers AI
 
@@ -211,7 +213,7 @@ rehearsal, where finding out now beats finding out on stage.
 | Variable | Default | Accepts | Description |
 | --- | --- | --- | --- |
 | `SONGS_DIR` | `../songs` | — | Where Sinestesia.SongLibrary stores/reads known songs (one JSON file per song). Default is relative to the backend's working directory, same convention as tests/sessions/ for replay. |
-| `SONG_AUTO_IDENTIFY` | _unset_ | `1 \| true \| on` | When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream (same eager-bootstrap/look-ahead machinery as loading it by hand). A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in. |
+| `SONG_AUTO_IDENTIFY` | _unset_ | `1 \| true \| on` | When no lyrics/setlist is loaded, try to identify the song from the first few sung words by matching against every song's opening line in the library. On a confident match, loads that song's lyrics mid-stream: the opening has already been sung, so no eager opening frame is rendered — the cursor is caught up to what was sung, the current scene renders reactively and the look-ahead chain continues from there. A wrong guess costs a discarded speculative render, never worse than not guessing — but the fewer words waited for, the higher the misidentification risk, so this is opt-in. |
 | `SONG_IDENTIFY_THRESHOLD` | `0.7` | `0.0-1.0` | Word-overlap similarity a few sung words need against a library song's opening line to auto-identify it. Higher than LYRIC_MATCH_THRESHOLD by default — a short fragment matched against MANY candidate songs is inherently more ambiguous than matching one already-known song's next line. |
 
 ### Mint & provenance

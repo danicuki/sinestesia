@@ -158,6 +158,7 @@ rehearsal, where finding out now beats finding out on stage.
 | `LOCAL_MORPH` | `true` | `true \| 1 \| yes \| false` | After a t2i frame, run the local SDXL sidecar to morph from the previous frame. Costs extra seconds; adds in-between frames. |
 | `GOOGLE_IMAGE_MODEL` | `gemini-3.1-flash-lite-image` | — | Gemini image model for IMAGE_PROVIDER=google. Must be a `:generateContent` image model (`gemini-*-image`); Imagen ids no longer work — that endpoint was removed. |
 | `GOOGLE_SEED_MAX_PX` | `1024` | `0 (send as-is) \| longest side in px` | For IMAGE_PROVIDER=google i2i, the previous frame is re-encoded as a JPEG no wider than this before it is inlined as the seed (~160 ms of ffmpeg). Google's own 1376×768 PNG is ~1.2 MB and sent back on every line, and i2i with it measured 6–20 s against ~4 s for t2i; at 1024 px the upload is ~6× smaller. 0 sends the frame untouched. |
+| `GOOGLE_HEDGE_MS` | `5000` | `0 (off) \| 1000-8999` | For IMAGE_PROVIDER=google: when a frame's request has gone quiet for this long, fire an identical second request and take whichever answers first (`[google-image] … hedging …` in the log). Google's image latency has a long tail — most calls answer in 3–4 s, some never inside the 10 s frame deadline — and this cuts it at the price of one extra generation on the slow calls only. 0 disables; values at 9000 or above could not fire before the deadline and are treated as off. |
 
 ### Cloudflare Workers AI
 

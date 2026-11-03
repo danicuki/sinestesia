@@ -125,35 +125,89 @@ defmodule Sinestesia.ImageGen do
   # killed, so the log can say what was being waited on.
   def within_deadline(fun, limit) do
     started = System.monotonic_time(:millisecond)
+    others = in_flight_enter()
     task = Task.async(fn -> {fun.(), Process.get(:image_route), Process.get(:morph_ms)} end)
 
-    case Task.yield(task, limit) do
-      {:ok, reply} ->
-        adopt(reply)
+    try do
+      case Task.yield(task, limit) do
+        {:ok, reply} ->
+          adopt(reply)
 
-      {:exit, reason} ->
-        {:error, {:image_task_exit, reason}}
+        {:exit, reason} ->
+          {:error, {:image_task_exit, reason}}
 
-      nil ->
-        route = task_route(task.pid)
+        nil ->
+          route = task_route(task.pid)
 
-        case Task.shutdown(task, :brutal_kill) do
-          {:ok, reply} ->
-            adopt(reply)
+          case Task.shutdown(task, :brutal_kill) do
+            {:ok, reply} ->
+              adopt(reply)
 
-          _ ->
-            if route, do: Process.put(:image_route, route)
-            elapsed = System.monotonic_time(:millisecond) - started
+            _ ->
+              if route, do: Process.put(:image_route, route)
+              elapsed = System.monotonic_time(:millisecond) - started
 
-            Logger.warning(
-              "[image_gen] frame abandoned after #{elapsed}ms (IMAGE_TIMEOUT_MS=#{limit}): " <>
-                "#{describe_route(route)} gave no answer in time — a frame this late is worse than none, the song moves on"
-            )
+              Logger.warning(
+                "[image_gen] frame abandoned after #{elapsed}ms (IMAGE_TIMEOUT_MS=#{limit}): " <>
+                  "#{describe_route(route)} gave no answer in time — a frame this late is worse than none, the song moves on" <>
+                  competing(others)
+              )
 
-            {:error, :image_timeout}
-        end
+              {:error, :image_timeout}
+          end
+      end
+    after
+      in_flight_leave()
     end
   end
+
+  # ── in-flight frames ──────────────────────────────────────────────────────
+  # The pipeline's reactive, speculative and deep-prerender renders are all
+  # independent tasks: nothing caps how many provider calls overlap. When a
+  # frame blows the deadline, whether it was alone or third in line behind
+  # two others is the difference between "the provider is slow" and "we
+  # are queueing on our own key" — so every frame counts the others it
+  # started alongside, and the abandoned line says so.
+  @in_flight_key {__MODULE__, :in_flight}
+
+  @doc false
+  def init_in_flight do
+    unless :persistent_term.get(@in_flight_key, nil),
+      do: :persistent_term.put(@in_flight_key, :counters.new(1, [:atomics]))
+
+    :ok
+  end
+
+  @doc "How many frames are being rendered right now."
+  def in_flight do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil -> 0
+      ref -> :counters.get(ref, 1)
+    end
+  end
+
+  # Returns how many OTHER frames were already in flight when this one started.
+  defp in_flight_enter do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil ->
+        0
+
+      ref ->
+        :counters.add(ref, 1, 1)
+        max(:counters.get(ref, 1) - 1, 0)
+    end
+  end
+
+  defp in_flight_leave do
+    case :persistent_term.get(@in_flight_key, nil) do
+      nil -> :ok
+      ref -> :counters.sub(ref, 1, 1)
+    end
+  end
+
+  defp competing(0), do: " (it was the only frame in flight)"
+  defp competing(1), do: " (1 other frame was already in flight when it started)"
+  defp competing(n), do: " (#{n} other frames were already in flight when it started)"
 
   defp adopt({result, route, morph_ms}) do
     if route, do: Process.put(:image_route, route)

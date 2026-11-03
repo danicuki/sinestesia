@@ -58,6 +58,21 @@ defmodule Sinestesia.ImageGenDeadlineTest do
   end
 
   describe "within_deadline/2" do
+    # The abandoned line says how many other frames a slow one was competing
+    # with — "the provider is slow" and "we are queueing on our own key" are
+    # different problems with different fixes.
+    test "counts the frames in flight while a render runs, and lets go after" do
+      ImageGen.init_in_flight()
+      assert ImageGen.in_flight() == 0
+
+      assert {:ok, 1} == ImageGen.within_deadline(fn -> {:ok, ImageGen.in_flight()} end, 1_000)
+      assert ImageGen.in_flight() == 0
+
+      # The count comes back down even when the frame is abandoned.
+      assert {:error, :image_timeout} = ImageGen.within_deadline(fn -> Process.sleep(500) end, 50)
+      assert ImageGen.in_flight() == 0
+    end
+
     test "a frame that takes too long is abandoned, and the route it noted survives for the log" do
       Process.delete(:image_route)
 

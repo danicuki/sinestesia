@@ -70,14 +70,7 @@ defmodule Sinestesia.ImageGen.GeminiImage do
           }
 
           started = System.monotonic_time(:millisecond)
-
-          result =
-            Req.post(url,
-              json: body,
-              receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
-              connect_options: [timeout: @connect_timeout_ms],
-              retry: false
-            )
+          result = hedged(fn -> post(url, body) end, route, model, hedge_ms())
 
           meta = %{
             elapsed_ms: System.monotonic_time(:millisecond) - started,
@@ -88,6 +81,10 @@ defmodule Sinestesia.ImageGen.GeminiImage do
 
           case result do
             {:ok, %{status: 200, body: resp}} ->
+              Logger.debug(
+                "[google-image] #{route} #{model} answered in #{meta.elapsed_ms}ms#{usage_tag(resp)}"
+              )
+
               extract_image(resp)
 
             {:ok, resp} ->
@@ -101,6 +98,127 @@ defmodule Sinestesia.ImageGen.GeminiImage do
         end
     end
   end
+
+  # ── hedging ───────────────────────────────────────────────────────────────
+  # Google's image latency has a long tail: on the stage, 2026-11-03, most
+  # i2i calls answered in 3-4 s and some never answered inside the 10 s
+  # frame deadline, seed already down to 89 KB. The classic cut for a tail
+  # like that is a hedged request: when the first call has gone quiet for
+  # GOOGLE_HEDGE_MS, fire an identical second one and take whichever answers
+  # first. It costs one extra generation only on the slow tail; a frame that
+  # misses the deadline costs the line of the song.
+  @default_hedge_ms 5_000
+
+  defp hedge_ms do
+    case Integer.parse(System.get_env("GOOGLE_HEDGE_MS", "#{@default_hedge_ms}")) do
+      {ms, _} when ms >= 0 -> ms
+      _ -> @default_hedge_ms
+    end
+  end
+
+  defp post(url, body) do
+    Req.post(url,
+      json: body,
+      receive_timeout: Sinestesia.ImageGen.backstop_timeout_ms(),
+      connect_options: [timeout: @connect_timeout_ms],
+      retry: false
+    )
+  end
+
+  @doc false
+  # `request` is a zero-arity fun returning what Req.post returns, so the
+  # race is testable without a network. No hedge when it is off, or when it
+  # could not fire before the frame deadline anyway (the outer
+  # within_deadline kills us, and the linked request tasks with us).
+  def hedged(request, _route, _model, hedge_ms) when hedge_ms <= 0 or hedge_ms >= 9_000,
+    do: request.()
+
+  def hedged(request, route, model, hedge_ms) do
+    first = Task.async(request)
+
+    case Task.yield(first, hedge_ms) do
+      {:ok, reply} ->
+        reply
+
+      {:exit, reason} ->
+        {:error, {:request_task_exit, reason}}
+
+      nil ->
+        Logger.info(
+          "[google-image] #{route} #{model}: no answer after #{hedge_ms}ms — " <>
+            "hedging with a second identical request, first one to answer wins"
+        )
+
+        second = Task.async(request)
+        race(first, second, hedge_ms)
+    end
+  end
+
+  # First GOOD answer wins; an error from one side waits for the other, so a
+  # 429 on the hedge cannot sink a first request that was about to succeed.
+  defp race(first, second, hedge_ms) do
+    deadline = Sinestesia.ImageGen.backstop_timeout_ms()
+    started = System.monotonic_time(:millisecond)
+
+    receive do
+      {ref, reply} when ref == first.ref or ref == second.ref ->
+        Process.demonitor(ref, [:flush])
+        {winner, loser} = if ref == first.ref, do: {"first", second}, else: {"hedge", first}
+
+        case reply do
+          {:ok, %{status: 200}} ->
+            Logger.info(
+              "[google-image] #{winner} request answered #{System.monotonic_time(:millisecond) - started}ms " <>
+                "after the hedge fired (#{hedge_ms}ms in); dropping the other"
+            )
+
+            Task.shutdown(loser, :brutal_kill)
+            reply
+
+          _bad ->
+            case Task.yield(loser, deadline) || Task.shutdown(loser, :brutal_kill) do
+              {:ok, other} -> other
+              _ -> reply
+            end
+        end
+
+      {:DOWN, ref, _, _, reason} when ref == first.ref or ref == second.ref ->
+        other = if ref == first.ref, do: second, else: first
+
+        case Task.yield(other, deadline) || Task.shutdown(other, :brutal_kill) do
+          {:ok, reply} -> reply
+          _ -> {:error, {:request_task_exit, reason}}
+        end
+    after
+      deadline ->
+        Task.shutdown(first, :brutal_kill)
+        Task.shutdown(second, :brutal_kill)
+        {:error, %Req.TransportError{reason: :timeout}}
+    end
+  end
+
+  # What Google says it spent — a thinking image model would show up here
+  # as thoughtsTokenCount, and that would explain a tail no upload can.
+  defp usage_tag(%{"usageMetadata" => usage} = resp) do
+    thoughts = Map.get(usage, "thoughtsTokenCount")
+    out = Map.get(usage, "candidatesTokenCount")
+    version = Map.get(resp, "modelVersion")
+
+    " (" <>
+      Enum.join(
+        Enum.reject(
+          [
+            version && "model #{version}",
+            out && "#{out} output tokens",
+            thoughts && "#{thoughts} THINKING tokens"
+          ],
+          &is_nil/1
+        ),
+        ", "
+      ) <> ")"
+  end
+
+  defp usage_tag(_resp), do: ""
 
   @doc false
   # One line that says what was being waited on and what came back — for the

@@ -54,8 +54,11 @@ export class DebugOverlay {
       alignItems: "flex-start",
       gap: "24px",
       padding: "8px 12px",
-      // Hard ceiling: instrumentation must never creep up over the picture.
-      maxHeight: "30vh",
+      // Exactly the band index.html takes away from the picture (--debug-h):
+      // the strip never paints over the stage, and a fixed height — not a
+      // ceiling — keeps the picture from jumping as the history fills in.
+      height: "var(--debug-h, 30vh)",
+      boxSizing: "border-box",
       overflow: "hidden",
       // Clear the control dock by leaving room BELOW, not beside. Reserving a
       // right margin instead cost the columns a quarter of the screen across

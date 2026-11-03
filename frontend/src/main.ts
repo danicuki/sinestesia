@@ -30,7 +30,27 @@ const MIC_KEY = "sinestesia.micDeviceId"; // last-used mic, persisted across rel
 const STYLE_KEY = "sinestesia.style"; // last-used visual style, persisted across reloads
 const LYRICS_KEY = "sinestesia.lyrics"; // last-pasted lyrics, persisted across reloads
 
+// Before the Scene reads the canvas size: under ?debug the picture is laid
+// out above the instrumentation strip instead of under it (index.html).
+if (DEBUG) document.body.classList.add("debug");
+
 const debug = DEBUG ? new DebugOverlay() : null;
+
+// F toggles real fullscreen — the Fullscreen API, so the browser's tabs and
+// address bar go too (the OS "maximise" keeps them). Every pixel of height
+// matters once the debug strip has its own band. Ignored while typing.
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "f" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = e.target as HTMLElement | null;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  if (document.fullscreenElement) {
+    void document.exitFullscreen();
+  } else {
+    document.documentElement.requestFullscreen().catch((err) => {
+      console.warn("[main] fullscreen refused:", err);
+    });
+  }
+});
 
 // Live "verifiable AI" proof badge — shown on the projection (including clean
 // mode) whenever the Director runs on 0G Compute. Opt out with ?no-verify.
@@ -42,14 +62,14 @@ const mintToast = new MintToast();
 
 // The karaoke line — the words the voice model heard, big enough for the
 // house to read. On every stage view, clean mode included; ?no-lyrics hides
-// it. Under ?debug=1 it moves up to clear the instrumentation strip (a 30vh
-// content ceiling plus 48px of padding, see debug.ts) and drops a size — that
-// strip already costs the picture its lower third.
+// it. Under ?debug=1 the picture ends where the instrumentation band starts
+// (--debug-h, index.html), so the line sits just above that edge and drops a
+// size — the picture is smaller there.
 const lyricsOverlay = params.has("no-lyrics")
   ? null
   : new LyricsOverlay(
       DEBUG
-        ? { bottom: "calc(30vh + 60px)", fontSize: "clamp(18px, 2.2vw, 36px)" }
+        ? { bottom: "calc(var(--debug-h) + 60px)", fontSize: "clamp(18px, 2.2vw, 36px)" }
         : { bottom: "9vh", fontSize: "clamp(22px, 2.8vw, 48px)" },
     );
 

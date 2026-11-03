@@ -19,6 +19,27 @@
         width: 100vw;
         height: 100vh;
       }
+      /* ?debug=1: the instrumentation strip gets the bottom --debug-h of the
+         viewport to itself and the picture keeps the rest — letterboxed to the
+         frames' 16:9 so nothing is stretched, centred, never painted over.
+         Pixel-rich stages regain the lost height with F (fullscreen).
+         In px, not vh: the strip is 11px monospace text, so its height is what
+         its tallest column needs (four sections on the left, five history
+         rows plus the dock's row on the right), whatever the screen. A vh
+         band grew with the display while the text did not, and on a tall
+         screen it was mostly empty. */
+      body.debug {
+        --debug-h: 152px;
+        --stage-h: calc(100vh - var(--debug-h));
+      }
+      body.debug #scene {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        height: var(--stage-h);
+        width: min(100vw, calc(var(--stage-h) * 16 / 9));
+      }
       /* Start gate — browsers require a user gesture to unlock AudioContext. */
       #gate {
         position: fixed;

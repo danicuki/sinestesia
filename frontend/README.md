@@ -28,6 +28,16 @@ http://localhost:5173/?mock=1
 Skips the WebSocket, rotates 3 sample images every 4s, and logs would-be sends
 to the console. The mic + Rail 1 pulsing still run.
 
+### Debug strip and fullscreen
+
+`?debug=1` adds the instrumentation strip (timings, director prompt, rails).
+It takes a band of its own at the bottom (`--debug-h` in `index.html`, ~150px —
+what its tallest column needs); the picture keeps the rest, letterboxed to the
+frames' 16:9 and centred, so the strip never paints over it. Press **F** anywhere for real fullscreen (the Fullscreen API — tabs and
+address bar go too, unlike the OS maximise button) and the picture gets that
+height back; **F** again, or Esc, leaves it. **M** ends the song, **R** discards
+it; all three are ignored while typing in a field.
+
 ### Karaoke line
 
 What the voice model heard is painted big, centred, in the lower third of the

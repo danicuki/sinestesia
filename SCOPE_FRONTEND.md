@@ -214,8 +214,11 @@ boots on :5173 and serves index/main/GLSL/worklet/worker):
   20 s). Fades out after 7 s without words, cleared on end/discard song. Text
   with a dark shadow, no box: `clamp(22px, 2.8vw, 48px)` on the stage,
   `clamp(18px, 2.2vw, 36px)` and raised above the strip under `?debug=1`. On in
-  every view including `?clean=1`; `?no-lyrics` hides it. Replays (demo
-  sequences, takes) feed it each frame's `lyric`.
+  every view including `?clean=1`; `?no-lyrics` hides it. Demo sequences feed
+  it each frame's `lyric`; a loaded take replays its `events` (every transcript,
+  interim and final, at the time it arrived — a take has no per-frame lyric,
+  and letting the frames drive the line wiped it at every reveal), so the
+  karaoke line runs as it did live, 7 s fade included.
 - `src/style.ts` (visual style control): small input top-right (monospace, 70%
   opacity, semi-translucent black, discreet "style" label). Visible during
   rehearsal, hidden under `?clean=1`. Starts **empty** (backend owns the default

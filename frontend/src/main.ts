@@ -208,6 +208,7 @@ async function playDemo(slug: string) {
 }
 
 type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: string };
+type TimelineWord = { at_ms: number; text: string; final: boolean };
 
 // One audio-synced playback shared by the demo player (pre-exported sequences)
 // and the take player (saved takes): preload the frames, then advance along
@@ -219,11 +220,20 @@ type TimelineFrame = { at_ms: number; url: string; prompt: string; lyric?: strin
 // A take replays what the STAGE showed, so `live: true` reproduces the live
 // transition instead — each reveal ink-bleeds in from the previous image over
 // the same adaptive duration the live scene would have picked, then settles.
+//
+// Two feeds for the karaoke line, likewise: a demo sequence carries a `lyric`
+// per frame, so the line changes with the picture. A take carries no lyric
+// per frame but the whole stream of `transcripts` — every interim and final,
+// stamped when it reached the browser — so the line is driven from those at
+// their own times and the frames leave it alone (a frame without a lyric
+// would otherwise wipe the words at every reveal, which is exactly how the
+// karaoke line went missing from loaded takes).
 async function playTimeline(
   frames: TimelineFrame[],
   audioUrl: string | null,
   label: string,
   live = false,
+  transcripts: TimelineWord[] = [],
 ) {
   const gen = ++demoGen;
   demoUpdate = null;
@@ -247,16 +257,40 @@ async function playTimeline(
   // take's whole timeline is already known.
   const liveDurs = live ? liveTransitionDurations(sorted.map((f) => f.at_ms)) : null;
 
+  // The take's words, replayed in order as the playhead passes them. The
+  // overlay keeps its own live rules (interim vs final, previous line, the
+  // 7 s fade), so a pause in the singing fades the line here as it did on
+  // stage. Scrubbing backwards restarts the stream from the top.
+  const words = [...transcripts].sort((a, b) => a.at_ms - b.at_ms);
+  const wordsDrive = words.length > 0;
+  let spoken = 0;
+  let lastTimeMs = -Infinity;
+  const tickWords = (timeMs: number) => {
+    if (!wordsDrive) return;
+    if (timeMs < lastTimeMs) {
+      spoken = 0;
+      lyricsOverlay?.clear();
+    }
+    lastTimeMs = timeMs;
+    while (spoken < words.length && words[spoken].at_ms <= timeMs) {
+      const w = words[spoken++];
+      lyricsOverlay?.setTranscript({ text: w.text, isFinal: w.final });
+    }
+  };
+
   const tick = (timeMs: number) => {
+    tickWords(timeMs);
     if (sorted.length === 0) return;
 
     // Musical introduction: before the first frame, keep the canvas black.
+    // (The words may already be running: the opening lines are sung before
+    // the first picture is ready, live and therefore in a take too.)
     if (timeMs < sorted[0].at_ms) {
       scene.setBlack();
       if (shown !== -2) {
         debug?.setPrompt("Musical Introduction — Waiting for vocals…");
         debug?.setSampleLyric("");
-        lyricsOverlay?.clear();
+        if (!wordsDrive) lyricsOverlay?.clear();
         shown = -2;
       }
       return;
@@ -283,7 +317,7 @@ async function playTimeline(
     if (i !== shown) {
       debug?.setPrompt(sorted[i].prompt);
       debug?.setSampleLyric(sorted[i].lyric ?? "");
-      lyricsOverlay?.showLine(sorted[i].lyric);
+      if (!wordsDrive) lyricsOverlay?.showLine(sorted[i].lyric);
       shown = i;
     }
   };
@@ -328,7 +362,13 @@ if (DEMO !== null) {
 if (!CLEAN) {
   new TakePlayerControl((take) => {
     gate.classList.add("hidden");
-    void playTimeline(take.frames, take.audioUrl, `take ${take.name}`, true);
+    void playTimeline(
+      take.frames,
+      take.audioUrl,
+      `take ${take.name}`,
+      true,
+      take.transcripts,
+    );
   });
 }
 
